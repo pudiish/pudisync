@@ -41,7 +41,7 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{overscroll-behavior-y:none}
-body{margin:0;padding:0 16px calc(96px + env(safe-area-inset-bottom));
+body{margin:0;padding:0 14px calc(92px + env(safe-area-inset-bottom));
   background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);
   -webkit-font-smoothing:antialiased}
 /* ambient wash tinted by the live strip */
@@ -53,7 +53,7 @@ body.syncing::before{opacity:.20}
 
 /* ---------- header ---------- */
 header{position:sticky;top:0;z-index:40;
-  padding:calc(14px + env(safe-area-inset-top)) 0 14px;
+  padding:calc(12px + env(safe-area-inset-top)) 0 11px;
   display:flex;align-items:center;gap:12px;
   background:linear-gradient(var(--bg) 62%,transparent)}
 .mark{width:34px;height:34px;border-radius:11px;flex:none;position:relative;
@@ -85,8 +85,8 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
 
 /* ---------- cards ---------- */
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
-  padding:18px;margin-bottom:13px;position:relative}
-.ph{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  padding:16px;margin-bottom:10px;position:relative}
+.ph{display:flex;align-items:center;gap:10px;margin-bottom:13px}
 .ph h2{font-size:12px;letter-spacing:.02em;color:var(--dim);margin:0;flex:1;font-weight:640}
 .ph .act{font-size:12.5px;color:var(--brand);font-weight:620;background:none;border:0;
   font-family:var(--sans);padding:0}
@@ -98,13 +98,18 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
 .hero .wash{position:absolute;inset:0;opacity:0;transition:opacity .6s var(--ease);
   background:radial-gradient(120% 130% at 20% 120%,var(--w1,#6b8cff) 0%,transparent 70%)}
 .hero.live .wash{opacity:.14}
-.hero .body{position:relative;display:flex;align-items:center;gap:16px;padding:20px}
+.hero .body{position:relative;display:flex;align-items:center;gap:15px;padding:18px}
 .pw{width:62px;height:62px;border-radius:21px;flex:none;border:1px solid var(--line-2);
   background:var(--surface-2);display:grid;place-items:center;color:var(--dim);
   font-family:inherit;transition:all .45s var(--ease)}
 .pw svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
 .hero.live .pw{background:var(--grad);border-color:transparent;color:#fff;
-  box-shadow:0 8px 26px -10px #5b8defaa}
+  box-shadow:0 8px 26px -10px #5b8defaa;animation:breathe 3.4s var(--ease) infinite}
+@keyframes breathe{
+  0%,100%{box-shadow:0 8px 26px -10px #5b8defaa}
+  50%    {box-shadow:0 8px 34px -6px #5b8defd9}
+}
+@media (prefers-reduced-motion:reduce){.hero.live .pw{animation:none}}
 .hero .txt{flex:1;min-width:0}
 .hero .t1{font-size:19px;font-weight:680;letter-spacing:-.025em}
 .hero .t2{font-size:12.5px;color:var(--dim);margin-top:4px}
@@ -114,7 +119,7 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
 .pill b{color:var(--live)}
 
 /* ---------- live strip ---------- */
-.stage{padding:18px}
+.stage{padding:16px}
 .ruler{display:flex;justify-content:space-between;align-items:center;
   font:600 10px/1 var(--sans);color:var(--faint);margin-bottom:10px;letter-spacing:.04em}
 .ruler #rmid{color:var(--dim);font-weight:550;letter-spacing:0;font-size:9.5px;opacity:.75}
@@ -122,8 +127,15 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
   background:#040506;border:1px solid var(--line);touch-action:pan-y;
   box-shadow:inset 0 1px 12px #000c}
 .leds{position:absolute;inset:0;display:flex;gap:1.5px;padding:5px}
-.leds i{flex:1;border-radius:3px;background:#0d0f12;transition:background .1s linear}
-.screenmark{position:absolute;top:0;bottom:0;pointer-events:none;
+.leds i{flex:1;border-radius:3px;background:#0d0f12;
+  transition:background .1s linear,box-shadow .1s linear}
+/* light spilling off the strip onto the surface below it */
+.spill{height:20px;margin:-6px 6px -10px;border-radius:0 0 18px 18px;filter:blur(12px);
+  opacity:.5;transition:opacity .5s var(--ease);pointer-events:none;
+  display:flex;gap:2px}
+.spill i{flex:1;background:#000;transition:background .18s linear}
+.track.off .leds i{box-shadow:none}
+.screenmark{position:absolute;top:0;bottom:0;pointer-events:none;z-index:4;
   border-left:1.5px dashed #ffffff5c;border-right:1.5px dashed #ffffff5c;
   background:linear-gradient(#ffffff0f,transparent 40%)}
 .screenmark .tag{position:absolute;top:6px;left:50%;transform:translateX(-50%);
@@ -134,7 +146,7 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
 .screenmark .sgrip::after{content:"";width:1.5px;height:8px;background:#070809;
   border-radius:1px;box-shadow:3px 0 0 #070809,-3px 0 0 #070809}
 .screenmark .sgrip.l{left:-8px} .screenmark .sgrip.r{right:-8px}
-.zlayer{position:absolute;inset:0;pointer-events:none}
+.zlayer{position:absolute;inset:0;pointer-events:none;z-index:2}
 .zband{position:absolute;top:0;bottom:0;pointer-events:auto;border-radius:5px;
   border:1.5px solid var(--zc,#fff);
   background:linear-gradient(var(--zc,#fff) 0%,transparent 26%,transparent 74%,var(--zc,#fff) 100%);
@@ -149,9 +161,10 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
   border-radius:2px;box-shadow:4px 0 0 #00000066,-4px 0 0 #00000066}
 .zband .grip.l{left:-9px} .zband .grip.r{right:-9px}
 .zband.sel{opacity:1;outline:2px solid var(--fg);outline-offset:2px;z-index:3}
+.screenmark .sgrip{z-index:5}
 
-.zlist{margin-top:13px;display:flex;flex-direction:column;gap:8px}
-.zrow{display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:var(--r-sm);
+.zlist{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+.zrow{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:var(--r-sm);
   background:var(--surface-2);border:1px solid var(--line);transition:all .22s var(--ease)}
 .zrow.sel{border-color:var(--brand);background:var(--surface-3)}
 .zrow .sw{width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center}
@@ -163,7 +176,7 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
   font-variant-numeric:tabular-nums}
 .zrow .x{border:0;background:none;color:var(--faint);font-size:20px;font-family:var(--sans);
   padding:0 4px;line-height:1}
-.empty{text-align:center;padding:18px 10px}
+.empty{text-align:center;padding:14px 10px}
 .empty p{font-size:13px;color:var(--dim);margin:0 0 4px;font-weight:550}
 .empty span{font-size:11.5px;color:var(--faint)}
 
@@ -183,7 +196,7 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
 
 /* ---------- moods (inside the hero) ---------- */
 .moods{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:7px;
-  padding:0 20px 18px}
+  padding:0 18px 16px}
 .moodc{border:1px solid var(--line);background:var(--surface-2);border-radius:var(--r-sm);
   padding:11px;font-family:var(--sans);color:var(--dim);display:flex;align-items:center;
   justify-content:center;gap:8px;transition:all .25s var(--ease)}
@@ -198,15 +211,17 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
 
 /* ---------- collapsible sections ---------- */
 .sect{padding:0;overflow:hidden}
-.sect>summary{padding:17px 18px;display:flex;align-items:center;gap:10px;
+.sect>summary{padding:15px 16px;display:flex;align-items:center;gap:10px;
   font-size:13.5px;font-weight:640;color:var(--fg)}
 .sect>summary::before{order:3;margin-left:auto}
 .sect>summary .sl{flex:none}
 .sect>summary .sv{font:600 11px/1 var(--mono);color:var(--faint);
   font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sect[open]>summary{border-bottom:1px solid var(--line)}
-.sect .sbody{padding:18px}
-.sect .sbody.stage{padding:18px}
+.sect .sbody{padding:16px;animation:drop .3s var(--ease)}
+@keyframes drop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.sect .sbody{animation:none}}
+.sect .sbody.stage{padding:16px}
 
 /* ---------- flashing ---------- */
 .rowchk{display:flex;align-items:flex-start;gap:10px;font-size:12.5px;color:var(--dim);
@@ -223,14 +238,14 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
 .flog u{color:var(--bad);text-decoration:none}
 
 /* ---------- controls ---------- */
-.ctl{margin-bottom:20px}
+.ctl{margin-bottom:15px}
 .ctl:last-child{margin-bottom:0}
-.ctl .cr{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.ctl .cr{display:flex;align-items:center;gap:9px;margin-bottom:7px}
 .ctl .cn{font-size:13.5px;font-weight:580;flex:1}
 .ctl .cv{font:650 11px/1 var(--mono);color:var(--fg);background:var(--surface-3);
   padding:5px 9px;border-radius:7px;font-variant-numeric:tabular-nums;border:1px solid var(--line)}
-.ctl .cd{font-size:11.5px;color:var(--faint);margin-top:9px;line-height:1.5}
-input[type=range]{width:100%;height:30px;-webkit-appearance:none;background:transparent;
+.ctl .cd{font-size:11.5px;color:var(--faint);margin-top:6px;line-height:1.45}
+input[type=range]{width:100%;height:26px;-webkit-appearance:none;background:transparent;
   margin:0;display:block}
 input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:4px;
   background:var(--surface-3);border:1px solid var(--line)}
@@ -252,6 +267,9 @@ select{appearance:none;background-image:
   transition:all .22s var(--ease)}
 .btn.pri{background:var(--grad);border-color:transparent;color:#fff;
   box-shadow:0 5px 16px -8px #5b8def80}
+.btn:active,.chips button:active,.modes button:active,.moodc:active,.nudge button:active{
+  transform:scale(.975)}
+.btn,.chips button,.modes button,.moodc,.nudge button{transition:all .2s var(--ease)}
 .btn.gh{background:transparent;color:var(--dim)}
 .chips{display:flex;flex-wrap:wrap;gap:7px}
 .chips button{border:1px solid var(--line);background:var(--surface-2);color:var(--dim);
@@ -276,7 +294,7 @@ details>summary::before{content:"";width:6px;height:6px;border-right:1.6px solid
   border-bottom:1.6px solid currentColor;transform:rotate(-45deg);transition:transform .25s var(--ease);
   margin-left:2px}
 details[open]>summary::before{transform:rotate(45deg)}
-.step{border-top:1px solid var(--line);padding-top:18px;margin-top:18px}
+.step{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
 .step:first-child{border:0;padding-top:0;margin-top:0}
 .step h3{font-size:15.5px;margin:0 0 6px;font-weight:650;display:flex;align-items:center;gap:10px;
   letter-spacing:-.01em}
@@ -336,6 +354,7 @@ details[open]>summary::before{transform:rotate(45deg)}
       <div class="screenmark" id="smark"></div>
       <div class="zlayer" id="zlayer"></div>
     </div>
+    <div class="spill" id="spill"></div>
     <div class="zlist" id="zlist"></div>
     <div class="g2" style="margin-top:11px">
       <button class="btn" id="zadd">+ Add zone</button>
@@ -427,7 +446,8 @@ details[open]>summary::before{transform:rotate(45deg)}
         joins it to your Wi-Fi, all over the USB cable. You only do this once.</p>
       <div id="flash-pre">
         <div class="ctl"><div class="cr"><span class="cn">Board</span>
-          <span class="cv" id="flash-port-n"></span></div>
+          <span class="cv" id="flash-port-n"></span>
+          <button class="act" id="port-rescan" type="button">Refresh</button></div>
           <select id="flash-port"></select>
           <div class="cd" id="flash-porthint"></div></div>
         <div class="ctl"><div class="cr"><span class="cn">Wi-Fi network</span>
@@ -638,14 +658,33 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
 });
 
 /* ---------- live strip ---------- */
-const NLED = 56, ledbox = $("leds");
+const NLED = 56, ledbox = $("leds"), spillbox = $("spill");
 for(let i=0;i<NLED;i++) ledbox.appendChild(document.createElement("i"));
+for(let i=0;i<14;i++) spillbox.appendChild(document.createElement("i"));
 const ledEls = ledbox.querySelectorAll("i");
+const spillEls = spillbox.querySelectorAll("i");
+function isDark(hex){
+  const n=parseInt(hex.slice(1),16);
+  return ((n>>16&255)*0.299 + (n>>8&255)*0.587 + (n&255)*0.114) < 22;
+}
 function paintLeds(colors){
-  if(!colors||!colors.length){ ledEls.forEach(c=>c.style.background="#15151b"); return; }
+  if(!colors||!colors.length){
+    ledEls.forEach(c=>{ c.style.background="#0d0f12"; c.style.boxShadow="none"; });
+    spillEls.forEach(c=>c.style.background="transparent");
+    spillbox.style.opacity=0;
+    return;
+  }
+  spillbox.style.opacity=.55;
   ledEls.forEach((c,i)=>{
+    const col = colors[Math.min(colors.length-1,
+      Math.floor(i*colors.length/NLED))] || "#0d0f12";
+    c.style.background = col;
+    // A lit LED glows; a dark one must not, or the whole strip hazes over.
+    c.style.boxShadow = isDark(col) ? "none" : `0 0 7px ${col}`;
+  });
+  spillEls.forEach((c,i)=>{
     c.style.background = colors[Math.min(colors.length-1,
-      Math.floor(i*colors.length/NLED))] || "#15151b";
+      Math.floor(i*colors.length/spillEls.length))] || "transparent";
   });
 }
 let screenLocal=null;   // live values while a screen handle is being dragged
@@ -1104,7 +1143,7 @@ function ssidChanged(){
 $("flash-ssid-sel").onchange=ssidChanged;
 $("flash-ssid").oninput=ssidChanged;
 $("ssid-rescan").onclick=loadNetworks;
-async function flashCheck(){
+async function flashCheck(){  // returns a promise
   try{
     const c=await api("/api/flash/check");
     const sel=$("flash-port");
@@ -1126,6 +1165,10 @@ async function flashCheck(){
     $("flash-go").disabled = missing.length>0;
   }catch(e){}
 }
+$("port-rescan").onclick=()=>{
+  const b=$("port-rescan"); b.textContent="Scanning…";
+  flashCheck().finally(()=>{ b.textContent="Refresh"; });
+};
 $("flash-erase").onchange=()=>{
   const erasing=$("flash-erase").checked;
   $("erase-warn").classList.toggle("hide",!erasing);
