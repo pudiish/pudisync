@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 import numpy as np
@@ -223,6 +224,47 @@ def test_zones():
         [{"start": 0, "end": 9, "mode": "sync", "brightness": 0.5}], 240), 240)
     check("zone brightness scales the sync layer", abs(dim[5][0] - 50.0) < 0.01)
     check("no zones is a no-op", zl.composite(base, [], 240) is base)
+
+    # Real-world zone editing: these all come from dragging edges around.
+    inner = zl.normalize([{"start": 0, "end": 100, "mode": "warm"},
+                          {"start": 40, "end": 60, "mode": "off"}], 240)
+    check("a zone dropped inside another splits it, keeping both sides",
+          [(z["start"], z["end"], z["mode"]) for z in inner] ==
+          [(0, 39, "warm"), (40, 60, "off"), (61, 100, "warm")],
+          str([(z["start"], z["end"], z["mode"]) for z in inner]))
+
+    split = zl.composite(base, inner, 240)
+    check("the split zone renders lamp on both sides of the gap",
+          tuple(split[10].astype(int)) == (255, 170, 95)
+          and tuple(split[80].astype(int)) == (255, 170, 95)
+          and split[50].sum() == 0)
+
+    touching = zl.normalize([{"start": 0, "end": 50, "mode": "warm"},
+                             {"start": 50, "end": 100, "mode": "off"}], 240)
+    check("zones dragged until they touch do not overlap",
+          touching[0]["end"] < touching[1]["start"])
+
+    buried = zl.normalize([{"start": 0, "end": 200, "mode": "warm"},
+                           {"start": 0, "end": 100, "mode": "off"},
+                           {"start": 0, "end": 50, "mode": "solid"}], 240)
+    check("a zone buried under two others still resolves",
+          [(z["start"], z["end"]) for z in buried] == [(0, 50), (51, 100), (101, 200)],
+          str([(z["start"], z["end"]) for z in buried]))
+
+    check("a single-LED zone survives",
+          zl.normalize([{"start": 120, "end": 120}], 240)[0]["start"] == 120)
+    check("a whole-strip zone survives",
+          zl.normalize([{"start": 0, "end": 239}], 240)[0]["end"] == 239)
+
+    # These arrive over the network from Shortcuts or curl, so they must not raise.
+    for junk in ([{"start": "abc", "end": 5}], [{"start": None, "end": None}],
+                 "notalist", None, [None], [{"start": -5, "end": -1}]):
+        try:
+            zl.normalize(junk, 240)
+            ok = True
+        except Exception:
+            ok = False
+        check(f"malformed zones {str(junk)[:24]!r} are ignored, not fatal", ok)
 
 
 def test_serial():

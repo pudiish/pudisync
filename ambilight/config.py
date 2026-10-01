@@ -79,14 +79,26 @@ class Config:
                 continue
             if key == "zones":
                 from .zones import normalize
+
                 if isinstance(raw, str):
-                    raw = json.loads(raw)
+                    try:
+                        raw = json.loads(raw)
+                    except ValueError as exc:
+                        raise ValueError(f"zones is not valid JSON: {exc}") from None
                 clean[key] = normalize(raw, self._data["led_count"])
                 continue
             clean[key] = _coerce(key, raw)
         with self._lock:
             changed = [k for k, v in clean.items() if self._data.get(k) != v]
             self._data.update(clean)
+            # A shorter strip invalidates any zone that ran off the old end.
+            if "led_count" in clean and self._data["zones"]:
+                from .zones import normalize
+
+                reclamped = normalize(self._data["zones"], self._data["led_count"])
+                if reclamped != self._data["zones"]:
+                    self._data["zones"] = reclamped
+                    changed.append("zones")
         if changed:
             self.save()
         return changed

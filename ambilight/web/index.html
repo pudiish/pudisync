@@ -172,13 +172,19 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
   stroke-linecap:round;stroke-linejoin:round}
 .zrow .meta{flex:1;min-width:0}
 .zrow .nm{font-size:14px;font-weight:640}
-.zrow .rg{font:11px/1 var(--mono);color:var(--faint);margin-top:4px;
+/* a scale drawing of where this zone sits on the strip */
+.zrow .mini{display:block;position:relative;height:5px;border-radius:3px;
+  background:var(--surface-3);margin-top:7px;overflow:hidden}
+.zrow .mini i{position:absolute;top:0;bottom:0;border-radius:3px}
+.zrow .pct{font:600 12px/1 var(--mono);color:var(--dim);flex:none;
   font-variant-numeric:tabular-nums}
+.zrow .pct small{font-size:9px;opacity:.6}
 .zrow .x{border:0;background:none;color:var(--faint);font-size:20px;font-family:var(--sans);
   padding:0 4px;line-height:1}
 .empty{text-align:center;padding:14px 10px}
-.empty p{font-size:13px;color:var(--dim);margin:0 0 4px;font-weight:550}
-.empty span{font-size:11.5px;color:var(--faint)}
+.empty .ebar{display:block;height:6px;border-radius:3px;margin:0 auto 11px;max-width:200px;
+  background:linear-gradient(90deg,#5b8def,#7c6cf0,#5b8def)}
+.empty p{font-size:12.5px;color:var(--faint);margin:0;font-weight:500}
 
 .modes{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:2px}
 .modes button{border:1px solid var(--line);background:var(--surface-2);color:var(--dim);
@@ -401,7 +407,7 @@ details[open]>summary::before{transform:rotate(45deg)}
     <div class="ctl"><div class="cr"><span class="cn">Response</span>
       <span class="cv" id="v-blend">—</span></div>
       <input type="range" id="blend" min="1" max="100" step="1">
-      <div class="cd">Slow glides between scenes. Fast tracks every frame.</div></div>
+      <div class="cd">Glide ←→ Instant</div></div>
     </div>
   </details>
 
@@ -420,8 +426,7 @@ details[open]>summary::before{transform:rotate(45deg)}
       <select id="effect"></select></div>
     <div class="ctl"><div class="cr"><span class="cn">Palette</span></div>
       <select id="palette"></select></div>
-    <p class="note">Running an effect switches screen mirroring off — the controller
-      renders one source at a time.</p>
+    <p class="note">Effects stop screen mirroring.</p>
     </div>
   </details>
 
@@ -430,8 +435,7 @@ details[open]>summary::before{transform:rotate(45deg)}
       <div class="ctl"><div class="cr"><span class="cn">Frame rate</span>
         <span class="cv" id="v-fps">—</span></div>
         <input type="range" id="fps" min="10" max="120" step="5">
-        <div class="cd" id="fpscap">Screen capture tops out near 65/sec on this Mac;
-          higher costs CPU for nothing.</div></div>
+        <div class="cd" id="fpscap">Capture limit ≈ 65/sec</div></div>
     </div>
   </details>
 </section>
@@ -442,8 +446,7 @@ details[open]>summary::before{transform:rotate(45deg)}
     <summary><span class="sl">Set up a new controller</span>
       <span class="sv" id="sum-flash">flash &amp; connect over USB</span></summary>
     <div class="sbody">
-      <p class="note" style="margin:0 0 15px">Installs WLED on a brand-new board and
-        joins it to your Wi-Fi, all over the USB cable. You only do this once.</p>
+      <p class="note" style="margin:0 0 14px">Sets up a controller over USB. Once only.</p>
       <div id="flash-pre">
         <div class="ctl"><div class="cr"><span class="cn">Board</span>
           <span class="cv" id="flash-port-n"></span>
@@ -485,8 +488,7 @@ details[open]>summary::before{transform:rotate(45deg)}
   <div class="panel">
     <div class="step">
       <h3><span class="n">1</span> Strip length</h3>
-      <p class="note" style="margin-top:0">We light a portion of the strip and narrow it
-        down from your answers. Takes about eight taps.</p>
+      <p class="note" style="margin-top:0">About eight taps.</p>
       <button class="btn pri" id="count-start">Begin</button>
       <div id="count-box" class="hide">
         <div class="ask"><p>Is the <b>very last light</b> on your strip lit?</p>
@@ -516,8 +518,7 @@ details[open]>summary::before{transform:rotate(45deg)}
         <input type="range" id="fade_leds" min="0" max="120" step="1">
         <div class="cd">Lights beyond the monitor fade out across this many. Zero cuts dead.</div></div>
       <button class="btn" id="gradient">Show test colours</button>
-      <p class="note">Expect <b>red at the left corner</b> easing to <b>blue at the right</b>.
-        Swapped? Redo step 2.</p>
+      <p class="note">Expect <b style="color:#ff5a5a">red</b> left → <b style="color:#5b8def">blue</b> right.</p>
       <button class="btn pri" id="wizard-done" style="margin-top:13px">Finish</button>
     </div>
   </div>
@@ -533,10 +534,10 @@ details[open]>summary::before{transform:rotate(45deg)}
       <div class="cd">Where the WLED box lives on your Wi-Fi.</div></div>
     <div class="ctl"><div class="cr"><span class="cn">Light count</span></div>
       <input type="number" id="led_count" min="1" max="1500">
-      <div class="cd">Setup step 1 fills this in.</div></div>
+      <div class="cd">Set in Setup</div></div>
     <div class="ctl"><div class="cr"><span class="cn">Display</span></div>
       <input type="number" id="monitor_index" min="0" max="8">
-      <div class="cd">1 is the main screen.</div></div>
+      <div class="cd">1 = main screen</div></div>
     <button class="btn pri" id="save-conn">Save</button>
   </div>
   <div class="panel">
@@ -567,11 +568,11 @@ details[open]>summary::before{transform:rotate(45deg)}
     <div class="ph"><h2>Access</h2></div>
     <div class="ctl"><div class="cr"><span class="cn">PIN</span></div>
       <input type="text" id="pin" inputmode="numeric" autocomplete="off" placeholder="blank = open">
-      <div class="cd">Keeps others on your Wi-Fi out.</div></div>
+      <div class="cd">Blank = open</div></div>
     <div class="ctl"><div class="cr"><span class="cn">Web port</span></div>
       <input type="number" id="http_port" min="1024" max="65535"></div>
     <button class="btn" id="save-access">Save</button>
-    <p class="note">Restart to apply. Home network only — never port-forward this.</p>
+    <p class="note">Restart to apply. Home network only.</p>
   </div>
 </section>
 
@@ -786,16 +787,19 @@ function renderZones(){
     const row = document.createElement("div");
     row.className = "zrow"+(i===sel?" sel":"");
     const col = z.mode==="solid" ? z.color : ZCOL[z.mode];
+    const n2=cfg.led_count||240;
     row.innerHTML = `<span class="sw" style="background:${col}">${ZICON[z.mode]}</span>
       <span class="meta"><span class="nm">${ZNAME[z.mode]}</span>
-      <span class="rg">lights ${z.start}–${z.end} · ${Math.round(z.brightness*100)}%</span></span>
+        <span class="mini"><i style="left:${z.start/n2*100}%;
+          width:${(z.end-z.start+1)/n2*100}%;background:${col}"></i></span></span>
+      <span class="pct">${Math.round(z.brightness*100)}<small>%</small></span>
       <button class="x" aria-label="Remove">×</button>`;
     row.onclick = ev => { if(ev.target.classList.contains("x")) removeZone(i); else selectZone(i); };
     list.appendChild(row);
   });
   if(!zs.length){
-    list.innerHTML = '<div class="empty"><p>No zones — the whole strip mirrors your screen</p>'+
-      '<span>Add one to give part of the strip its own job</span></div>';
+    list.innerHTML = '<div class="empty"><span class="ebar"></span>'+
+      '<p>Whole strip follows your screen</p></div>';
   }
   $("znote").classList.toggle("hide", true);
   if(sel>=zs.length) sel=-1;
@@ -1134,11 +1138,8 @@ function ssidChanged(){
   const name=currentSsid();
   const fiveGhz=/(^|[^a-z0-9])5\s*-?\s*(g|ghz)([^a-z0-9]|$)/i.test(name);
   $("ssid-hint").textContent = manual
-    ? "Enter the exact name, including capitals."
-    : (fiveGhz
-        ? "This looks like a 5GHz network. An ESP8266 cannot join 5GHz — pick the "+
-          "2.4GHz version of it instead."
-        : "Networks this Mac remembers. Must be 2.4GHz.");
+    ? "Exact name, including capitals"
+    : (fiveGhz ? "Looks like 5GHz — pick the 2.4GHz network" : "2.4GHz only");
 }
 $("flash-ssid-sel").onchange=ssidChanged;
 $("flash-ssid").oninput=ssidChanged;
@@ -1149,11 +1150,10 @@ async function flashCheck(){  // returns a promise
     const sel=$("flash-port");
     if(!c.ports.length){
       sel.innerHTML='<option value="">No board detected</option>';
-      $("flash-porthint").textContent="Plug the controller in over USB. If nothing "+
-        "appears, install its driver (CP2102 or CH340) and tap Setup again.";
+      $("flash-porthint").textContent="Plug in over USB, then Refresh";
     } else {
       sel.innerHTML=c.ports.map(p=>`<option value="${p}">${p.replace("/dev/cu.","")}</option>`).join("");
-      $("flash-porthint").textContent="Pick your controller.";
+      $("flash-porthint").textContent="";
     }
     $("flash-port-n").textContent=c.ports.length?c.ports.length+" found":"none";
     const missing=[];

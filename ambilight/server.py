@@ -110,7 +110,11 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/api/set":
             changes = {k: v[0] for k, v in query.items() if k != "pin"}
-            changed = hub.cfg.update(changes)
+            try:
+                changed = hub.cfg.update(changes)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
             self._json({"changed": changed, **hub.status()})
 
         elif path == "/api/config":
