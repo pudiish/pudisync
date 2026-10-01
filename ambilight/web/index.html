@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ambilight">
+<meta name="theme-color" content="#08080b">
+<title>Ambilight Hub</title>
+<style>
+:root{
+  /* Classic ground: warm paper, ink, and a single aged-brass accent. */
+  --bg:#12110f; --panel:#1a1917; --panel-2:#211f1c; --line:#2e2b27; --line-2:#3d3933;
+  --fg:#f2ede4; --dim:#9d9589; --faint:#6d665c;
+  --accent:#c8963e; --accent-dim:#c8963e1f; --live:#7a9e5c; --warn:#c8963e; --bad:#b4544a;
+  --r:4px; --r-lg:6px;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Hoefler Text",Georgia,serif;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){
+  :root{--bg:#f4f1ea; --panel:#fbf9f5; --panel-2:#efebe2; --line:#ddd7ca; --line-2:#c9c1b0;
+        --fg:#1e1b16; --dim:#5f584c; --faint:#8b8273; --accent:#8a6520; --accent-dim:#8a652014;
+        --live:#4f7336; --bad:#95392f; color-scheme:light}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{overscroll-behavior-y:none}
+body{margin:0;padding:0 18px calc(92px + env(safe-area-inset-bottom));background:var(--bg);
+  color:var(--fg);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+
+/* ---------- chrome ---------- */
+header{position:sticky;top:0;z-index:40;background:var(--bg);
+  padding:calc(14px + env(safe-area-inset-top)) 0 12px;display:flex;align-items:baseline;gap:11px;
+  border-bottom:1px solid var(--line);margin-bottom:18px}
+.mark{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none;
+  align-self:center;transition:background .3s,box-shadow .3s}
+.mark.live{background:var(--live);box-shadow:0 0 9px 1px var(--live)}
+h1{font:400 20px/1 var(--serif);margin:0;flex:1;letter-spacing:.005em;font-style:italic}
+.hz{font:600 10px/1 var(--sans);color:var(--faint);font-variant-numeric:tabular-nums;
+  letter-spacing:.13em;text-transform:uppercase}
+
+/* ---------- bottom tab bar ---------- */
+nav{position:fixed;left:0;right:0;bottom:0;z-index:50;display:grid;
+  grid-template-columns:repeat(4,1fr);
+  padding:9px 10px calc(9px + env(safe-area-inset-bottom));background:var(--bg);
+  border-top:1px solid var(--line)}
+nav button{border:0;background:none;color:var(--faint);font-family:var(--sans);font-size:9.5px;
+  font-weight:600;padding:5px 2px;display:flex;flex-direction:column;align-items:center;gap:5px;
+  letter-spacing:.09em;text-transform:uppercase}
+nav button svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.3;
+  stroke-linecap:round;stroke-linejoin:round}
+nav button[aria-current=page]{color:var(--accent)}
+
+/* ---------- panels ---------- */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:19px;margin-bottom:14px}
+.ph{display:flex;align-items:baseline;gap:9px;margin-bottom:17px;
+  border-bottom:1px solid var(--line);padding-bottom:11px}
+.ph h2{font:600 10px/1 var(--sans);text-transform:uppercase;letter-spacing:.15em;
+  color:var(--dim);margin:0;flex:1}
+.ph .act{font-size:12px;color:var(--accent);font-weight:600;background:none;border:0;
+  font-family:var(--sans);padding:0}
+
+/* ---------- hero ---------- */
+.hero{position:relative;border:1px solid var(--line);border-radius:var(--r-lg);
+  background:var(--panel);overflow:hidden;margin-bottom:14px}
+.hero .wash{position:absolute;inset:0;opacity:0;transition:opacity .6s;
+  background:radial-gradient(130% 100% at 50% 120%,var(--w1,#c8963e) 0%,transparent 72%)}
+.hero.live .wash{opacity:.16}
+.hero .body{position:relative;display:flex;align-items:center;gap:17px;padding:21px 19px}
+.pw{width:56px;height:56px;border-radius:50%;flex:none;border:1px solid var(--line-2);
+  background:transparent;display:grid;place-items:center;font-family:inherit;color:var(--dim);
+  transition:all .4s}
+.pw svg{width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round}
+.hero.live .pw{border-color:var(--accent);color:var(--accent);
+  box-shadow:inset 0 0 0 1px var(--accent),0 0 22px -8px var(--accent)}
+.hero .txt{flex:1;min-width:0}
+.hero .t1{font:400 19px/1.2 var(--serif);letter-spacing:.005em}
+.hero .t2{font-size:12px;color:var(--dim);margin-top:5px;letter-spacing:.02em}
+
+/* ---------- strip ---------- */
+.stage{padding:19px}
+.ruler{display:flex;justify-content:space-between;font:600 9px/1 var(--sans);color:var(--faint);
+  margin-bottom:9px;letter-spacing:.14em;text-transform:uppercase}
+.track{position:relative;height:62px;border-radius:var(--r);overflow:hidden;
+  background:#0a0908;border:1px solid var(--line-2);touch-action:pan-y}
+.leds{position:absolute;inset:0;display:flex;gap:1px;padding:4px}
+.leds i{flex:1;border-radius:1px;background:#1a1816;transition:background .1s linear}
+.screenmark{position:absolute;top:0;bottom:0;border-left:1px dashed #ffffff33;
+  border-right:1px dashed #ffffff33;pointer-events:none}
+.screenmark::before{content:"screen";position:absolute;top:5px;left:50%;transform:translateX(-50%);
+  font:700 8px/1 var(--sans);color:#ffffff4d;letter-spacing:.18em;text-transform:uppercase}
+.zlayer{position:absolute;inset:0;pointer-events:none}
+.zband{position:absolute;top:0;bottom:0;border-left:1.5px solid var(--zc,#fff);
+  border-right:1.5px solid var(--zc,#fff);
+  background:linear-gradient(var(--zc,#fff),transparent 20%,transparent 80%,var(--zc,#fff));
+  opacity:.82;pointer-events:auto}
+.zband .lbl{position:absolute;bottom:5px;left:50%;transform:translateX(-50%);
+  font:700 8px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--zc,#fff);white-space:nowrap;text-shadow:0 1px 5px #000}
+.zband .grip{position:absolute;top:50%;width:15px;height:32px;margin-top:-16px;
+  border-radius:2px;background:var(--zc,#fff);opacity:.96;display:grid;place-items:center;
+  cursor:ew-resize;touch-action:none}
+.zband .grip::after{content:"";width:1px;height:13px;background:#000;opacity:.5;
+  box-shadow:3px 0 0 #00000080,-3px 0 0 #00000080}
+.zband .grip.l{left:-8px} .zband .grip.r{right:-8px}
+.zband.sel{outline:1px solid var(--fg);outline-offset:2px;z-index:3;opacity:1}
+
+.zlist{margin-top:15px;display:flex;flex-direction:column}
+.zrow{display:flex;align-items:center;gap:13px;padding:13px 2px;
+  border-bottom:1px solid var(--line)}
+.zrow:last-child{border-bottom:0}
+.zrow.sel .nm{color:var(--accent)}
+.zrow .sw{width:3px;height:30px;flex:none;border-radius:1px}
+.zrow .meta{flex:1;min-width:0}
+.zrow .nm{font:400 15px/1.2 var(--serif)}
+.zrow .rg{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;margin-top:3px;
+  letter-spacing:.04em}
+.zrow .x{border:0;background:none;color:var(--faint);font-size:17px;font-family:var(--sans);
+  padding:0 3px;line-height:1}
+.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:4px;
+  border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.modes button{border:0;border-right:1px solid var(--line);background:transparent;color:var(--dim);
+  padding:13px 3px;font-family:var(--sans);font-size:9.5px;font-weight:600;
+  display:flex;flex-direction:column;align-items:center;gap:7px;letter-spacing:.1em;
+  text-transform:uppercase}
+.modes button:last-child{border-right:0}
+.modes button svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.3;
+  stroke-linecap:round;stroke-linejoin:round}
+.modes button[aria-pressed=true]{color:var(--accent);background:var(--accent-dim)}
+.swatches{display:flex;gap:9px;flex-wrap:wrap;margin-top:15px}
+.swatches button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line-2);padding:0}
+.swatches button[aria-pressed=true]{box-shadow:0 0 0 1px var(--bg),0 0 0 2px var(--fg)}
+
+/* ---------- moods ---------- */
+.moods{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);
+  border-radius:var(--r);overflow:hidden}
+.moodc{border:0;border-right:1px solid var(--line);background:transparent;
+  padding:17px 15px;text-align:left;font-family:var(--sans);color:var(--fg);position:relative}
+.moodc:last-child{border-right:0}
+.moodc svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.3;
+  stroke-linecap:round;stroke-linejoin:round;color:var(--faint);margin-bottom:11px;display:block}
+.moodc .n{font:400 16px/1 var(--serif);display:block}
+.moodc .d{font-size:11px;color:var(--faint);display:block;margin-top:5px;line-height:1.4;
+  letter-spacing:.02em}
+.moodc[aria-pressed=true]{background:var(--accent-dim)}
+.moodc[aria-pressed=true] svg,.moodc[aria-pressed=true] .n{color:var(--accent)}
+
+/* ---------- controls ---------- */
+.ctl{margin-bottom:21px}
+.ctl:last-child{margin-bottom:0}
+.ctl .cr{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.ctl .cn{font-size:13px;font-weight:500;flex:1;letter-spacing:.01em}
+.ctl .cv{font:600 10px/1 var(--sans);color:var(--accent);letter-spacing:.11em;
+  text-transform:uppercase;font-variant-numeric:tabular-nums}
+.ctl .cd{font-size:11.5px;color:var(--faint);margin-top:9px;line-height:1.5}
+input[type=range]{width:100%;height:26px;-webkit-appearance:none;background:transparent;margin:0;
+  display:block}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--line-2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;
+  border-radius:50%;background:var(--bg);border:1px solid var(--fg);margin-top:-7px}
+input[type=range]:active::-webkit-slider-thumb{background:var(--accent);border-color:var(--accent)}
+input[type=text],input[type=number],select{width:100%;padding:12px 13px;border-radius:var(--r);
+  border:1px solid var(--line-2);background:transparent;color:var(--fg);font-size:16px;
+  font-family:var(--sans)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.btn{border:1px solid var(--line-2);background:transparent;color:var(--fg);padding:13px;
+  border-radius:var(--r);font-size:12px;font-weight:600;width:100%;font-family:var(--sans);
+  letter-spacing:.1em;text-transform:uppercase}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#17130c}
+.btn.gh{border-color:transparent;color:var(--faint)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{border:1px solid var(--line-2);background:transparent;color:var(--dim);
+  padding:9px 14px;border-radius:var(--r);font-size:12px;font-weight:500;font-family:var(--sans)}
+.chips button[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.hide{display:none!important}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:13px 0;
+  border-bottom:1px solid var(--line);font-size:13px}
+.kv:last-child{border:0}
+.kv span{color:var(--dim)}
+.kv b{font-weight:500;text-align:right;word-break:break-word;font-variant-numeric:tabular-nums}
+.kv b.ok{color:var(--live)} .kv b.no{color:var(--bad)}
+.alert{border-radius:var(--r);padding:13px 15px;font-size:12.5px;margin-bottom:14px;
+  line-height:1.5;border:1px solid var(--bad);border-left-width:2px;background:transparent;
+  color:var(--fg)}
+.alert.warn{border-color:var(--warn)}
+.note{font-size:11.5px;color:var(--faint);line-height:1.55;margin:11px 0 0}
+details>summary{list-style:none;cursor:pointer;padding:13px 0;font-size:10px;font-weight:600;
+  color:var(--dim);display:flex;align-items:center;gap:8px;letter-spacing:.13em;
+  text-transform:uppercase;font-family:var(--sans)}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"+";font-size:13px;transition:transform .2s;display:inline-block;
+  line-height:1;font-weight:400}
+details[open]>summary::before{content:"\2212"}
+.step{border-top:1px solid var(--line);padding-top:19px;margin-top:19px}
+.step:first-child{border:0;padding-top:0;margin-top:0}
+.step h3{font:400 17px/1.2 var(--serif);margin:0 0 7px;display:flex;align-items:baseline;gap:11px}
+.step h3 .n{font:600 10px/1 var(--sans);color:var(--accent);letter-spacing:.1em;flex:none}
+.ask{border:1px solid var(--line);border-radius:var(--r);padding:19px;margin:15px 0;
+  text-align:center}
+.ask p{margin:0 0 15px;font:400 16px/1.4 var(--serif)}
+.nudge{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-bottom:12px;
+  border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden}
+.nudge button{border:0;border-right:1px solid var(--line-2);background:transparent;color:var(--fg);
+  padding:15px 0;font-size:13px;font-weight:500;font-family:var(--sans);
+  font-variant-numeric:tabular-nums}
+.nudge button:last-child{border-right:0}
+.ok{color:var(--live);font-weight:500;font-size:12px;margin-top:11px;letter-spacing:.02em}
+.cen{text-align:center;font-size:12px;color:var(--dim);margin:5px 0 14px;letter-spacing:.03em}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="mark" id="mark"></span>
+  <h1 id="htitle">Ambilight</h1>
+  <span class="hz" id="hz">—</span>
+</header>
+
+<div id="alert" class="alert hide"></div>
+
+<!-- ============ LIGHTS ============ -->
+<section data-page="home">
+  <div class="hero" id="hero">
+    <span class="wash" id="wash"></span>
+    <div class="body">
+      <button class="pw" id="pw" aria-label="Toggle screen sync">
+        <svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.5 7a8 8 0 1 0 11 0"/></svg>
+      </button>
+      <div class="txt">
+        <div class="t1" id="t1">Lights off</div>
+        <div class="t2" id="t2">Tap to mirror your screen</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel stage">
+    <div class="ruler"><span id="r0">LEFT OF DESK</span><span id="r1">RIGHT OF DESK</span></div>
+    <div class="track" id="track">
+      <div class="leds" id="leds"></div>
+      <div class="screenmark" id="smark"></div>
+      <div class="zlayer" id="zlayer"></div>
+    </div>
+    <div class="zlist" id="zlist"></div>
+    <div class="g2" style="margin-top:11px">
+      <button class="btn" id="zadd">+ Add zone</button>
+      <button class="btn gh" id="zclear">Clear zones</button>
+    </div>
+    <p class="note" id="znote">The whole strip mirrors your screen. Add a zone to give part
+      of it a different job — a warm lamp at the ends, say.</p>
+  </div>
+
+  <div class="panel" id="zedit" style="display:none">
+    <div class="ph"><h2>Zone <span id="zidx"></span></h2>
+      <button class="act" id="zdone">Done</button></div>
+    <div class="modes" id="zmodes">
+      <button data-mode="sync"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/></svg>Screen</button>
+      <button data-mode="warm"><svg viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 1 3 11v1H9v-1a6 6 0 0 1 3-11z"/></svg>Lamp</button>
+      <button data-mode="solid"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>Colour</button>
+      <button data-mode="off"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M6 6l12 12"/></svg>Off</button>
+    </div>
+    <div id="zcolorwrap" class="hide">
+      <div class="swatches" id="zswatches"></div>
+    </div>
+    <div class="ctl" style="margin-top:15px">
+      <div class="cr"><span class="cn">Zone brightness</span><span class="cv" id="v-zbri">—</span></div>
+      <input type="range" id="zbri" min="0" max="100" step="1">
+    </div>
+    <div class="g2">
+      <div class="ctl"><div class="cr"><span class="cn">From</span></div>
+        <input type="number" id="zstart" min="0"></div>
+      <div class="ctl"><div class="cr"><span class="cn">To</span></div>
+        <input type="number" id="zend" min="0"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ph"><h2>Mood</h2></div>
+    <div class="moods" id="moods">
+      <button class="moodc" data-profile="movie">
+        <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M7 5l2 4M13 5l2 4"/></svg>
+        <span class="n">Cinema</span><span class="d">Smooth, deep colour</span></button>
+      <button class="moodc" data-profile="game">
+        <svg viewBox="0 0 24 24"><path d="M6 11h4M8 9v4"/><circle cx="16" cy="11" r="1"/><rect x="2" y="6" width="20" height="12" rx="4"/></svg>
+        <span class="n">Gaming</span><span class="d">Instant response</span></button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ph"><h2>Adjust</h2></div>
+    <div class="ctl"><div class="cr"><span class="cn">Brightness</span>
+      <span class="cv" id="v-brightness">—</span></div>
+      <input type="range" id="brightness" min="0" max="100" step="1"></div>
+    <div class="ctl"><div class="cr"><span class="cn">Colour intensity</span>
+      <span class="cv" id="v-saturation">—</span></div>
+      <input type="range" id="saturation" min="0" max="300" step="5"></div>
+    <div class="ctl"><div class="cr"><span class="cn">Response</span>
+      <span class="cv" id="v-blend">—</span></div>
+      <input type="range" id="blend" min="1" max="100" step="1">
+      <div class="cd">Slow glides between scenes. Fast tracks every frame.</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="ph"><h2>Standalone light</h2></div>
+    <div class="g2" style="margin-bottom:14px">
+      <button class="btn" id="wled-on">Turn on</button>
+      <button class="btn" id="wled-off">Turn off</button>
+    </div>
+    <div class="ctl"><div class="cr"><span class="cn">Lamp brightness</span>
+      <span class="cv" id="v-wbri">—</span></div>
+      <input type="range" id="wbri" min="0" max="255" step="1"></div>
+    <div style="margin-top:15px"><div class="ph"><h2>Saved looks</h2></div>
+      <div class="chips" id="presets"><span class="note">Checking…</span></div></div>
+    <details><summary>Effects &amp; palettes</summary>
+      <div class="ctl" style="margin-top:4px"><div class="cr"><span class="cn">Effect</span></div>
+        <select id="effect"></select></div>
+      <div class="ctl"><div class="cr"><span class="cn">Palette</span></div>
+        <select id="palette"></select></div>
+      <p class="note">Running an effect switches screen mirroring off — the controller
+        renders one source at a time.</p>
+    </details>
+  </div>
+
+  <details><summary>Capture settings</summary>
+    <div class="panel">
+      <div class="ctl"><div class="cr"><span class="cn">Sampled screen depth</span>
+        <span class="cv" id="v-band_height">—</span></div>
+        <input type="range" id="band_height" min="20" max="500" step="10">
+        <div class="cd">How tall a slice of the screen's bottom edge is read.</div></div>
+      <div class="ctl"><div class="cr"><span class="cn">Frame rate</span>
+        <span class="cv" id="v-fps">—</span></div>
+        <input type="range" id="fps" min="10" max="120" step="5">
+        <div class="cd" id="fpscap">Screen capture caps out near 65/sec on this Mac.
+          Higher settings cost CPU without gaining smoothness.</div></div>
+    </div>
+  </details>
+</section>
+
+<!-- ============ SETUP ============ -->
+<section data-page="wizard" class="hide">
+  <div class="panel">
+    <p class="note" style="margin:0">Run once at install, or after moving the strip.
+      Your lights will change during setup — that's expected.</p>
+  </div>
+  <div class="panel">
+    <div class="step">
+      <h3><span class="n">1</span> Strip length</h3>
+      <p class="note" style="margin-top:0">We light a portion of the strip and narrow it
+        down from your answers. Takes about eight taps.</p>
+      <button class="btn pri" id="count-start">Begin</button>
+      <div id="count-box" class="hide">
+        <div class="ask"><p>Is the <b>very last light</b> on your strip lit?</p>
+          <div class="g2"><button class="btn pri" id="count-yes">Yes</button>
+            <button class="btn" id="count-no">No</button></div></div>
+        <div class="cen" id="count-prog">—</div>
+        <button class="btn gh" id="count-stop">Cancel</button>
+      </div>
+      <p class="ok hide" id="count-done"></p>
+    </div>
+    <div class="step">
+      <h3><span class="n">2</span> Screen corners</h3>
+      <p class="note" style="margin-top:0">One light glows <b>orange</b>. Walk it along
+        until it sits behind a corner of your monitor, then assign it.</p>
+      <div class="cen" id="marker-val">—</div>
+      <div class="nudge"><button data-nudge="-10">−10</button><button data-nudge="-1">−1</button>
+        <button data-nudge="1">+1</button><button data-nudge="10">+10</button></div>
+      <div class="g2"><button class="btn pri" id="set-left">Left corner</button>
+        <button class="btn pri" id="set-right">Right corner</button></div>
+      <p class="ok hide" id="edge-done"></p>
+      <details><summary>Enter a number</summary><input type="number" id="marker-num" min="0"></details>
+    </div>
+    <div class="step">
+      <h3><span class="n">3</span> Spill &amp; check</h3>
+      <div class="ctl"><div class="cr"><span class="cn">Spill past the screen</span>
+        <span class="cv" id="v-fade_leds">—</span></div>
+        <input type="range" id="fade_leds" min="0" max="120" step="1">
+        <div class="cd">Lights beyond the monitor fade out across this many. Zero cuts dead.</div></div>
+      <button class="btn" id="gradient">Show test colours</button>
+      <p class="note">Expect <b>red at the left corner</b> easing to <b>blue at the right</b>.
+        Swapped? Redo step 2.</p>
+      <button class="btn pri" id="wizard-done" style="margin-top:13px">Finish</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SETTINGS ============ -->
+<section data-page="settings" class="hide">
+  <div class="panel">
+    <div class="ph"><h2>Controller</h2></div>
+    <div class="ctl"><div class="cr"><span class="cn">WLED address</span></div>
+      <input type="text" id="wled_ip" inputmode="decimal" autocapitalize="off" autocorrect="off"
+             spellcheck="false" placeholder="192.168.1.50">
+      <div class="cd">Where the WLED box lives on your Wi-Fi.</div></div>
+    <div class="ctl"><div class="cr"><span class="cn">Light count</span></div>
+      <input type="number" id="led_count" min="1" max="1500">
+      <div class="cd">Setup step 1 fills this in.</div></div>
+    <div class="ctl"><div class="cr"><span class="cn">Display</span></div>
+      <input type="number" id="monitor_index" min="0" max="8">
+      <div class="cd">1 is the main screen.</div></div>
+    <button class="btn pri" id="save-conn">Save</button>
+  </div>
+  <div class="panel">
+    <div class="ph"><h2>Connection</h2>
+      <button class="act" id="ports-refresh">Rescan</button></div>
+    <div class="modes" id="outmodes" style="grid-template-columns:1fr 1fr">
+      <button data-out="udp"><svg viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5.5 5.5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/></svg>Wi-Fi</button>
+      <button data-out="serial"><svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="7" rx="1.5"/><path d="M12 10v6M9 16h6v5H9z"/></svg>USB cable</button>
+    </div>
+    <div id="serialwrap" class="hide">
+      <div class="ctl" style="margin-top:17px"><div class="cr"><span class="cn">Device</span></div>
+        <select id="serial_port"></select>
+        <div class="cd" id="serialhint"></div></div>
+      <div class="ctl"><div class="cr"><span class="cn">Speed</span>
+        <span class="cv" id="baudrec"></span></div>
+        <select id="serial_baud">
+          <option value="115200">115200</option><option value="230400">230400</option>
+          <option value="460800">460800</option><option value="500000">500000</option>
+          <option value="921600">921600</option><option value="1000000">1000000</option>
+          <option value="2000000">2000000</option>
+        </select>
+        <div class="cd" id="baudwarn"></div></div>
+    </div>
+    <p class="note" id="outnote"></p>
+  </div>
+
+  <div class="panel">
+    <div class="ph"><h2>Access</h2></div>
+    <div class="ctl"><div class="cr"><span class="cn">PIN</span></div>
+      <input type="text" id="pin" inputmode="numeric" autocomplete="off" placeholder="blank = open">
+      <div class="cd">Keeps others on your Wi-Fi out.</div></div>
+    <div class="ctl"><div class="cr"><span class="cn">Web port</span></div>
+      <input type="number" id="http_port" min="1024" max="65535"></div>
+    <button class="btn" id="save-access">Save</button>
+    <p class="note">Restart to apply. Home network only — never port-forward this.</p>
+  </div>
+</section>
+
+<!-- ============ HEALTH ============ -->
+<section data-page="diag" class="hide">
+  <div class="panel">
+    <div class="ph"><h2>Status</h2></div>
+    <div class="kv"><span>Screen mirroring</span><b id="d-running">—</b></div>
+    <div class="kv"><span>Frame rate</span><b id="d-fps">—</b></div>
+    <div class="kv"><span>Controller</span><b id="d-reach">—</b></div>
+    <div class="kv"><span>Lights reported</span><b id="d-wleds">—</b></div>
+    <div class="kv"><span>Capture region</span><b id="d-cap">—</b></div>
+    <div class="kv"><span>Issues</span><b id="d-err">None</b></div>
+  </div>
+  <div class="panel">
+    <div class="ph"><h2>Layout</h2></div>
+    <div class="kv"><span>Left corner</span><b id="d-left">—</b></div>
+    <div class="kv"><span>Right corner</span><b id="d-right">—</b></div>
+    <div class="kv"><span>Wiring direction</span><b id="d-dir">—</b></div>
+  </div>
+  <details><summary>Engine internals</summary>
+    <div class="panel"><div class="ph"><h2>Plugins</h2></div><div id="d-plugins"></div></div>
+  </details>
+</section>
+
+<nav>
+  <button data-tab="home" aria-current="page">
+    <svg viewBox="0 0 24 24"><path d="M3 10h18M5 6h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>Lights</button>
+  <button data-tab="wizard">
+    <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/><circle cx="12" cy="12" r="3"/></svg>Setup</button>
+  <button data-tab="settings">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H7a1.7 1.7 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V7a1.7 1.7 0 0 0 1.5 1H23a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
+  <button data-tab="diag">
+    <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Health</button>
+</nav>
+
+<script>
+"use strict";
+const PIN = new URLSearchParams(location.search).get("pin") || "";
+const $ = id => document.getElementById(id);
+let cfg = {}, polling = true, dirty = 0, sel = -1, zonesLocal = null;
+
+if (location.protocol === "file:"){
+  document.body.innerHTML = '<div class="alert warn" style="margin:40px 14px">'+
+    '<b>Open this from the server</b><br><br>You opened the HTML file directly, so the '+
+    'page cannot reach the Ambilight program.<br><br>Go to <b>http://localhost:8080</b> on '+
+    'this Mac, or <b>http://&lt;mac-ip&gt;:8080</b> from your phone — the program prints '+
+    'the exact address when it starts.</div>';
+  throw new Error("file://");
+}
+
+async function api(path, params){
+  const u = new URL(path, location.origin);
+  if (params) for (const [k,v] of Object.entries(params)) u.searchParams.set(k,v);
+  if (PIN) u.searchParams.set("pin", PIN);
+  const r = await fetch(u,{cache:"no-store"});
+  if (r.status === 403) throw new Error("Locked — add ?pin=YOURPIN to the address.");
+  if (!r.ok) throw new Error("Program unreachable ("+r.status+")");
+  return r.json();
+}
+function alertMsg(m,kind){
+  const a=$("alert");
+  if(!m){a.classList.add("hide");return;}
+  a.className="alert"+(kind?" "+kind:""); a.textContent=m;
+}
+function friendly(e){
+  if(/Screen Recording/i.test(e))
+    return "macOS is blocking screen capture. System Settings ▸ Privacy & Security ▸ "+
+           "Screen Recording ▸ enable your terminal, then restart the program.";
+  if(/unreachable|UDP send failed/i.test(e))
+    return "Can't reach the controller. Check it's powered on and joined to Wi-Fi.";
+  return e;
+}
+
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.removeAttribute("aria-current"));
+  b.setAttribute("aria-current","page");
+  document.querySelectorAll("section").forEach(s=>
+    s.classList.toggle("hide", s.dataset.page!==b.dataset.tab));
+  $("htitle").textContent = {home:"Ambilight",wizard:"Setup",settings:"Settings",diag:"Health"}[b.dataset.tab];
+  if(b.dataset.tab==="diag") refreshDiag();
+  if(b.dataset.tab==="settings") loadPorts();
+  if(b.dataset.tab==="wizard") startMarker();
+});
+
+/* ---------- live strip ---------- */
+const NLED = 56, ledbox = $("leds");
+for(let i=0;i<NLED;i++) ledbox.appendChild(document.createElement("i"));
+const ledEls = ledbox.querySelectorAll("i");
+function paintLeds(colors){
+  if(!colors||!colors.length){ ledEls.forEach(c=>c.style.background="#15151b"); return; }
+  ledEls.forEach((c,i)=>{
+    c.style.background = colors[Math.min(colors.length-1,
+      Math.floor(i*colors.length/NLED))] || "#15151b";
+  });
+}
+function paintScreenMark(){
+  const n = cfg.led_count||240;
+  const a = Math.min(cfg.left_led??0, cfg.right_led??n-1);
+  const b = Math.max(cfg.left_led??0, cfg.right_led??n-1);
+  const m = $("smark");
+  m.style.left = (a/n*100)+"%";
+  m.style.width = ((b-a+1)/n*100)+"%";
+}
+
+/* ---------- zones ---------- */
+const ZCOL = {sync:"#4a9eff", warm:"#ffb46b", solid:"#c060ff", off:"#6a6a7a"};
+const ZNAME = {sync:"Screen", warm:"Lamp", solid:"Colour", off:"Off"};
+const PALETTE = ["#ff8a3d","#ffd23d","#30d57f","#3dd6ff","#5b7cff","#c060ff","#ff5a8a","#ffffff"];
+
+function zones(){ return zonesLocal ?? (cfg.zones||[]); }
+async function pushZones(list){
+  zonesLocal = list;
+  renderZones();
+  dirty = Date.now();
+  try{ await api("/api/set",{zones:JSON.stringify(list)}); }
+  catch(e){ alertMsg(e.message); }
+  finally{ setTimeout(()=>{ zonesLocal=null; },700); }
+}
+function renderZones(){
+  const n = cfg.led_count||240, zs = zones(), layer = $("zlayer");
+  layer.innerHTML = "";
+  zs.forEach((z,i)=>{
+    const d = document.createElement("div");
+    d.className = "zband"+(i===sel?" sel":"");
+    d.style.left = (z.start/n*100)+"%";
+    d.style.width = ((z.end-z.start+1)/n*100)+"%";
+    d.style.setProperty("--zc", z.mode==="solid" ? z.color : ZCOL[z.mode]);
+    d.innerHTML = `<span class="grip l" data-edge="start"></span>
+      <span class="lbl">${ZNAME[z.mode]}</span>
+      <span class="grip r" data-edge="end"></span>`;
+    d.onclick = ev => { if(!ev.target.classList.contains("grip")) selectZone(i); };
+    d.querySelectorAll(".grip").forEach(g=>g.addEventListener("pointerdown",
+      ev=>startDrag(ev,i,g.dataset.edge)));
+    layer.appendChild(d);
+  });
+  const list = $("zlist"); list.innerHTML = "";
+  zs.forEach((z,i)=>{
+    const row = document.createElement("div");
+    row.className = "zrow"+(i===sel?" sel":"");
+    const col = z.mode==="solid" ? z.color : ZCOL[z.mode];
+    row.innerHTML = `<span class="sw" style="background:${col}"></span>
+      <span class="meta"><span class="nm">${ZNAME[z.mode]}</span>
+      <span class="rg">lights ${z.start}–${z.end} · ${Math.round(z.brightness*100)}%</span></span>
+      <button class="x" aria-label="Remove">×</button>`;
+    row.onclick = ev => { if(ev.target.classList.contains("x")) removeZone(i); else selectZone(i); };
+    list.appendChild(row);
+  });
+  $("znote").classList.toggle("hide", zs.length>0);
+  if(sel>=zs.length) sel=-1;
+  renderEditor();
+}
+function selectZone(i){ sel = (sel===i ? -1 : i); renderZones(); }
+function removeZone(i){ const z=[...zones()]; z.splice(i,1); sel=-1; pushZones(z); }
+$("zadd").onclick = ()=>{
+  const n = cfg.led_count||240, zs=[...zones()];
+  // Drop the new zone into the largest free gap so it never lands on another.
+  let cur=0, best={start:0,end:Math.max(0,Math.min(19,n-1)),len:-1};
+  const sorted=[...zs].sort((a,b)=>a.start-b.start);
+  for(const z of sorted){ if(z.start-cur>best.len) best={start:cur,end:z.start-1,len:z.start-cur}; cur=z.end+1; }
+  if(n-cur>best.len) best={start:cur,end:n-1,len:n-cur};
+  if(best.len<=0){ alertMsg("No free lights left — remove a zone first.","warn"); return; }
+  const len=Math.max(1,Math.min(Math.floor(n*0.15), best.end-best.start+1));
+  zs.push({start:best.start,end:best.start+len-1,mode:"warm",color:"#ffb46b",brightness:1});
+  sel=zs.length-1; pushZones(zs);
+};
+$("zclear").onclick = ()=>{ sel=-1; pushZones([]); };
+
+/* drag a zone edge along the track */
+let drag=null;
+function startDrag(ev,i,edge){
+  ev.preventDefault(); ev.stopPropagation();
+  drag={i,edge}; sel=i;
+  ev.target.setPointerCapture?.(ev.pointerId);
+  window.addEventListener("pointermove",onDrag);
+  window.addEventListener("pointerup",endDrag,{once:true});
+}
+function onDrag(ev){
+  if(!drag) return;
+  const n=cfg.led_count||240, r=$("track").getBoundingClientRect();
+  let idx=Math.round((ev.clientX-r.left)/r.width*(n-1));
+  idx=Math.max(0,Math.min(n-1,idx));
+  const zs=[...zones()], z={...zs[drag.i]};
+  if(drag.edge==="start") z.start=Math.min(idx,z.end); else z.end=Math.max(idx,z.start);
+  zs[drag.i]=z; zonesLocal=zs; renderZones();
+}
+function endDrag(){
+  window.removeEventListener("pointermove",onDrag);
+  if(drag){ const zs=zones(); drag=null; pushZones(zs); }
+}
+
+function renderEditor(){
+  const zs=zones(), box=$("zedit");
+  if(sel<0||!zs[sel]){ box.style.display="none"; return; }
+  const z=zs[sel];
+  box.style.display="block";
+  $("zidx").textContent = (sel+1)+" of "+zs.length;
+  document.querySelectorAll("#zmodes button").forEach(b=>
+    b.setAttribute("aria-pressed", String(b.dataset.mode===z.mode)));
+  $("zcolorwrap").classList.toggle("hide", z.mode!=="solid");
+  const sw=$("zswatches"); sw.innerHTML="";
+  PALETTE.forEach(c=>{
+    const b=document.createElement("button");
+    b.style.background=c; b.setAttribute("aria-pressed",String(c===z.color));
+    b.onclick=()=>updateZone({color:c});
+    sw.appendChild(b);
+  });
+  if(document.activeElement!==$("zbri")){
+    $("zbri").value=Math.round(z.brightness*100);
+    $("v-zbri").textContent=Math.round(z.brightness*100)+"%";
+  }
+  if(document.activeElement!==$("zstart")) $("zstart").value=z.start;
+  if(document.activeElement!==$("zend")) $("zend").value=z.end;
+  $("zstart").max=$("zend").max=(cfg.led_count||240)-1;
+}
+function updateZone(patch){
+  const zs=[...zones()]; if(sel<0||!zs[sel]) return;
+  zs[sel]={...zs[sel],...patch}; pushZones(zs);
+}
+document.querySelectorAll("#zmodes button").forEach(b=>
+  b.onclick=()=>updateZone({mode:b.dataset.mode}));
+$("zdone").onclick=()=>{ sel=-1; renderZones(); };
+$("zbri").oninput=()=>{ $("v-zbri").textContent=$("zbri").value+"%";
+  clearTimeout($("zbri")._t);
+  $("zbri")._t=setTimeout(()=>updateZone({brightness:Number($("zbri").value)/100}),110); };
+$("zstart").onchange=()=>updateZone({start:Number($("zstart").value)});
+$("zend").onchange=()=>updateZone({end:Number($("zend").value)});
+
+/* ---------- main controls ---------- */
+$("pw").onclick=async()=>{
+  try{ await api("/api/sync/"+(cfg.running?"off":"on")); await refresh(); }
+  catch(e){ alertMsg(e.message); }
+};
+document.querySelectorAll("#moods .moodc").forEach(b=>b.onclick=async()=>{
+  try{ await api("/api/profile/"+b.dataset.profile); await refresh(); }
+  catch(e){ alertMsg(e.message); }
+});
+
+const SL={
+  brightness:{s:100,f:v=>Math.round(v*100)+"%"},
+  saturation:{s:100,f:v=>v<0.6?"Muted":v<1.3?"Natural":v<2?"Vivid":"Max"},
+  blend:{s:100,f:v=>v<0.25?"Glide":v<0.55?"Smooth":v<0.85?"Quick":"Instant"},
+  band_height:{s:1,f:v=>v+" px"},
+  fps:{s:1,f:v=>v+"/sec"},
+  fade_leds:{s:1,f:v=>v===0?"Hard edge":v+" lights"},
+};
+for(const [k,spec] of Object.entries(SL)){
+  const el=$(k); let t=null;
+  el.oninput=()=>{
+    dirty=Date.now();
+    $("v-"+k).textContent=spec.f(Number(el.value)/spec.s);
+    clearTimeout(t);
+    t=setTimeout(()=>api("/api/set",{[k]:Number(el.value)/spec.s}).catch(e=>alertMsg(e.message)),90);
+  };
+}
+$("wbri").oninput=()=>{
+  dirty=Date.now(); $("v-wbri").textContent=Math.round($("wbri").value/2.55)+"%";
+  clearTimeout($("wbri")._t);
+  $("wbri")._t=setTimeout(()=>api("/api/wled/brightness",{value:$("wbri").value})
+    .catch(e=>alertMsg(e.message)),120);
+};
+$("wled-on").onclick=()=>api("/api/wled/power",{on:1}).catch(e=>alertMsg(e.message));
+$("wled-off").onclick=()=>api("/api/wled/power",{on:0}).catch(e=>alertMsg(e.message));
+$("effect").onchange=()=>api("/api/wled/effect",{index:$("effect").value})
+  .then(refresh).catch(e=>alertMsg(e.message));
+$("palette").onchange=()=>api("/api/wled/palette",{index:$("palette").value})
+  .then(refresh).catch(e=>alertMsg(e.message));
+
+function fillSel(el,names,cur){
+  if(el.options.length!==names.length)
+    el.innerHTML=names.map((n,i)=>`<option value="${i}">${n}</option>`).join("");
+  if(document.activeElement!==el) el.value=cur;
+}
+async function loadMeta(){
+  try{
+    const m=await api("/api/wled/meta");
+    if(m.effects?.length) fillSel($("effect"),m.effects,m.fx??0);
+    if(m.palettes?.length) fillSel($("palette"),m.palettes,m.pal??0);
+    const box=$("presets");
+    if(m.presets?.length){
+      box.innerHTML="";
+      m.presets.forEach(p=>{
+        const b=document.createElement("button");
+        b.textContent=p.name; b.setAttribute("aria-pressed",String(m.ps===p.id));
+        b.onclick=()=>api("/api/wled/preset",{id:p.id}).then(refresh).catch(e=>alertMsg(e.message));
+        box.appendChild(b);
+      });
+    } else box.innerHTML='<span class="note">'+(m.offline?"Controller offline."
+      :"None saved. Create them in WLED and they appear here.")+"</span>";
+  }catch(e){}
+}
+
+function paint(s){
+  const first = !cfg.led_count;
+  cfg=s;
+  const live=s.running;
+  $("mark").classList.toggle("live",live);
+  $("hero").classList.toggle("live",live);
+  $("t1").textContent = live?"Mirroring screen":"Lights off";
+  $("t2").textContent = live
+    ? (s.profile==="movie"?"Cinema":"Gaming")+" · "+(s.measured_fps||0).toFixed(0)+" fps"
+    : "Tap to mirror your screen";
+  $("hz").textContent = live ? (s.measured_fps||0).toFixed(0)+" fps" : "idle";
+  paintLeds(s.preview);
+  if(s.preview?.length) $("wash").style.setProperty("--w1",s.preview[Math.floor(s.preview.length/2)]);
+  paintScreenMark();
+  if(!drag && zonesLocal===null) renderZones();
+  document.querySelectorAll("#moods .moodc").forEach(b=>
+    b.setAttribute("aria-pressed",String(b.dataset.profile===s.profile)));
+  if(Date.now()-dirty>1200){
+    for(const [k,spec] of Object.entries(SL)){
+      if(document.activeElement===$(k)) continue;
+      $(k).value=s[k]*spec.s; $("v-"+k).textContent=spec.f(s[k]);
+    }
+    if(s.wled_bri!=null && document.activeElement!==$("wbri")){
+      $("wbri").value=s.wled_bri; $("v-wbri").textContent=Math.round(s.wled_bri/2.55)+"%";
+    }
+  }
+  alertMsg(s.last_error?friendly(s.last_error):"");
+  if(first) fillForm();
+}
+async function refresh(){
+  try{ paint(await api("/api/status")); }catch(e){ alertMsg(e.message); }
+}
+
+/* ---------- wizard ---------- */
+let probe=null;
+$("count-start").onclick=async()=>{
+  try{ probe=await api("/api/wizard/count/start");
+    $("count-box").classList.remove("hide"); $("count-start").classList.add("hide");
+    $("count-done").classList.add("hide"); renderProbe();
+  }catch(e){ alertMsg(e.message); }
+};
+$("count-stop").onclick=async()=>{
+  await api("/api/wizard/stop"); probe=null;
+  $("count-box").classList.add("hide"); $("count-start").classList.remove("hide");
+};
+$("count-yes").onclick=()=>answer(true);
+$("count-no").onclick=()=>answer(false);
+async function answer(lit){
+  if(!probe) return;
+  try{
+    probe=await api("/api/wizard/count/answer",{lit:lit?1:0});
+    if(probe.done){
+      $("count-box").classList.add("hide"); $("count-start").classList.remove("hide");
+      $("count-done").textContent="— Strip has "+probe.k+" lights.";
+      $("count-done").classList.remove("hide");
+      await refresh(); $("marker-num").max=probe.k-1;
+    } else renderProbe();
+  }catch(e){ alertMsg(e.message); }
+}
+function renderProbe(){
+  const span=probe.hi-probe.lo;
+  $("count-prog").textContent = span<=1?"Almost there…":"Between "+probe.lo+" and "+probe.hi+" lights";
+  if(probe.message && /raise the LED count/i.test(probe.message))
+    alertMsg("Your strip is longer than WLED is configured for. Raise its LED count in "+
+             "the WLED app first.","warn");
+}
+let marker=0;
+async function startMarker(){
+  marker=cfg.left_led??0; $("marker-num").max=(cfg.led_count??240)-1; await showMarker();
+}
+async function showMarker(){
+  marker=Math.max(0,Math.min((cfg.led_count??240)-1,Math.round(marker)));
+  $("marker-val").textContent="Orange light at position "+marker;
+  $("marker-num").value=marker;
+  try{ await api("/api/wizard/marker",{index:marker}); }catch(e){ alertMsg(e.message); }
+}
+document.querySelectorAll("[data-nudge]").forEach(b=>b.onclick=()=>{
+  marker+=Number(b.dataset.nudge); showMarker(); });
+$("marker-num").onchange=()=>{ marker=Number($("marker-num").value); showMarker(); };
+$("set-left").onclick=async()=>{ await api("/api/set",{left_led:marker}); await refresh();
+  $("edge-done").textContent="— Left corner saved."; $("edge-done").classList.remove("hide"); };
+$("set-right").onclick=async()=>{ await api("/api/set",{right_led:marker}); await refresh();
+  $("edge-done").textContent="— Right corner saved."; $("edge-done").classList.remove("hide"); };
+$("gradient").onclick=()=>api("/api/wizard/gradient").catch(e=>alertMsg(e.message));
+$("wizard-done").onclick=async()=>{
+  await api("/api/wizard/stop"); await refresh();
+  document.querySelector('nav button[data-tab=home]').click();
+};
+
+/* ---------- settings ---------- */
+$("save-conn").onclick=async()=>{
+  try{
+    await api("/api/set",{wled_ip:$("wled_ip").value,monitor_index:$("monitor_index").value,
+                          led_count:$("led_count").value});
+    await refresh(); loadMeta();
+    $("save-conn").textContent="— Saved"; setTimeout(()=>$("save-conn").textContent="Save",1500);
+  }catch(e){ alertMsg(e.message); }
+};
+$("save-access").onclick=async()=>{
+  try{
+    await api("/api/set",{pin:$("pin").value,http_port:$("http_port").value});
+    $("save-access").textContent="— Restart to apply";
+    setTimeout(()=>$("save-access").textContent="Save",2400);
+  }catch(e){ alertMsg(e.message); }
+};
+let serialInfo=null;
+async function loadPorts(){
+  try{
+    serialInfo = await api("/api/serial/ports");
+    const sw=$("serialwrap"), isSerial = serialInfo.output==="serial";
+    document.querySelectorAll("#outmodes button").forEach(b=>
+      b.setAttribute("aria-pressed", String(b.dataset.out===serialInfo.output)));
+    sw.classList.toggle("hide", !isSerial);
+
+    const sel=$("serial_port");
+    if(!serialInfo.pyserial){
+      sel.innerHTML='<option value="">pyserial not installed</option>';
+      $("serialhint").textContent="Run: python3 -m pip install pyserial";
+    } else if(!serialInfo.ports.length){
+      sel.innerHTML='<option value="">No device detected</option>';
+      $("serialhint").textContent="Plug the controller into a USB port, then tap Rescan. "+
+        "You may need its USB driver (CP2102 or CH340) installed.";
+    } else {
+      sel.innerHTML=serialInfo.ports.map(p=>`<option value="${p}">${p.replace("/dev/cu.","")}</option>`).join("");
+      if(serialInfo.current) sel.value=serialInfo.current;
+      $("serialhint").textContent="Pick the controller. Usually the usbserial or wchusbserial entry.";
+    }
+    if(document.activeElement!==$("serial_baud")) $("serial_baud").value=serialInfo.baud;
+    $("baudrec").textContent="suggest "+serialInfo.recommended_baud.toLocaleString();
+    const tooSlow = serialInfo.baud < serialInfo.recommended_baud;
+    $("baudwarn").textContent = tooSlow
+      ? "Too slow for "+(cfg.led_count||240)+" lights at this frame rate — the strip will "+
+        "lag. Set WLED's serial baud to match in its Sync settings."
+      : "Must match the baud rate set in WLED ▸ Config ▸ Sync Interfaces.";
+    $("outnote").textContent = serialInfo.output==="serial"
+      ? "USB avoids Wi-Fi entirely. Effects, presets and palettes still need the "+
+        "network, so those controls go quiet on USB."
+      : "Streaming over Wi-Fi. The controller needs a fixed address on your router.";
+  }catch(e){}
+}
+document.querySelectorAll("#outmodes button").forEach(b=>b.onclick=async()=>{
+  try{ await api("/api/set",{output:b.dataset.out}); await loadPorts(); await refresh(); }
+  catch(e){ alertMsg(e.message); }
+});
+$("ports-refresh").onclick=loadPorts;
+$("serial_port").onchange=()=>api("/api/set",{serial_port:$("serial_port").value})
+  .then(loadPorts).catch(e=>alertMsg(e.message));
+$("serial_baud").onchange=()=>api("/api/set",{serial_baud:$("serial_baud").value})
+  .then(loadPorts).catch(e=>alertMsg(e.message));
+
+async function refreshDiag(){
+  try{
+    const d=await api("/api/diagnostics");
+    const set=(id,t,ok)=>{const e=$(id);e.textContent=t;
+      e.className=ok===undefined?"":(ok?"ok":"no");};
+    set("d-running",d.running?"Active":"Idle",d.running);
+    set("d-fps",d.running?(d.fps>=45?"Excellent · "+d.fps.toFixed(0)+"/sec"
+      :d.fps>=25?"Good · "+d.fps.toFixed(0)+"/sec":"Slow · "+d.fps.toFixed(0)+"/sec")
+      :"—",d.running?d.fps>=25:undefined);
+    set("d-reach",d.wled_reachable?"Connected":"Not reachable",d.wled_reachable);
+    set("d-wleds",d.wled_led_count??"Unknown");
+    set("d-cap",d.capture_size||"—");
+    set("d-err",d.last_error?friendly(d.last_error):"None",!d.last_error);
+    set("d-left","light "+d.left_led); set("d-right","light "+d.right_led);
+    set("d-dir",d.reversed?"Right to left":"Left to right");
+    $("d-plugins").innerHTML=d.plugins.map(p=>
+      `<div class="kv"><span>${p.kind}: ${p.name}</span><b>${
+        p.active?"active":(p.available?"available":"absent")}</b></div>`).join("");
+  }catch(e){ alertMsg(e.message); }
+}
+function fillForm(){
+  ["wled_ip","monitor_index","led_count","pin","http_port"].forEach(k=>{
+    if(document.activeElement!==$(k)) $(k).value=cfg[k]??"";
+  });
+}
+(async()=>{
+  await refresh(); fillForm(); loadMeta(); loadPorts();
+  setInterval(async()=>{ if(!polling) return;
+    await refresh();
+    if(!document.querySelector('section[data-page=diag]').classList.contains("hide")) refreshDiag();
+  },1100);
+  setInterval(loadMeta,15000);
+})();
+document.addEventListener("visibilitychange",()=>{ polling=!document.hidden; });
+</script>
+</body>
+</html>
