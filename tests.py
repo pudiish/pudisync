@@ -284,6 +284,75 @@ def test_serial_api(base):
     get("/api/sync/off")
 
 
+def test_provision():
+    print("\n9. Flashing and provisioning")
+    from ambilight.provision import (build_packet, parse_packets, pick_binary,
+                                     wifi_packet, TYPE_RPC)
+
+    pkt = build_packet(TYPE_RPC, bytes([0x02, 0]))
+    check("Improv header is correct", pkt[:6] == b"IMPROV")
+    check("Improv version byte is 1", pkt[6] == 1)
+    check("Improv checksum is the 8-bit sum", pkt[-2] == (sum(pkt[:-2]) & 0xFF))
+    check("Improv packet ends with a newline", pkt[-1] == 0x0A)
+
+    wifi = wifi_packet("MyNet", "secret")
+    check("credentials are length-prefixed", b"MyNet" in wifi and b"secret" in wifi)
+    check("wifi packet checksum is valid", wifi[-2] == (sum(wifi[:-2]) & 0xFF))
+
+    parsed, _ = parse_packets(bytearray(pkt + wifi))
+    check("both packets parse back", len(parsed) == 2)
+    check("parsed packets verify", all(p["valid"] for p in parsed))
+    corrupt = bytearray(pkt)
+    corrupt[-2] ^= 0xFF
+    bad, _ = parse_packets(corrupt)
+    check("a corrupted checksum is rejected", bad and not bad[0]["valid"])
+
+    # Flashing the wrong variant bricks a board, so matching must be exact.
+    builds = [{"name": n} for n in (
+        "WLED_16.0.1_ESP01.bin", "WLED_16.0.1_ESP32.bin",
+        "WLED_16.0.1_ESP32-C3.bin", "WLED_16.0.1_ESP32-S2.bin",
+        "WLED_16.0.1_ESP32-S3_8MB_none.bin", "WLED_16.0.1_ESP32_Ethernet.bin")]
+    check("ESP8266 picks the ESP01 build",
+          pick_binary("esp8266", builds)["name"] == "WLED_16.0.1_ESP01.bin")
+    check("plain ESP32 does NOT pick a C3/S3 build",
+          pick_binary("esp32", builds)["name"] == "WLED_16.0.1_ESP32.bin",
+          pick_binary("esp32", builds)["name"])
+    check("ESP32-C3 picks its own build",
+          pick_binary("esp32-c3", builds)["name"] == "WLED_16.0.1_ESP32-C3.bin")
+    check("ESP32-S3 picks its own build",
+          "S3" in pick_binary("esp32-s3", builds)["name"])
+    check("an unknown chip yields no binary", pick_binary("rp2040", builds) is None)
+
+
+def test_provision_api(base):
+    print("\n10. Flash API")
+    def get(path):
+        with urllib.request.urlopen(base + path, timeout=3) as r:
+            return json.loads(r.read())
+
+    c = get("/api/flash/check")
+    check("flash readiness reports tooling", "esptool" in c and "pyserial" in c)
+
+    try:
+        urllib.request.urlopen(base + "/api/flash/start?port=&ssid=x", timeout=3)
+        check("a flash with no port is rejected", False)
+    except urllib.error.HTTPError as exc:
+        check("a flash with no port is rejected", exc.code == 400)
+
+    get("/api/flash/start?port=/dev/cu.not-a-real-board&ssid=TestNet&password=x")
+    deadline = time.time() + 20
+    st = {}
+    while time.time() < deadline:
+        st = get("/api/flash/status")
+        if st["state"] in ("done", "error"):
+            break
+        time.sleep(0.6)
+    check("a missing board ends in a clean error", st.get("state") == "error")
+    check("the error tells the user what to do",
+          "BOOT" in (st.get("error") or "") or "board" in (st.get("error") or "").lower())
+    check("the hub survives a failed flash", get("/api/status")["running"] in (True, False))
+
+
 def main():
     base = "http://127.0.0.1:8080"
     print("=" * 62)
@@ -294,6 +363,7 @@ def main():
     test_fade()
     test_zones()
     test_serial()
+    test_provision()
     try:
         urllib.request.urlopen(base + "/api/status", timeout=2)
     except Exception as exc:
@@ -302,6 +372,7 @@ def main():
         test_api(base)
         test_wizard(base)
         test_serial_api(base)
+        test_provision_api(base)
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")

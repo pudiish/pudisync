@@ -208,6 +208,20 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
 .sect .sbody{padding:18px}
 .sect .sbody.stage{padding:18px}
 
+/* ---------- flashing ---------- */
+.rowchk{display:flex;align-items:flex-start;gap:10px;font-size:12.5px;color:var(--dim);
+  line-height:1.45;margin-top:4px}
+.rowchk input{width:18px;height:18px;flex:none;margin:1px 0 0;accent-color:var(--brand)}
+.bar{height:6px;border-radius:4px;background:var(--surface-3);overflow:hidden;
+  border:1px solid var(--line);margin-bottom:13px}
+.bar i{display:block;height:100%;width:0;background:var(--grad);
+  transition:width .45s var(--ease)}
+.flog{font:11px/1.7 var(--mono);color:var(--faint);background:var(--surface-2);
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 13px;
+  max-height:150px;overflow-y:auto;margin-bottom:12px;white-space:pre-wrap}
+.flog b{color:var(--live);font-weight:600}
+.flog u{color:var(--bad);text-decoration:none}
+
 /* ---------- controls ---------- */
 .ctl{margin-bottom:20px}
 .ctl:last-child{margin-bottom:0}
@@ -405,6 +419,37 @@ details[open]>summary::before{transform:rotate(45deg)}
 
 <!-- ============ SETUP ============ -->
 <section data-page="wizard" class="hide">
+  <details class="panel sect" id="s-flash">
+    <summary><span class="sl">Set up a new controller</span>
+      <span class="sv" id="sum-flash">flash &amp; connect over USB</span></summary>
+    <div class="sbody">
+      <p class="note" style="margin:0 0 15px">Installs WLED on a brand-new board and
+        joins it to your Wi-Fi, all over the USB cable. You only do this once.</p>
+      <div id="flash-pre">
+        <div class="ctl"><div class="cr"><span class="cn">Board</span>
+          <span class="cv" id="flash-port-n"></span></div>
+          <select id="flash-port"></select>
+          <div class="cd" id="flash-porthint"></div></div>
+        <div class="ctl"><div class="cr"><span class="cn">Wi-Fi name</span></div>
+          <input type="text" id="flash-ssid" autocapitalize="off" autocorrect="off"
+                 spellcheck="false" placeholder="your 2.4GHz network">
+          <div class="cd">Must be 2.4GHz — an ESP8266 cannot join a 5GHz network.</div></div>
+        <div class="ctl"><div class="cr"><span class="cn">Wi-Fi password</span></div>
+          <input type="password" id="flash-pass" autocomplete="off"></div>
+        <label class="rowchk"><input type="checkbox" id="flash-erase" checked>
+          <span>Install WLED firmware (uncheck if the board already runs WLED)</span></label>
+        <button class="btn pri" id="flash-go" style="margin-top:14px">Start setup</button>
+        <p class="note" id="flash-warn"></p>
+      </div>
+      <div id="flash-run" class="hide">
+        <div class="bar"><i id="flash-bar"></i></div>
+        <div class="cen" id="flash-step">Starting…</div>
+        <div class="flog" id="flash-log"></div>
+        <button class="btn gh" id="flash-close" class="hide">Close</button>
+      </div>
+    </div>
+  </details>
+
   <div class="panel">
     <p class="note" style="margin:0">Run once at install, or after moving the strip.
       Your lights will change during setup — that's expected.</p>
@@ -581,7 +626,7 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   $("htitle").textContent = {home:"Ambilight",wizard:"Setup",settings:"Settings",diag:"Health"}[b.dataset.tab];
   if(b.dataset.tab==="diag") refreshDiag();
   if(b.dataset.tab==="settings") loadPorts();
-  if(b.dataset.tab==="wizard") startMarker();
+  if(b.dataset.tab==="wizard"){ startMarker(); flashCheck(); }
 });
 
 /* ---------- live strip ---------- */
@@ -1010,6 +1055,71 @@ $("serial_port").onchange=()=>api("/api/set",{serial_port:$("serial_port").value
   .then(loadPorts).catch(e=>alertMsg(e.message));
 $("serial_baud").onchange=()=>api("/api/set",{serial_baud:$("serial_baud").value})
   .then(loadPorts).catch(e=>alertMsg(e.message));
+
+/* ---------- flash & provision ---------- */
+let flashTimer=null;
+async function flashCheck(){
+  try{
+    const c=await api("/api/flash/check");
+    const sel=$("flash-port");
+    if(!c.ports.length){
+      sel.innerHTML='<option value="">No board detected</option>';
+      $("flash-porthint").textContent="Plug the controller in over USB. If nothing "+
+        "appears, install its driver (CP2102 or CH340) and tap Setup again.";
+    } else {
+      sel.innerHTML=c.ports.map(p=>`<option value="${p}">${p.replace("/dev/cu.","")}</option>`).join("");
+      $("flash-porthint").textContent="Pick your controller.";
+    }
+    $("flash-port-n").textContent=c.ports.length?c.ports.length+" found":"none";
+    const missing=[];
+    if(!c.esptool) missing.push("esptool");
+    if(!c.pyserial) missing.push("pyserial");
+    $("flash-warn").textContent = missing.length
+      ? "Install first:  python3 -m pip install "+missing.join(" ")
+      : "";
+    $("flash-go").disabled = missing.length>0;
+  }catch(e){}
+}
+$("flash-go").onclick=async()=>{
+  const port=$("flash-port").value, ssid=$("flash-ssid").value.trim();
+  if(!port){ alertMsg("No board selected. Plug it in and tap Setup again.","warn"); return; }
+  if(!ssid){ alertMsg("Enter your Wi-Fi name.","warn"); return; }
+  try{
+    await api("/api/flash/start",{port,ssid,password:$("flash-pass").value,
+      flash:$("flash-erase").checked?1:0});
+    $("flash-pre").classList.add("hide"); $("flash-run").classList.remove("hide");
+    pollFlash();
+  }catch(e){ alertMsg(e.message); }
+};
+function pollFlash(){
+  clearInterval(flashTimer);
+  flashTimer=setInterval(async()=>{
+    try{
+      const st=await api("/api/flash/status");
+      $("flash-bar").style.width=st.progress+"%";
+      $("flash-step").textContent=st.step||"Working…";
+      $("flash-log").innerHTML=(st.log||[]).map(l=>
+        /failed/i.test(l)?"<u>"+l+"</u>":l).join("\n");
+      $("flash-log").scrollTop=$("flash-log").scrollHeight;
+      if(st.state==="done"){
+        clearInterval(flashTimer);
+        $("flash-step").innerHTML="Done — board is on your network at <b>"+st.ip+"</b>";
+        $("flash-bar").style.width="100%";
+        try{ await api("/api/flash/adopt"); await refresh(); fillForm(); loadMeta(); }catch(e){}
+        $("flash-close").classList.remove("hide");
+      }
+      if(st.state==="error"){
+        clearInterval(flashTimer);
+        alertMsg(st.error||"Setup failed.");
+        $("flash-close").classList.remove("hide");
+      }
+    }catch(e){ clearInterval(flashTimer); }
+  },900);
+}
+$("flash-close").onclick=()=>{
+  $("flash-run").classList.add("hide"); $("flash-pre").classList.remove("hide");
+  $("flash-close").classList.add("hide"); flashCheck();
+};
 
 async function refreshDiag(){
   try{

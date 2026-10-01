@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import PROFILES
 from .plugins.capture_mss import MSSCapture
 from .plugins.output_serial import SerialOutput, list_ports, required_baud
+from .provision import Provisioner, esptool_available
 from .plugins.output_wled_udp import WLEDUDPOutput
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -161,6 +162,37 @@ class Handler(BaseHTTPRequestHandler):
                 "pyserial": _pyserial_available(),
             })
 
+        elif path == "/api/flash/check":
+            self._json({
+                "esptool": esptool_available(),
+                "pyserial": _pyserial_available(),
+                "ports": list_ports(),
+            })
+        elif path == "/api/flash/start":
+            port = one("port", "")
+            ssid = one("ssid", "")
+            if not port or not ssid:
+                self._json({"error": "a port and a Wi-Fi name are required"}, 400)
+                return
+            try:
+                hub.engine.stop()   # the cable cannot carry pixels and a flash at once
+                hub.provisioner.start(port, ssid, one("password", ""),
+                                      flash=one("flash", "1") != "0")
+            except RuntimeError as exc:
+                self._json({"error": str(exc)}, 409)
+                return
+            self._json(hub.provisioner.status())
+        elif path == "/api/flash/status":
+            self._json(hub.provisioner.status())
+        elif path == "/api/flash/adopt":
+            # Point the hub at the board that was just provisioned.
+            st = hub.provisioner.status()
+            if not st.get("ip"):
+                self._json({"error": "no address to adopt yet"}, 409)
+                return
+            hub.cfg.update({"wled_ip": st["ip"], "output": "udp"})
+            self._json(hub.status())
+
         elif path == "/api/diagnostics":
             self._json(hub.diagnostics())
         else:
@@ -175,6 +207,7 @@ class Hub:
         self.engine = engine
         self.wled = wled
         self.wizard = wizard
+        self.provisioner = Provisioner()
 
     def status(self):
         snap = self.cfg.snapshot()

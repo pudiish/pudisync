@@ -4,7 +4,8 @@ Screen-synced LED lighting for a WLED strip, driven from your phone's browser.
 Runs as one Python process on a Mac. No app, no cloud, no account — your home
 network only.
 
-![milestone](https://img.shields.io/badge/tests-78%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-97%20passing-brightgreen)
+![hardware](https://img.shields.io/badge/hardware%20sim-29%20scenarios-blue)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 - Captures a band across the bottom of your screen and streams it to the strip
@@ -12,6 +13,7 @@ network only.
 - Drag the screen region and each zone directly on an on-screen strip
 - Every control is also a plain URL, so iOS Shortcuts can drive it
 - Talks to WLED over **Wi-Fi (UDP)** or a **USB cable**
+- Flashes and provisions a brand-new ESP board from the UI, over USB
 
 ---
 
@@ -97,7 +99,37 @@ page reports it:
 The first run may raise "Do you want the application python3 to accept incoming
 network connections?" — choose **Allow**, or your phone cannot reach the page.
 
-## 3. Connect the controller
+## 3. One-click controller setup
+
+If your board is brand new, the **Setup** tab can do the whole thing over the USB
+cable — install WLED and join it to your Wi-Fi, with no hotspot step.
+
+```bash
+python3 -m pip install esptool pyserial
+```
+
+1. Plug the controller into the Mac over USB
+2. Open **Setup ▸ Set up a new controller**
+3. Pick the board, enter your Wi-Fi name and password, press **Start setup**
+
+It detects the chip, downloads the matching official WLED build, flashes it, then
+sends your credentials using **Improv Serial** — the protocol WLED supports for
+exactly this. When the board reports its address, the hub adopts it automatically.
+
+**Requirements and limits**
+
+- The network must be **2.4GHz**. ESP8266 cannot join 5GHz at all
+- Some boards need the **BOOT/FLASH** button held while plugging in to enter
+  flash mode. The error message tells you if that's the case
+- You may need a USB driver for the board's bridge chip (CP2102 or CH340)
+- Flashing erases the board. Any existing WLED settings are lost
+- If the board already runs WLED, untick "Install WLED firmware" and it only
+  does the Wi-Fi step
+
+Prefer doing it by hand? [install.wled.me](https://install.wled.me) is the
+official web installer and works just as well.
+
+## 4. Connect the controller
 
 ### Option A — Wi-Fi (recommended)
 
@@ -132,7 +164,7 @@ Not every USB bridge chip reaches 921600. If yours does not, use Wi-Fi.
 If the port disappears mid-session, the engine **falls back to Wi-Fi
 automatically** and says so rather than going dark.
 
-## 4. First-time setup
+## 5. Calibrate the strip
 
 Open the page on your phone and go to **Setup**:
 
@@ -146,7 +178,7 @@ Open the page on your phone and go to **Setup**:
 A strip wired right-to-left needs no special setting: assign the corners and the
 engine works out the direction.
 
-## 5. Zones
+## 6. Zones
 
 The strip is usually longer than the monitor. Zones give each stretch its own job:
 
@@ -160,11 +192,11 @@ The strip is usually longer than the monitor. Zones give each stretch its own jo
 Drag a zone's handles on the strip to resize it, or drag the dashed **screen
 region** itself. With no zones at all, the whole strip follows the screen.
 
-## 6. Add to your iPhone home screen
+## 7. Add to your iPhone home screen
 
 Safari ▸ **Share** ▸ **Add to Home Screen**. It then opens full-screen like an app.
 
-## 7. iOS Shortcuts
+## 8. iOS Shortcuts
 
 Every action is a plain URL. In Shortcuts, add **Get Contents of URL**:
 
@@ -178,7 +210,7 @@ http://<mac-ip>:8080/api/set?brightness=0.5
 
 With a PIN set, append `&pin=1234` (or send the `X-Ambilight-Pin` header).
 
-## 8. Start automatically at login
+## 9. Start automatically at login
 
 ```bash
 cp launchd/com.ambilight.hub.plist ~/Library/LaunchAgents/
@@ -198,17 +230,33 @@ Logs land in `~/Library/Logs/ambilight.log`.
 separate app for Screen Recording. Grant permission to the agent as well, or run
 it from Terminal instead.
 
-## 9. Testing without hardware
+## 10. Testing without hardware
 
 ```bash
 python3 fake_wled.py       # pretends to be a WLED controller
 python3 ambilight.py       # point its config at 127.0.0.1
-python3 tests.py           # 78 acceptance tests
+python3 tests.py           # 97 acceptance tests
+python3 hardware_sim.py    # 29 hardware failure scenarios
 ```
 
 `fake_wled.py` prints every packet it receives and flags protocol violations.
 
-## 10. Performance
+`hardware_sim.py` simulates a real strip and puts the hub through the failures
+you would otherwise only find on your desk:
+
+| Scenario | What it proves |
+|---|---|
+| `steady` | The stream is continuous and well formed |
+| `reboot` | A controller that loses power recovers with no restart |
+| `flaky` | 30% packet loss does not stall the engine |
+| `short` | A strip shorter than configured degrades harmlessly |
+| `power` | Brightness really is a power budget; brownout is detected |
+| `release` | Stopping hands the strip back to WLED |
+| `reversed` | A right-to-left strip still maps correctly |
+
+See [docs/wiring.md](docs/wiring.md) for diagrams and a pre-power checklist.
+
+## 11. Performance
 
 Measured on an Apple Silicon Mac, 240 LEDs:
 

@@ -1,3 +1,7 @@
 mss>=9.0
 numpy>=1.24
-pyserial>=3.5   # optional: only needed for USB output
+
+# Optional. Only needed for USB output and for flashing a board from the UI.
+pyserial>=3.5
+esptool>=4.7
+certifi>=2024.2
