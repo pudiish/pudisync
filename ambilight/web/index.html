@@ -436,9 +436,14 @@ details[open]>summary::before{transform:rotate(45deg)}
           <div class="cd">Must be 2.4GHz — an ESP8266 cannot join a 5GHz network.</div></div>
         <div class="ctl"><div class="cr"><span class="cn">Wi-Fi password</span></div>
           <input type="password" id="flash-pass" autocomplete="off"></div>
-        <label class="rowchk"><input type="checkbox" id="flash-erase" checked>
-          <span>Install WLED firmware (uncheck if the board already runs WLED)</span></label>
-        <button class="btn pri" id="flash-go" style="margin-top:14px">Start setup</button>
+        <label class="rowchk"><input type="checkbox" id="flash-erase">
+          <span><b>Install WLED firmware</b> — only for a new board. This erases
+          everything already on it.</span></label>
+        <div class="alert warn hide" id="erase-warn" style="margin:13px 0 0">
+          <b>This wipes the board.</b> Its firmware, saved Wi-Fi, LED count,
+          segments and presets are all erased and cannot be recovered.
+          Leave this unticked if the board already runs WLED.</div>
+        <button class="btn pri" id="flash-go" style="margin-top:14px">Connect to Wi-Fi</button>
         <p class="note" id="flash-warn"></p>
       </div>
       <div id="flash-run" class="hide">
@@ -1080,10 +1085,19 @@ async function flashCheck(){
     $("flash-go").disabled = missing.length>0;
   }catch(e){}
 }
+$("flash-erase").onchange=()=>{
+  const erasing=$("flash-erase").checked;
+  $("erase-warn").classList.toggle("hide",!erasing);
+  $("flash-go").textContent = erasing ? "Erase & install WLED" : "Connect to Wi-Fi";
+};
 $("flash-go").onclick=async()=>{
   const port=$("flash-port").value, ssid=$("flash-ssid").value.trim();
   if(!port){ alertMsg("No board selected. Plug it in and tap Setup again.","warn"); return; }
   if(!ssid){ alertMsg("Enter your Wi-Fi name.","warn"); return; }
+  if($("flash-erase").checked &&
+     !confirm("Erase this board completely and install WLED?\n\n"+
+              "Its firmware, Wi-Fi settings, LED count, segments and presets "+
+              "will all be lost. This cannot be undone.")) return;
   try{
     await api("/api/flash/start",{port,ssid,password:$("flash-pass").value,
       flash:$("flash-erase").checked?1:0});

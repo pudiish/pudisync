@@ -352,6 +352,19 @@ def test_provision_api(base):
           "BOOT" in (st.get("error") or "") or "board" in (st.get("error") or "").lower())
     check("the hub survives a failed flash", get("/api/status")["running"] in (True, False))
 
+    # Erasing a board is irreversible, so it must never be the default.
+    get("/api/flash/start?port=/dev/cu.not-a-real-board&ssid=TestNet")
+    time.sleep(2.5)
+    log = " ".join(get("/api/flash/status").get("log", []))
+    check("erase is NOT the default", "Erasing" not in log and "Writing WLED" not in log,
+          log[:70])
+    check("the safe default goes straight to Wi-Fi", "Wi-Fi" in log, log[:70])
+
+    get("/api/flash/start?port=/dev/cu.not-a-real-board&ssid=TestNet&flash=1")
+    time.sleep(2.5)
+    log = " ".join(get("/api/flash/status").get("log", []))
+    check("flash=1 does take the firmware path", "Looking for the board" in log, log[:70])
+
 
 def main():
     base = "http://127.0.0.1:8080"

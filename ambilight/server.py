@@ -177,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 hub.engine.stop()   # the cable cannot carry pixels and a flash at once
                 hub.provisioner.start(port, ssid, one("password", ""),
-                                      flash=one("flash", "1") != "0")
+                                      flash=one("flash", "0") == "1")
             except RuntimeError as exc:
                 self._json({"error": str(exc)}, 409)
                 return

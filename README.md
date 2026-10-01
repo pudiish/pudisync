@@ -122,9 +122,12 @@ exactly this. When the board reports its address, the hub adopts it automaticall
 - Some boards need the **BOOT/FLASH** button held while plugging in to enter
   flash mode. The error message tells you if that's the case
 - You may need a USB driver for the board's bridge chip (CP2102 or CH340)
-- Flashing erases the board. Any existing WLED settings are lost
-- If the board already runs WLED, untick "Install WLED firmware" and it only
-  does the Wi-Fi step
+- **"Install WLED firmware" is off by default, and for good reason.** Ticking it
+  runs a full chip erase: the firmware, saved Wi-Fi, LED count, segments and
+  presets are all destroyed and cannot be recovered. The UI asks you to confirm
+- With it unticked, nothing is erased — the board keeps its firmware and settings
+  and only receives the new Wi-Fi credentials. This is what you want for a board
+  that already runs WLED
 
 Prefer doing it by hand? [install.wled.me](https://install.wled.me) is the
 official web installer and works just as well.
