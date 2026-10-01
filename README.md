@@ -23,6 +23,49 @@ network only.
 | Controller | ESP8266 / ESP32 running [WLED](https://kno.wled.ge) |
 | Strip | WS2812B or similar addressable strip |
 | Python | 3.9 or newer |
+| Level shifter | **Recommended** — see below |
+| Power supply | 5V, sized for your strip — see below |
+
+### Do I need a level shifter?
+
+**Strictly, yes.** The ESP8266 and ESP32 drive their GPIO pins at **3.3V**, but
+the WS2812B datasheet wants at least **0.7 x VDD** on the data line — that is
+**3.5V** when the strip runs at 5V. 3.3V is below spec.
+
+It often *appears* to work anyway, which is why so many guides skip it. What you
+get instead is intermittent trouble: the first LED flickering, random colour
+glitches, or a strip that behaves until it warms up or the data wire gets longer.
+
+[WLED recommends](https://kno.wled.ge/basics/compatible-hardware/) the
+**SN74AHCT125** (the common choice) or **SN74HCT245**. The SN74HCT125N is a
+cheaper, slower alternative that is fine for WS2812B.
+
+Avoid: I2C shifters (too slow for addressable LEDs) and bidirectional types like
+the TXS0102/TXS0108, which only work on data lines under ~50cm.
+
+You can skip the shifter if you are only testing, or if your board already has
+one built in — many commercial WLED controllers (QuinLED, Athom) include it.
+
+### Power
+
+A WS2812B draws roughly **60mA at full white**, so a 240-LED strip is:
+
+| Scenario | Current at 5V | Power |
+|---|---|---|
+| Full white, every LED | ~14.4 A | ~72 W |
+| Typical ambilight use | ~5 A | ~25 W |
+
+Notes:
+
+- **Do not power a strip of this size from the ESP's USB port.** Use a dedicated
+  5V supply rated above your worst case, and join the grounds of the supply, the
+  strip and the controller
+- Over a 4m run the far end will look dim and tinted red as voltage drops along
+  the copper. Fix it with **power injection**: run 5V and ground to the far end
+  (and ideally the middle) as well as the start
+- The **Brightness** slider is also your power budget. Capping it near 50% roughly
+  halves the current draw. WLED has its own current limiter under
+  **Config ▸ LED Preferences**; set the milliamp figure to match your supply
 
 ## 2. Install
 
