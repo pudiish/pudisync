@@ -430,10 +430,13 @@ details[open]>summary::before{transform:rotate(45deg)}
           <span class="cv" id="flash-port-n"></span></div>
           <select id="flash-port"></select>
           <div class="cd" id="flash-porthint"></div></div>
-        <div class="ctl"><div class="cr"><span class="cn">Wi-Fi name</span></div>
-          <input type="text" id="flash-ssid" autocapitalize="off" autocorrect="off"
-                 spellcheck="false" placeholder="your 2.4GHz network">
-          <div class="cd">Must be 2.4GHz — an ESP8266 cannot join a 5GHz network.</div></div>
+        <div class="ctl"><div class="cr"><span class="cn">Wi-Fi network</span>
+          <button class="act" id="ssid-rescan" type="button">Refresh</button></div>
+          <select id="flash-ssid-sel"></select>
+          <input type="text" id="flash-ssid" class="hide" autocapitalize="off"
+                 autocorrect="off" spellcheck="false" placeholder="network name"
+                 style="margin-top:9px">
+          <div class="cd" id="ssid-hint">Networks this Mac remembers.</div></div>
         <div class="ctl"><div class="cr"><span class="cn">Wi-Fi password</span></div>
           <input type="password" id="flash-pass" autocomplete="off"></div>
         <label class="rowchk"><input type="checkbox" id="flash-erase">
@@ -1063,6 +1066,44 @@ $("serial_baud").onchange=()=>api("/api/set",{serial_baud:$("serial_baud").value
 
 /* ---------- flash & provision ---------- */
 let flashTimer=null;
+const MANUAL="\u0000manual";
+function currentSsid(){
+  const sel=$("flash-ssid-sel").value;
+  return (sel===MANUAL ? $("flash-ssid").value : sel).trim();
+}
+async function loadNetworks(){
+  try{
+    const d=await api("/api/flash/networks");
+    const sel=$("flash-ssid-sel");
+    const opts=d.networks.map(n=>{
+      const tag=n.current?" (connected)":(n.likely_5ghz?"  5GHz":"");
+      return `<option value="${n.ssid.replace(/"/g,"&quot;")}">${n.ssid}${tag}</option>`;
+    });
+    opts.push(`<option value="${MANUAL}">Type it manually…</option>`);
+    sel.innerHTML=opts.join("");
+    if(d.current) sel.value=d.current;
+    ssidChanged();
+  }catch(e){
+    $("flash-ssid-sel").innerHTML=`<option value="${MANUAL}">Type it manually…</option>`;
+    ssidChanged();
+  }
+}
+function ssidChanged(){
+  const sel=$("flash-ssid-sel").value;
+  const manual=(sel===MANUAL);
+  $("flash-ssid").classList.toggle("hide",!manual);
+  const name=currentSsid();
+  const fiveGhz=/(^|[^a-z0-9])5\s*-?\s*(g|ghz)([^a-z0-9]|$)/i.test(name);
+  $("ssid-hint").textContent = manual
+    ? "Enter the exact name, including capitals."
+    : (fiveGhz
+        ? "This looks like a 5GHz network. An ESP8266 cannot join 5GHz — pick the "+
+          "2.4GHz version of it instead."
+        : "Networks this Mac remembers. Must be 2.4GHz.");
+}
+$("flash-ssid-sel").onchange=ssidChanged;
+$("flash-ssid").oninput=ssidChanged;
+$("ssid-rescan").onclick=loadNetworks;
 async function flashCheck(){
   try{
     const c=await api("/api/flash/check");
@@ -1091,7 +1132,7 @@ $("flash-erase").onchange=()=>{
   $("flash-go").textContent = erasing ? "Erase & install WLED" : "Connect to Wi-Fi";
 };
 $("flash-go").onclick=async()=>{
-  const port=$("flash-port").value, ssid=$("flash-ssid").value.trim();
+  const port=$("flash-port").value, ssid=currentSsid();
   if(!port){ alertMsg("No board selected. Plug it in and tap Setup again.","warn"); return; }
   if(!ssid){ alertMsg("Enter your Wi-Fi name.","warn"); return; }
   if($("flash-erase").checked &&

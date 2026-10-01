@@ -326,3 +326,71 @@ class Provisioner:
         raise RuntimeError(
             "The board did not confirm a Wi-Fi connection. Check the network name "
             "and password, and that it is a 2.4GHz network -- ESP8266 cannot use 5GHz.")
+
+
+# --- Wi-Fi network discovery ------------------------------------------------
+# macOS removed the `airport` binary that used to do live scans, so we offer the
+# networks this Mac already remembers. The target network is almost certainly
+# among them, since the Mac is on it.
+_FIVE_GHZ_HINT = re.compile(r"(^|[^a-z0-9])5\s*-?\s*(g|ghz)([^a-z0-9]|$)", re.I)
+
+
+def _wifi_interfaces():
+    try:
+        out = subprocess.run(["/usr/sbin/networksetup", "-listallhardwareports"],
+                             capture_output=True, text=True, timeout=8).stdout
+    except Exception:
+        return []
+    interfaces, want = [], False
+    for line in out.splitlines():
+        if "Wi-Fi" in line or "AirPort" in line:
+            want = True
+        elif want and line.startswith("Device:"):
+            interfaces.append(line.split(":", 1)[1].strip())
+            want = False
+    return interfaces
+
+
+def current_network():
+    """The SSID this Mac is on right now, or None if it is not on Wi-Fi."""
+    for iface in _wifi_interfaces():
+        try:
+            out = subprocess.run(
+                ["/usr/sbin/networksetup", "-getairportnetwork", iface],
+                capture_output=True, text=True, timeout=8).stdout.strip()
+        except Exception:
+            continue
+        if ":" in out and "not associated" not in out.lower():
+            return out.split(":", 1)[1].strip()
+    return None
+
+
+def known_networks():
+    """Networks this Mac remembers, current one first.
+
+    Each entry is flagged if its name suggests 5GHz -- an ESP8266 cannot join
+    those, and it is the most common reason provisioning fails.
+    """
+    names = []
+    for iface in _wifi_interfaces():
+        try:
+            out = subprocess.run(
+                ["/usr/sbin/networksetup", "-listpreferredwirelessnetworks", iface],
+                capture_output=True, text=True, timeout=8).stdout
+        except Exception:
+            continue
+        for line in out.splitlines()[1:]:
+            ssid = line.strip()
+            if ssid and ssid not in names:
+                names.append(ssid)
+
+    current = current_network()
+    if current and current in names:
+        names.remove(current)
+    ordered = ([current] if current else []) + names
+    return {
+        "current": current,
+        "networks": [{"ssid": n, "likely_5ghz": bool(_FIVE_GHZ_HINT.search(n)),
+                      "current": n == current}
+                     for n in ordered],
+    }

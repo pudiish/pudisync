@@ -286,8 +286,15 @@ def test_serial_api(base):
 
 def test_provision():
     print("\n9. Flashing and provisioning")
-    from ambilight.provision import (build_packet, parse_packets, pick_binary,
-                                     wifi_packet, TYPE_RPC)
+    from ambilight.provision import (_FIVE_GHZ_HINT, build_packet, parse_packets,
+                                     pick_binary, wifi_packet, TYPE_RPC)
+
+    # An ESP8266 cannot join 5GHz, so flagging those names prevents the most
+    # common provisioning failure.
+    for name in ("FTTH-5G", "Sri Krishna 3F_5G", "Home 5GHz", "Net_5ghz"):
+        check(f"{name!r} flagged as 5GHz", bool(_FIVE_GHZ_HINT.search(name)))
+    for name in ("JioFiber-Ishwar", "PUDI", "Jai shree ram_2.4GHz", "G5 Network"):
+        check(f"{name!r} not falsely flagged", not _FIVE_GHZ_HINT.search(name))
 
     pkt = build_packet(TYPE_RPC, bytes([0x02, 0]))
     check("Improv header is correct", pkt[:6] == b"IMPROV")
@@ -364,6 +371,14 @@ def test_provision_api(base):
     time.sleep(2.5)
     log = " ".join(get("/api/flash/status").get("log", []))
     check("flash=1 does take the firmware path", "Looking for the board" in log, log[:70])
+
+    nets = get("/api/flash/networks")
+    check("remembered networks are offered", isinstance(nets.get("networks"), list))
+    check("each network carries a 5GHz flag",
+          all("likely_5ghz" in n and "ssid" in n for n in nets["networks"]))
+    if nets["current"]:
+        check("the connected network is listed first",
+              nets["networks"][0]["ssid"] == nets["current"])
 
 
 def main():

@@ -110,7 +110,8 @@ python3 -m pip install esptool pyserial
 
 1. Plug the controller into the Mac over USB
 2. Open **Setup ▸ Set up a new controller**
-3. Pick the board, enter your Wi-Fi name and password, press **Start setup**
+3. Pick the board and your Wi-Fi network from the dropdowns, enter the password,
+   and press the button
 
 It detects the chip, downloads the matching official WLED build, flashes it, then
 sends your credentials using **Improv Serial** — the protocol WLED supports for
@@ -118,7 +119,8 @@ exactly this. When the board reports its address, the hub adopts it automaticall
 
 **Requirements and limits**
 
-- The network must be **2.4GHz**. ESP8266 cannot join 5GHz at all
+- The network must be **2.4GHz**. ESP8266 cannot join 5GHz at all — the network
+  dropdown lists what this Mac remembers and marks the ones that look like 5GHz
 - Some boards need the **BOOT/FLASH** button held while plugging in to enter
   flash mode. The error message tells you if that's the case
 - You may need a USB driver for the board's bridge chip (CP2102 or CH340)

@@ -8,7 +8,7 @@ from pathlib import Path
 from .config import PROFILES
 from .plugins.capture_mss import MSSCapture
 from .plugins.output_serial import SerialOutput, list_ports, required_baud
-from .provision import Provisioner, esptool_available
+from .provision import Provisioner, esptool_available, known_networks
 from .plugins.output_wled_udp import WLEDUDPOutput
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -168,6 +168,8 @@ class Handler(BaseHTTPRequestHandler):
                 "pyserial": _pyserial_available(),
                 "ports": list_ports(),
             })
+        elif path == "/api/flash/networks":
+            self._json(known_networks())
         elif path == "/api/flash/start":
             port = one("port", "")
             ssid = one("ssid", "")
