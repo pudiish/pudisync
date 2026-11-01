@@ -25,7 +25,8 @@ PASS, FAIL = [], []
 
 def check(name, cond, detail=""):
     (PASS if cond else FAIL).append(name)
-    print(f"  [{'PASS' if cond else 'FAIL'}] {name}" + (f"  -- {detail}" if detail else ""))
+    shown = not (isinstance(detail, str) and not detail)
+    print(f"  [{'PASS' if cond else 'FAIL'}] {name}" + (f"  -- {detail}" if shown else ""))
 
 
 def sniff(port, expect, send):
@@ -90,14 +91,14 @@ def test_mapping():
 
     m = processing.build_mapping(240, 10, 110, W)
     z = processing.zone_colors(band, m)
-    check("normal: screen-left maps to left_led (red)", tuple(z[0].astype(int)) == (255, 0, 0))
-    check("normal: screen-right maps to right_led (blue)", tuple(z[-1].astype(int)) == (0, 0, 255))
+    check("normal: screen-left maps to left_led (red)", np.allclose(z[0], (1, 0, 0)))
+    check("normal: screen-right maps to right_led (blue)", np.allclose(z[-1], (0, 0, 1)))
 
     r = processing.build_mapping(240, 110, 10, W)
     zr = processing.zone_colors(band, r)
     # Strip order runs lo..hi; with left_led=110 the strip START (LED 10) is screen RIGHT.
-    check("reversed: LED 10 shows screen-right (blue)", tuple(zr[0].astype(int)) == (0, 0, 255))
-    check("reversed: LED 110 shows screen-left (red)", tuple(zr[-1].astype(int)) == (255, 0, 0))
+    check("reversed: LED 10 shows screen-right (blue)", np.allclose(zr[0], (0, 0, 1)))
+    check("reversed: LED 110 shows screen-left (red)", np.allclose(zr[-1], (1, 0, 0)))
     check("reversed is the mirror of normal", np.array_equal(zr, z[::-1]))
 
     check("auto-detect: left>right flagged reversed", 110 > 10)
@@ -282,6 +283,24 @@ def test_api(base):
     check("/api/set changes a value live", abs(s["saturation"] - 1.8) < 0.01)
     s = get("/api/set?fps=9999")
     check("/api/set clamps out-of-range input", s["fps"] <= 120, f"fps={s['fps']}")
+
+    check("status reports the steady output rate", s.get("output_fps", 0) > 20,
+          s.get("output_fps"))
+    with urllib.request.urlopen(base + "/calibrate", timeout=3) as r:
+        page = r.read().decode()
+    check("the calibration page is served", "Match the strip" in page)
+
+    def missing(path):
+        try:
+            urllib.request.urlopen(base + path, timeout=3)
+        except urllib.error.HTTPError as exc:
+            return exc.code == 404
+        return False
+
+    check("replaying an unknown recording is a clean 404",
+          missing("/api/record/replay?file=nope.npz"))
+    check("replay cannot be pointed outside the recordings folder",
+          missing("/api/record/replay?file=../config.json"))
 
     d = get("/api/diagnostics")
     check("diagnostics lists plugins", len(d["plugins"]) >= 4)
@@ -621,12 +640,20 @@ def test_letterbox():
 
     tracker = _PictureTracker()
     bars = strip(bottom_black=150)
-    check("one odd detection is not trusted yet", tracker.update(bars) == (0, 0, W))
-    check("the same detection twice is trusted", tracker.update(bars)[0] >= 144)
-    check("a single flicker back to full screen is ignored",
+    n = _PictureTracker.CONFIRM
+    for _ in range(n - 1):
+        tracker.update(bars)
+    check("a few detections are not trusted yet", tracker.applied == (0, 0, W), tracker.applied)
+    check("about a second of agreement is trusted", tracker.update(bars)[0] >= 144)
+    check("a brief flicker back to full screen is ignored",
           tracker.update(strip())[0] >= 144)
-    tracker.update(strip())
-    check("a lasting change is followed", tracker.update(strip())[0] == 0)
+    dark = np.zeros((H, W, 3), dtype=np.uint8)
+    for _ in range(n * 3):
+        tracker.update(dark)
+    check("a long dark scene never moves the bars", tracker.applied[0] >= 144, tracker.applied)
+    for _ in range(n):
+        tracker.update(strip())
+    check("a lasting change is followed", tracker.applied[0] == 0, tracker.applied)
 
 
 def test_frame_layout():
@@ -645,14 +672,14 @@ def test_frame_layout():
     edges = {"bottom": ramp(W, True), "top": ramp(W, True),
              "left": ramp(H, False), "right": ramp(H, False)}
     out = frame_colors(edges, (36, 20, 36, 20))
-    lum = out.mean(axis=1)
+    lum = out.mean(axis=1) * 255
     check("one colour per LED around the frame", out.shape == (112, 3), out.shape)
 
     bottom, right, top, left = lum[:36], lum[36:56], lum[56:92], lum[92:]
-    check("bottom runs left to right", bottom[0] < 10 and bottom[-1] > 245, (bottom[0], bottom[-1]))
-    check("right runs bottom to top", right[0] > 235 and right[-1] < 20, (right[0], right[-1]))
-    check("top runs right to left", top[0] > 245 and top[-1] < 10, (top[0], top[-1]))
-    check("left runs top to bottom", left[0] < 20 and left[-1] > 235, (left[0], left[-1]))
+    check("bottom runs left to right", bottom[0] < 10 and bottom[-1] > 230, (bottom[0], bottom[-1]))
+    check("right runs bottom to top", right[0] > 220 and right[-1] < 20, (right[0], right[-1]))
+    check("top runs right to left", top[0] > 230 and top[-1] < 10, (top[0], top[-1]))
+    check("left runs top to bottom", left[0] < 20 and left[-1] > 220, (left[0], left[-1]))
 
     from ambilight.processing import slice_edges
     screen = np.zeros((H, W, 3), dtype=np.uint8)
@@ -680,7 +707,8 @@ def test_frame_layout():
     check("more LEDs than the side is long never exceeds 100%", coverage(40, 16.7, 597) == 1.0)
 
     half = frame_colors(edges, (36, 20, 36, 20), coverage=(1.0, 0.5, 1.0, 1.0))
-    right_half = half[36:56].mean(axis=1)
+    from ambilight.color import linear_to_srgb
+    right_half = linear_to_srgb(half[36:56]).mean(axis=1) * 255
     check("a short side starts a quarter of the way up the edge",
           abs(right_half[0] - 191) < 12, right_half[0])
     check("a short side stops three quarters of the way up",
@@ -733,6 +761,159 @@ def test_frame_layout():
           find_frame(np.zeros((H, W, 3), dtype=np.uint8)) == (0, H, 0, W))
 
 
+def test_color_engine():
+    print("\n12. Colour engine (linear light, hue-safe saturation, LED gamma)")
+    from ambilight import color, processing as pr
+
+    srgb = np.linspace(0, 1, 11, dtype=np.float32)
+    check("sRGB -> linear -> sRGB round-trips",
+          np.allclose(color.linear_to_srgb(color.srgb_to_linear(srgb)), srgb, atol=1e-3))
+
+    # Half black, half white averages to half the LIGHT, not half the code value.
+    band = np.zeros((24, 100, 3), np.uint8)
+    band[:, 50:] = 255
+    m = {"starts": np.array([0]), "stops": np.array([100])}
+    mean = pr.zone_colors(band, m)[0]
+    check("averaging happens in linear light", np.allclose(mean, 0.5, atol=0.01), mean)
+    check("which reads brighter than a naive average",
+          color.linear_to_srgb(mean)[0] > 0.7, color.linear_to_srgb(mean))
+
+    # A coloured object on a grey edge should win the LED, not wash out.
+    band = np.full((24, 100, 3), 128, np.uint8)
+    band[:, :30] = (230, 30, 30)
+    plain = pr.zone_colors(band, m)[0]
+    weighted = pr.zone_colors(band, m, colour_weight=0.6)[0]
+    check("colour weighting favours the coloured pixels",
+          weighted[0] / weighted.sum() > plain[0] / plain.sum(), (plain, weighted))
+
+    cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 2.0,
+           "led_gamma": 1.5, "black_level": 0.03}
+    orange = color.srgb_to_linear(np.array([[0.9, 0.5, 0.2]], np.float32))
+    graded = color.grade(orange, cfg)
+    h_in = color.rgb_to_hsv(np.array([[0.9, 0.5, 0.2]], np.float32))[0, 0]
+    h_out = color.rgb_to_hsv(graded)[0, 0]
+    check("a saturation boost keeps the hue", abs(h_in - h_out) < 0.01, (h_in, h_out))
+    check("and never pushes a channel out of range", graded.min() >= 0 and graded.max() <= 1)
+    check("it does make the colour more saturated",
+          color.rgb_to_hsv(graded)[0, 1] > color.rgb_to_hsv(np.array([[0.9, 0.5, 0.2]]))[0, 1])
+
+    grey = color.grade(color.srgb_to_linear(np.array([[0.5, 0.5, 0.5]], np.float32)), cfg)
+    check("grey stays grey", np.ptp(grey) < 1e-3, grey)
+    murk = np.array([[0.07, 0.05, 0.06]], np.float32)
+    murk_out = color.grade(color.srgb_to_linear(murk), cfg)
+    check("dark murky pixels are not boosted into colour",
+          color.rgb_to_hsv(murk_out)[0, 1] <= color.rgb_to_hsv(murk)[0, 1] + 1e-3,
+          (color.rgb_to_hsv(murk)[0, 1], color.rgb_to_hsv(murk_out)[0, 1]))
+
+    warm = dict(cfg, saturation=1.0, wb_g=0.9, wb_b=0.8)
+    white = color.grade(np.ones((1, 3), np.float32), warm)[0]
+    check("white balance tints white", white[0] > white[1] > white[2], white)
+
+    led = color.to_led(np.array([[0.5, 0.5, 0.5]], np.float32), cfg)[0]
+    check("LED gamma darkens mid tones", abs(led[0] - 255 * 0.5 ** 1.5) < 1, led)
+    check("full white stays full", np.allclose(color.to_led(np.ones((1, 3)), cfg), 255))
+    near_black = color.to_led(np.array([[0.01, 0.01, 0.01]], np.float32), cfg)
+    check("near-black fades out instead of glowing", near_black.max() == 0, near_black)
+    above = color.to_led(np.array([[0.2, 0.2, 0.2]], np.float32), cfg)
+    check("a dim but real colour is kept", above.min() > 0, above)
+
+    row = np.zeros((5, 3), np.float32)
+    row[2] = 1.0
+    blurred = pr.spread(row, 0.4)
+    check("spreading lets neighbours share a little light",
+          blurred[1, 0] > 0 and blurred[3, 0] > 0 and blurred[2, 0] < 1, blurred[:, 0])
+    check("spreading conserves the light", abs(blurred.sum() - row.sum()) < 1e-5)
+    ring = np.zeros((5, 3), np.float32)
+    ring[0] = 1.0
+    check("a ring wraps round the start corner", pr.spread(ring, 0.4, ring=True)[4, 0] > 0)
+    check("a plain strip does not wrap", pr.spread(ring, 0.4)[4, 0] == 0)
+
+
+def test_smoothing():
+    print("\n13. Temporal smoothing (spring, scene cuts, flash limit, anti-flicker)")
+    from ambilight.smoothing import Quantizer, Smoother, settle_seconds
+
+    check("Response 0.35 settles in about a third of a second",
+          0.25 < settle_seconds(0.35) < 0.4, settle_seconds(0.35))
+    check("Instant settles in well under 0.1s", settle_seconds(1.0) < 0.1)
+    check("Glide settles slower than Quick", settle_seconds(0.2) > settle_seconds(0.7))
+
+    def run(step_hz, seconds, settle=0.3, start=0.0, end=1.0, leds=4):
+        sm = Smoother()
+        sm.set_target(np.full((leds, 3), start, np.float32), 0.0)
+        sm.step(0.0, settle)
+        sm.set_target(np.full((leds, 3), end, np.float32), 0.0)
+        out, trace = None, []
+        for i in range(1, round(seconds * step_hz) + 1):
+            out = sm.step(i / step_hz, settle)
+            trace.append(out[0, 0])
+        return out, trace
+
+    # Downward, so the flash limit (which only caps rises) stays out of it.
+    a, _ = run(60, 0.2, start=1.0, end=0.0)
+    b, _ = run(30, 0.2, start=1.0, end=0.0)
+    check("timing does not depend on the frame rate", abs(a[0, 0] - b[0, 0]) < 0.03,
+          (a[0, 0], b[0, 0]))
+    settled, trace = run(60, 0.6)
+    check("it reaches the target", settled[0, 0] > 0.97, settled[0, 0])
+    check("it never overshoots", max(trace) <= 1.0 + 1e-6, max(trace))
+    _, rise = run(60, 0.1, settle=0.05)
+    check("a flash cannot jump to full brightness in one frame", rise[0] < 0.2, rise[0])
+
+    sm = Smoother()
+    sm.set_target(np.zeros((4, 3), np.float32), 0.0)
+    sm.step(0.0, 0.4)
+    sm.set_target(np.full((4, 3), 0.02, np.float32), 0.0)
+    check("a small change is not a scene cut", not sm.cutting(0.01))
+    sm.set_target(np.full((4, 3), 0.8, np.float32), 0.02)
+    check("a big change is a scene cut", sm.cutting(0.03))
+    cut_fast = Smoother()
+    cut_fast.set_target(np.full((4, 3), 0.5, np.float32), 0.0)
+    cut_fast.step(0.0, 0.4)
+    cut_fast.set_target(np.full((4, 3), 0.1, np.float32), 0.0)
+    slow = Smoother()
+    slow.set_target(np.full((4, 3), 0.5, np.float32), 0.0)
+    slow.step(0.0, 0.4)
+    slow.set_target(np.full((4, 3), 0.45, np.float32), 0.0)
+    for t in np.arange(1, 7) / 60:
+        fast_out, slow_out = cut_fast.step(t, 0.4), slow.step(t, 0.4)
+    fast_share = (0.5 - fast_out[0, 0]) / 0.4
+    slow_share = (0.5 - slow_out[0, 0]) / 0.05
+    check("scene cuts move faster than small drifts", fast_share > slow_share,
+          (round(float(fast_share), 2), round(float(slow_share), 2)))
+
+    q = Quantizer()
+    held = [q.apply(np.array([[100.5 + 0.4 * (-1) ** i] * 3], np.float32))[0, 0]
+            for i in range(10)]
+    check("tiny wobble never flickers the LED", len(set(held[1:])) == 1, held)
+    moved = q.apply(np.array([[110.0, 110.0, 110.0]], np.float32))[0]
+    check("a real change still gets through", tuple(moved) == (110, 110, 110), moved)
+    check("the quantizer emits wire bytes", moved.dtype == np.uint8)
+
+
+def test_recorder():
+    print("\n14. Frame recorder and replay")
+    import os, tempfile
+    from ambilight.recorder import Recorder, replay
+
+    path = os.path.join(tempfile.mkdtemp(), "rec.npz")
+    rec = Recorder(path, seconds=10, now=0.0)
+    rng = np.random.default_rng(1)
+    for i in range(30):
+        rec.add(i / 30, rng.random((6, 3), dtype=np.float32))
+    rec.save()
+    check("a recording is written", os.path.exists(path))
+
+    cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 1.2, "led_gamma": 1.5,
+           "black_level": 0.03, "blend": 0.35, "spread": 0.0, "brightness": 1.0}
+    first, stats = replay(path, cfg)
+    second, _ = replay(path, cfg)
+    check("replay is deterministic", np.array_equal(first, second))
+    check("replay yields one frame per recorded frame", first.shape == (30, 6, 3), first.shape)
+    check("replay reports a flicker figure", "flicker" in stats, stats)
+    check("a recording stops itself after its length", Recorder(path, 1, 0.0).add(2.0, first[0]) is False)
+
+
 def main():
     base = "http://127.0.0.1:8080"
     print("=" * 62)
@@ -746,6 +927,9 @@ def main():
     test_provision()
     test_letterbox()
     test_frame_layout()
+    test_color_engine()
+    test_smoothing()
+    test_recorder()
     test_engine_parts()
     try:
         urllib.request.urlopen(base + "/api/status", timeout=2)

@@ -4,9 +4,11 @@ import time
 
 import numpy as np
 
-from . import processing, zones as zonelib
+from . import color, processing, zones as zonelib
 from .plugins.capture_mss import MSSCapture
 from .plugins.output_wled_udp import WLEDUDPOutput
+from .recorder import Recorder, new_path
+from .smoothing import Quantizer, Smoother, settle_seconds
 
 # Each packet tells WLED to hold this long; comfortably over one frame interval
 # so a dropped packet does not flicker, short enough that a crash self-heals.
@@ -36,10 +38,13 @@ def capture_hint(exc):
 class _PictureTracker:
     """Smooths picture-edge detections so a dark scene cannot make the lights jump.
 
-    A new position is adopted only after two detections in a row agree.
+    Like HyperHDR's border detector: a new position must be seen consistently
+    for about a second before it is adopted, and frames too dark to judge are
+    ignored outright instead of being read as "no bars".
     """
 
     TOLERANCE = 16      # pixels of jitter that still count as "the same edge"
+    CONFIRM = 4         # matching detections (4 a second) before a change is adopted
 
     def __init__(self, detect=processing.find_picture,
                  fallback=lambda img: (0, 0, img.shape[1])):
@@ -47,6 +52,7 @@ class _PictureTracker:
         self._fallback = fallback
         self.applied = None
         self._pending = None
+        self.agreeing = 0
 
     @classmethod
     def _same(cls, a, b):
@@ -54,15 +60,19 @@ class _PictureTracker:
 
     def update(self, image):
         """Returns the edges to sample with."""
-        seen = self._detect(image)
         if self.applied is None:
             self.applied = self._fallback(image)
+        if processing.is_dark(image):
+            return self.applied
+        seen = self._detect(image)
         if self._same(seen, self.applied):
-            self._pending = None
+            self._pending, self.agreeing = None, 0
         elif self._pending is not None and self._same(seen, self._pending):
-            self.applied, self._pending = seen, None
+            self.agreeing += 1
+            if self.agreeing >= self.CONFIRM:
+                self.applied, self._pending, self.agreeing = seen, None, 0
         else:
-            self._pending = seen
+            self._pending, self.agreeing = seen, 1
         return self.applied
 
 
@@ -87,15 +97,45 @@ class _FrameSource:
         return processing.slice_edges(frame, rect, cfg["band_height"], cfg["edge_skip"])
 
 
-class _Pipeline:
-    """Screen band in, LED bytes out. Owns the mapping cache and the smoothing."""
+class OutputStage:
+    """Target colours in, wire bytes out: smoothing, LED gamma, zones, anti-flicker.
 
-    def __init__(self, config):
+    The capture thread sets targets as fast as the screen can be grabbed; the
+    output thread asks for frames at a steady rate, so motion stays fluid even
+    when capture is slower than the output.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.smoother = Smoother()
+        self.quantizer = Quantizer()
+
+    def set_target(self, target, now):
+        with self.lock:
+            self.smoother.set_target(target, now)
+
+    def frame(self, now, cfg):
+        """Bytes to send now, or None before the first target."""
+        with self.lock:
+            shown = self.smoother.step(now, settle_seconds(cfg["blend"]))
+            if shown is None:
+                return None
+            levels = color.to_led(shown, cfg)
+            # Zones paint over the sync layer after smoothing, so a solid zone
+            # is not dragged toward screen colour.
+            composed = zonelib.composite(levels, cfg["zones"], cfg["led_count"])
+            return self.quantizer.apply(composed * cfg["brightness"])
+
+
+class _Pipeline:
+    """Screen in, per-LED target colours out. Owns the mapping cache."""
+
+    def __init__(self, config, stage=None):
         self.cfg = config
         self._key = None
         self._mapping = None
         self._fade = None
-        self._smoothed = None
+        self.stage = stage or OutputStage()
 
     def invalidate(self):
         self._key = None
@@ -110,43 +150,38 @@ class _Pipeline:
             cfg["led_count"], cfg["left_led"], cfg["right_led"], width)
         self._fade = processing.build_fade(self._mapping, cfg["fade_leds"])
         self._key = key
-        self._smoothed = None
 
-    def render(self, band, cfg):
+    def measure(self, band, cfg):
+        """Bottom band -> (linear per-LED averages, graded target for every LED)."""
         # Retina scaling makes the captured width differ from the reported
         # monitor width, so map against what we actually got.
         self._ensure(band.shape[1], cfg)
+        linear = processing.spread(
+            processing.zone_colors(band, self._mapping, cfg["colour_weight"]), cfg["spread"])
+        target = processing.extend_edges(color.grade(linear, cfg), *self._fade)
+        return linear, target
 
-        frame = processing.zone_colors(band, self._mapping)
-        frame = processing.saturate(frame, cfg["saturation"])
-        frame = processing.extend_edges(frame, *self._fade)
-        return self._compose(frame, cfg)
-
-    def render_edges(self, edges, cfg):
-        """Four screen edges in, LED bytes out, for a strip wrapped round the monitor."""
+    def measure_edges(self, edges, cfg):
+        """Four screen edges -> (linear averages, target), for a strip round the monitor."""
         counts = (cfg["edge_bottom"], cfg["edge_right"], cfg["edge_top"], cfg["edge_left"])
         pitch, wide, tall = cfg["led_pitch_mm"], cfg["screen_mm_w"], cfg["screen_mm_h"]
         share = (processing.coverage(counts[0], pitch, wide),
                  processing.coverage(counts[1], pitch, tall),
                  processing.coverage(counts[2], pitch, wide),
                  processing.coverage(counts[3], pitch, tall))
-        wrapped = processing.saturate(
-            processing.frame_colors(edges, counts, share), cfg["saturation"])
-        frame = np.zeros((cfg["led_count"], 3), dtype=np.float32)
-        used = min(len(wrapped), len(frame))
-        frame[:used] = wrapped[:used]
-        return self._compose(frame, cfg)
+        linear = processing.spread(
+            processing.frame_colors(edges, counts, share, cfg["colour_weight"]),
+            cfg["spread"], ring=True)
+        target = np.zeros((cfg["led_count"], 3), dtype=np.float32)
+        used = min(len(linear), len(target))
+        target[:used] = color.grade(linear[:used], cfg)
+        return linear, target
 
-    def _compose(self, frame, cfg):
-        if self._smoothed is None or self._smoothed.shape != frame.shape:
-            self._smoothed = frame
-        else:
-            self._smoothed += (frame - self._smoothed) * cfg["blend"]
-
-        # Zones paint over the smoothed sync frame; smoothing stays on the sync
-        # layer so a solid zone is not dragged toward screen colour.
-        composed = zonelib.composite(self._smoothed, cfg["zones"], cfg["led_count"])
-        return processing.finalize(composed, cfg["brightness"])
+    def render(self, band, cfg, now=None):
+        """One bottom band straight through to wire bytes, for one-shot use."""
+        now = time.perf_counter() if now is None else now
+        self.stage.set_target(self.measure(band, cfg)[1], now)
+        return self.stage.frame(now, cfg)
 
 
 class _Pacer:
@@ -234,6 +269,13 @@ class Engine:
         self._override = None
         # Last frame actually sent, downsampled for the UI's live preview.
         self._preview = []
+        # Smoothing state outlives a capture restart, so a display waking up
+        # glides back in instead of snapping.
+        self.stage = OutputStage()
+        self.emitter = None
+        self.output_fps = 0.0
+        self.recorder = None
+        self.last_recording = None
 
     # --- lifecycle ---------------------------------------------------------
     def start(self):
@@ -243,18 +285,32 @@ class Engine:
             self._stop.clear()
             self.last_error = None
             self._thread = threading.Thread(target=self._run, daemon=True, name="sync")
+            self.emitter = threading.Thread(target=self.emit_loop, daemon=True, name="emit")
             self.running = True
             self._thread.start()
+            self.emitter.start()
             return True
 
     def stop(self):
         with self._lock:
-            thread, self.running = self._thread, False
+            threads, self.running = (self._thread, self.emitter), False
         self._stop.set()
-        if thread is not None:
-            thread.join(timeout=2.0)
+        for thread in threads:
+            if thread is not None:
+                thread.join(timeout=2.0)
         self._release()
-        self.fps = 0.0
+        self.fps = self.output_fps = 0.0
+
+    def start_recording(self, seconds):
+        """Keep the next `seconds` of per-LED averages for replay and tuning."""
+        self.recorder = Recorder(new_path(), seconds, time.perf_counter())
+        return str(self.recorder.path)
+
+    def record(self, now, linear):
+        recorder = self.recorder
+        if recorder is not None and not recorder.add(now, linear):
+            self.last_recording = str(recorder.save())
+            self.recorder = None
 
     def set_override(self, pixels):
         """Paint a literal frame (wizard markers, gradients) and pause screen sync."""
@@ -302,8 +358,19 @@ class Engine:
             self.last_error = None
         return capture
 
+    def emit_loop(self):
+        """Send smoothed frames at a steady rate, independent of capture speed."""
+        pacer = _Pacer()
+        while not self._stop.is_set():
+            cfg = self.cfg.snapshot()
+            if self._override is None:
+                pixels = self.stage.frame(time.perf_counter(), cfg)
+                if pixels is not None:
+                    self._push(pixels)
+            self.output_fps = pacer.tick(cfg["fps"], self._stop)
+
     def _loop(self, capture):
-        pipeline = _Pipeline(self.cfg)
+        pipeline = _Pipeline(self.cfg, self.stage)
         pacer = _Pacer()
         watchdog = _BlackFrameWatchdog()
         band_height = self.cfg.get("band_height")
@@ -356,8 +423,11 @@ class Engine:
                 self.last_error = message or None
 
             if self._override is None:
-                self._push(pipeline.render_edges(edges, cfg) if wrapped
-                           else pipeline.render(band, cfg))
+                linear, target = (pipeline.measure_edges(edges, cfg) if wrapped
+                                  else pipeline.measure(band, cfg))
+                now = time.perf_counter()
+                self.stage.set_target(target, now)
+                self.record(now, linear)
 
             self.fps = pacer.tick(cfg["fps"], self._stop)
 
@@ -455,6 +525,9 @@ class Engine:
         return {
             "running": self.running,
             "measured_fps": round(self.fps, 1),
+            "output_fps": round(self.output_fps, 1),
+            "recording": self.recorder is not None,
+            "last_recording": self.last_recording,
             "last_error": self.last_error,
             "capture_plugin": self.capture_name,
             "output_plugin": self.output_name,

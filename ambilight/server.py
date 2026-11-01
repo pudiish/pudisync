@@ -11,6 +11,7 @@ from .plugins.output_serial import SerialOutput, list_ports, required_baud
 from .effects import catalogue as effect_catalogue, state_for
 from .provision import Provisioner, esptool_available, known_networks
 from .plugins.output_wled_udp import WLEDUDPOutput
+from .recorder import RECORDINGS_DIR, replay
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -62,9 +63,10 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         query = urllib.parse.parse_qs(parsed.query)
 
-        if path == "/":
+        pages = {"/": "index.html", "/calibrate": "calibrate.html"}
+        if path in pages:
             try:
-                self._send(200, (WEB_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
+                self._send(200, (WEB_DIR / pages[path]).read_bytes(), "text/html; charset=utf-8")
             except OSError as exc:
                 self._json({"error": f"UI missing: {exc}"}, 500)
             return
@@ -83,6 +85,23 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": f"{type(exc).__name__}: {exc}"}, 500)
 
     # --- routes ------------------------------------------------------------
+    def record_route(self, path, one):
+        """Recordings: capture real scenes, replay them while tuning."""
+        if path == "/api/record/start":
+            seconds = max(1.0, min(120.0, float(one("seconds", "20"))))
+            self._json({"recording": self.hub.engine.start_recording(seconds),
+                        "seconds": seconds})
+        elif path == "/api/record/replay":
+            # Only a bare file name inside the recordings folder: no path tricks.
+            name = Path(one("file", "")).name
+            target = RECORDINGS_DIR / name
+            if not name or not target.is_file():
+                self._json({"error": f"no recording named {name!r}"}, 404)
+                return
+            self._json({"file": name, **replay(target, self.hub.cfg.snapshot())[1]})
+        else:
+            self._json({"error": "not found"}, 404)
+
     def _route(self, path, query):
         hub = self.hub
         one = lambda key, default=None: query.get(key, [default])[0]
@@ -120,6 +139,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/api/config":
             self._json(hub.cfg.snapshot())
+
+        elif path.startswith("/api/record/"):
+            self.record_route(path, one)
 
         # --- WLED passthrough
         elif path == "/api/wled/meta":

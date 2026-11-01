@@ -1,6 +1,8 @@
 """Frame maths. Everything here is vectorised; no per-LED Python loops."""
 import numpy as np
 
+from . import color
+
 ROW_SAMPLES = 12  # sub-sampled rows: plenty of colour signal, a fraction of the work
 
 BLACK_LEVEL = 16        # brighter than this on any channel counts as picture
@@ -36,6 +38,15 @@ def find_picture(strip):
     if right - left < width * MIN_PICTURE_SHARE:
         left, right = 0, width
     return inset, left, right
+
+
+DARK_SHARE = 0.08   # below this share of lit pixels a frame says nothing about its bars
+
+
+def is_dark(image):
+    """True when too little of the image is lit to judge where its bars are."""
+    lit = image[::SEARCH_COL_STEP, ::SEARCH_COL_STEP].max(axis=2) > BLACK_LEVEL
+    return float(lit.mean()) < DARK_SHARE
 
 
 def find_frame(frame):
@@ -87,13 +98,13 @@ def slice_edges(frame, rect, thickness, skip=0):
     }
 
 
-def edge_colors(band, count, reverse=False):
+def edge_colors(band, count, reverse=False, colour_weight=0.0):
     """Mean colour of `count` equal slices along a band's width, in LED order."""
     edges = np.linspace(0, band.shape[1], count + 1).astype(np.int64)
     starts, stops = edges[:-1], np.maximum(edges[1:], edges[:-1] + 1)
     if reverse:
         starts, stops = starts[::-1].copy(), stops[::-1].copy()
-    return zone_colors(band, {"starts": starts, "stops": stops})
+    return zone_colors(band, {"starts": starts, "stops": stops}, colour_weight)
 
 
 def _centered(band, share):
@@ -102,8 +113,8 @@ def _centered(band, share):
     return band[:, margin:band.shape[1] - margin] if margin else band
 
 
-def frame_colors(edges, counts, coverage=(1.0, 1.0, 1.0, 1.0)):
-    """LED colours for a strip wrapped round the monitor.
+def frame_colors(edges, counts, coverage=(1.0, 1.0, 1.0, 1.0), colour_weight=0.0):
+    """LED colours (linear light) for a strip wrapped round the monitor.
 
     The strip starts at the bottom-left corner and runs bottom, right, top,
     left. Vertical bands are turned on their side so the same slicing applies.
@@ -111,16 +122,17 @@ def frame_colors(edges, counts, coverage=(1.0, 1.0, 1.0, 1.0)):
     """
     bottom, right, top, left = counts
     cover_b, cover_r, cover_t, cover_l = coverage
+    w = colour_weight
     parts = []
     if bottom:
-        parts.append(edge_colors(_centered(edges["bottom"], cover_b), bottom))
+        parts.append(edge_colors(_centered(edges["bottom"], cover_b), bottom, False, w))
     if right:      # bottom to top, but the band's rows run top to bottom
         band = _centered(edges["right"].swapaxes(0, 1), cover_r)
-        parts.append(edge_colors(band, right, reverse=True))
+        parts.append(edge_colors(band, right, True, w))
     if top:        # right to left
-        parts.append(edge_colors(_centered(edges["top"], cover_t), top, reverse=True))
+        parts.append(edge_colors(_centered(edges["top"], cover_t), top, True, w))
     if left:       # top to bottom
-        parts.append(edge_colors(_centered(edges["left"].swapaxes(0, 1), cover_l), left))
+        parts.append(edge_colors(_centered(edges["left"].swapaxes(0, 1), cover_l), left, False, w))
     return np.concatenate(parts) if parts else np.zeros((0, 3), dtype=np.float32)
 
 
@@ -177,20 +189,55 @@ def build_fade(mapping, fade_leds):
     return low, high
 
 
-def zone_colors(band, mapping):
-    """Mean colour per in-zone LED from a sub-sampled band. Returns (span, 3) float32."""
+CHROMA_WEIGHT = 6.0     # how strongly colour_weight=1 favours a saturated pixel
+
+
+def zone_colors(band, mapping, colour_weight=0.0):
+    """Mean colour per in-zone LED, in linear light 0..1. Returns (span, 3) float32.
+
+    Averaging happens on the light the screen emits, not on sRGB code values:
+    half black, half white is half the light, which reads far brighter than a
+    code-value average of 128. With colour_weight > 0, saturated pixels count
+    for more (Philips' "colour support" rule), so a coloured object on a grey
+    or dark edge decides the LED instead of washing out into it.
+    """
     h = band.shape[0]
     step = max(1, h // ROW_SAMPLES)
     rows = band[::step]
-    # Collapse rows first so the per-LED reduction works on a 1-D colour profile.
-    profile = rows.mean(axis=0, dtype=np.float32)  # (width, 3)
-    cumsum = np.concatenate(
-        [np.zeros((1, 3), dtype=np.float32), np.cumsum(profile, axis=0, dtype=np.float32)]
-    )
+    linear = color.SRGB_LUT[rows]                       # (rows, width, 3)
+    if colour_weight > 0:
+        chroma = (rows.max(axis=2).astype(np.float32) - rows.min(axis=2)) / 255.0
+        weight = 1.0 + colour_weight * CHROMA_WEIGHT * chroma
+    else:
+        weight = np.ones(rows.shape[:2], dtype=np.float32)
+    # Collapse rows first so the per-LED reduction works on a 1-D profile.
+    num = (linear * weight[..., None]).sum(axis=0)      # (width, 3)
+    den = weight.sum(axis=0)                            # (width,)
+    zero3 = np.zeros((1, 3), dtype=np.float32)
+    cum_num = np.concatenate([zero3, np.cumsum(num, axis=0, dtype=np.float32)])
+    cum_den = np.concatenate([[0.0], np.cumsum(den, dtype=np.float32)]).astype(np.float32)
     starts, stops = mapping["starts"], mapping["stops"]
-    totals = cumsum[stops] - cumsum[starts]
-    widths = (stops - starts).astype(np.float32)[:, None]
-    return totals / widths
+    totals = cum_num[stops] - cum_num[starts]
+    weights = (cum_den[stops] - cum_den[starts])[:, None]
+    return totals / np.maximum(weights, 1e-6)
+
+
+def spread(frame, amount, ring=False):
+    """Let each LED share a little light with its neighbours.
+
+    Neighbouring LEDs see neighbouring slices of the screen, so blending them
+    hides the per-LED jitter of small moving details. `ring` joins the two ends,
+    for a strip that runs all the way round the monitor.
+    """
+    if amount <= 0 or len(frame) < 2:
+        return frame
+    if ring:
+        before, after = np.roll(frame, 1, axis=0), np.roll(frame, -1, axis=0)
+    else:
+        # Mirror at the ends, so the end LEDs keep their own light.
+        before = np.concatenate([frame[:1], frame[:-1]])
+        after = np.concatenate([frame[1:], frame[-1:]])
+    return (frame * (1.0 - amount) + (before + after) * (amount / 2.0)).astype(np.float32)
 
 
 def extend_edges(zone, low_w, high_w):
@@ -202,14 +249,6 @@ def extend_edges(zone, low_w, high_w):
     if high_w.size:
         parts.append(zone[-1][None, :] * high_w[:, None])
     return np.concatenate(parts, axis=0) if len(parts) > 1 else zone
-
-
-def saturate(frame, amount):
-    """Push colours away from their grey level. amount 1.0 is a no-op."""
-    if abs(amount - 1.0) < 1e-3:
-        return frame
-    grey = frame.mean(axis=1, keepdims=True)
-    return grey + (frame - grey) * amount
 
 
 def finalize(frame, brightness):

@@ -6,9 +6,10 @@ from pathlib import Path
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
 # Profiles tune responsiveness vs. smoothness. Values here override the live
-# settings whenever a profile is selected.
+# settings whenever a profile is selected. "blend" is the Response setting:
+# 0.3 settles in ~0.37s, 0.7 in ~0.13s (see smoothing.settle_seconds).
 PROFILES = {
-    "movie": {"saturation": 1.35, "blend": 0.25, "fps": 50},
+    "movie": {"saturation": 1.2, "blend": 0.3, "fps": 60},
     "game": {"saturation": 1.15, "blend": 0.70, "fps": 60},
 }
 
@@ -25,11 +26,20 @@ DEFAULTS = {
     "right_led": 239,
     "fade_leds": 12,
     "band_height": 150,
-    "profile": "game",
-    "saturation": 1.15,
-    "blend": 0.70,
+    "profile": "movie",
+    "saturation": 1.2,
+    "blend": 0.3,
     "brightness": 1.0,
     "fps": 60,
+    # Colour engine. WS2812B white runs cold; these gains are HyperHDR's "warm"
+    # preset, a starting point for the /calibrate page.
+    "wb_r": 1.0,
+    "wb_g": 0.93,
+    "wb_b": 0.85,
+    "led_gamma": 1.5,
+    "black_level": 0.03,
+    "colour_weight": 0.6,
+    "spread": 0.3,
     "sync_on_start": False,
     # Skip black bars under video that is not the monitor's shape.
     "letterbox": True,
@@ -133,6 +143,13 @@ _LIMITS = {
     "fps": (5, 120),
     "band_height": (10, 1000),
     "fade_leds": (0, 500),
+    "wb_r": (0.2, 1.0),
+    "wb_g": (0.2, 1.0),
+    "wb_b": (0.2, 1.0),
+    "led_gamma": (0.5, 3.0),
+    "black_level": (0.0, 0.2),
+    "colour_weight": (0.0, 1.0),
+    "spread": (0.0, 0.8),
     "led_count": (1, 1500),
     "left_led": (0, 1499),
     "right_led": (0, 1499),
