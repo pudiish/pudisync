@@ -706,6 +706,17 @@ def test_frame_layout():
           coverage(14, 16.7, 336))
     check("more LEDs than the side is long never exceeds 100%", coverage(40, 16.7, 597) == 1.0)
 
+    # The strip is one rectangle: both upright sides span its full height even
+    # when one lost an LED at a corner (35/14/35/13), and top matches bottom.
+    from ambilight.processing import box_coverage
+    shares = box_coverage((35, 14, 35, 13), 16.7, 597, 336)
+    check("left and right cover the same height", shares[1] == shares[3], shares)
+    check("top and bottom cover the same width", shares[0] == shares[2], shares)
+    check("the box is as tall as its longer upright side",
+          abs(shares[1] - 14 * 16.7 / 336) < 1e-6, shares)
+    check("the box is as wide as its longer horizontal side",
+          abs(shares[0] - 35 * 16.7 / 597) < 1e-6, shares)
+
     half = frame_colors(edges, (36, 20, 36, 20), coverage=(1.0, 0.5, 1.0, 1.0))
     from ambilight.color import linear_to_srgb
     right_half = linear_to_srgb(half[36:56]).mean(axis=1) * 255

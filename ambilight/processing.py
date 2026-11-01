@@ -80,6 +80,20 @@ def coverage(led_count, pitch_mm, side_mm):
     return max(0.05, min(1.0, led_count * pitch_mm / side_mm))
 
 
+def box_coverage(counts, pitch_mm, screen_w_mm, screen_h_mm):
+    """Share of each screen edge (bottom, right, top, left) the strip spans.
+
+    The strip is one rectangle centred behind the screen, so both upright
+    sides span its full height even when one has an LED fewer (lost at a
+    bend), and top matches bottom. Its size comes from the longer side of
+    each pair; each side's LEDs then spread evenly over the whole side.
+    """
+    bottom, right, top, left = counts
+    across = coverage(max(bottom, top), pitch_mm, screen_w_mm)
+    upright = coverage(max(right, left), pitch_mm, screen_h_mm)
+    return across, upright, across, upright
+
+
 def slice_edges(frame, rect, thickness, skip=0):
     """The four edges of the picture rectangle, each `thickness` deep.
 

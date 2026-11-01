@@ -164,11 +164,8 @@ class _Pipeline:
     def measure_edges(self, edges, cfg):
         """Four screen edges -> (linear averages, target), for a strip round the monitor."""
         counts = (cfg["edge_bottom"], cfg["edge_right"], cfg["edge_top"], cfg["edge_left"])
-        pitch, wide, tall = cfg["led_pitch_mm"], cfg["screen_mm_w"], cfg["screen_mm_h"]
-        share = (processing.coverage(counts[0], pitch, wide),
-                 processing.coverage(counts[1], pitch, tall),
-                 processing.coverage(counts[2], pitch, wide),
-                 processing.coverage(counts[3], pitch, tall))
+        share = processing.box_coverage(
+            counts, cfg["led_pitch_mm"], cfg["screen_mm_w"], cfg["screen_mm_h"])
         linear = processing.spread(
             processing.frame_colors(edges, counts, share, cfg["colour_weight"]),
             cfg["spread"], ring=True)

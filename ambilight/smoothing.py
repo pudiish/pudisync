@@ -17,9 +17,12 @@ import numpy as np
 from .color import LUMA
 
 SPRING_SETTLE = 5.8     # a critically damped spring has ~2% left after 5.8/omega
-CUT_CHANGE = 0.12       # mean per-LED change (0..1) that marks a scene cut
+# Tuned on a 20s live recording: 0.12 fired 30 times (1.5/s) on busy footage
+# and made the strip jump; 0.3 fires on real cuts only (4) with 40% fewer
+# large output steps.
+CUT_CHANGE = 0.3        # mean per-LED change (0..1) that marks a scene cut
 CUT_HOLD_S = 0.3        # a cut keeps the faster pace this long
-CUT_SPEEDUP = 0.45      # cuts settle in this share of the normal time
+CUT_SPEEDUP = 0.7       # cuts settle in this share of the normal time
 RISE_PER_S = 2.5        # max brightness climb per second (full range in 0.4s)
 MAX_STEP_S = 0.1        # a stall must not fling the spring forward
 HYSTERESIS = 1.0        # output levels a colour must move before the byte changes
