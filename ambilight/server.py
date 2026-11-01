@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import PROFILES
 from .plugins.capture_mss import MSSCapture
 from .plugins.output_serial import SerialOutput, list_ports, required_baud
+from .effects import catalogue as effect_catalogue, state_for
 from .provision import Provisioner, esptool_available, known_networks
 from .plugins.output_wled_udp import WLEDUDPOutput
 
@@ -198,6 +199,26 @@ class Handler(BaseHTTPRequestHandler):
                 return
             hub.cfg.update({"wled_ip": st["ip"], "output": "udp"})
             self._json(hub.status())
+
+        elif path == "/api/effects":
+            self._json({"effects": effect_catalogue()})
+        elif path == "/api/effect/run":
+            # An effect is rendered by the controller, so realtime data must stop
+            # or it would overwrite every frame the effect draws.
+            hub.engine.stop()
+            hub.wizard.stop()
+            colour = one("color")
+            rgb = None
+            if colour:
+                text = colour.lstrip("#")
+                if len(text) == 6:
+                    try:
+                        rgb = [int(text[i:i + 2], 16) for i in (0, 2, 4)]
+                    except ValueError:
+                        rgb = None
+            payload = state_for(one("fx", "9"), one("speed"), one("intensity"),
+                                rgb, one("brightness"))
+            self._json({"ok": hub.wled.apply(payload), **hub.status()})
 
         elif path == "/api/diagnostics":
             self._json(hub.diagnostics())

@@ -15,7 +15,9 @@ import urllib.request
 import numpy as np
 
 sys.path.insert(0, ".")
+CONFIG_FOR_TESTS = "/tmp/ambilight-test-config.json"
 from ambilight import processing
+from ambilight.config import Config
 from ambilight.plugins.output_wled_udp import MAX_LEDS_PER_PACKET, WLEDUDPOutput
 
 PASS, FAIL = [], []
@@ -117,6 +119,141 @@ def test_fade():
     full = processing.extend_edges(z, low, high)
     check("extended frame length == led_count", full.shape[0] == 240, str(full.shape[0]))
     check("out-of-zone copies nearest edge colour, faded", 0 < full[9][0] < 200)
+
+
+def test_engine_parts():
+    print("\n11. Engine components")
+    from ambilight.engine import _BlackFrameWatchdog, _Pacer, _Pipeline
+
+    black = np.zeros((150, 600, 3), np.uint8)
+    lit = np.full((150, 600, 3), 80, np.uint8)
+
+    w = _BlackFrameWatchdog()
+    warned = [m for m in (w.check(black) for _ in range(35)) if m]
+    check("a never-lit stream warns about Screen Recording", bool(warned))
+
+    w = _BlackFrameWatchdog()
+    w.check(lit)
+    check("a dark scene after light does NOT warn",
+          not any(m for m in (w.check(black) for _ in range(60)) if m))
+
+    w = _BlackFrameWatchdog()
+    for _ in range(35):
+        w.check(black)
+    check("the warning clears when light returns", w.check(lit) == "")
+
+    # Sub-sampling must not invent a permissions problem on a lit frame.
+    odd = np.zeros((150, 600, 3), np.uint8)
+    odd[5, 0] = 255
+    w = _BlackFrameWatchdog()
+    check("a frame lit only on an unsampled row does not false-alarm",
+          not any(m for m in (w.check(odd) for _ in range(35)) if m))
+
+    class RealStop:
+        """Sleeps for real, so the pacer is measured against the clock."""
+
+        def __init__(self):
+            self.calls = 0
+
+        def wait(self, seconds):
+            self.calls += 1
+            time.sleep(seconds)
+
+        def is_set(self):
+            return False
+
+    pacer = _Pacer()
+    stop = RealStop()
+    started = time.perf_counter()
+    for _ in range(12):
+        pacer.tick(120, stop)
+    took = time.perf_counter() - started
+    check("the pacer paces rather than spinning", stop.calls > 0)
+    check("12 frames at 120fps take about 0.1s", 0.07 < took < 0.22,
+          f"{took:.3f}s")
+
+    # A frame that overruns badly must not make the pacer sprint to catch up.
+    pacer = _Pacer()
+    pacer.tick(60, stop)
+    time.sleep(0.4)
+    behind = time.perf_counter()
+    pacer.tick(60, stop)
+    check("the pacer resyncs instead of sprinting after a stall",
+          time.perf_counter() - behind < 0.05,
+          f"{time.perf_counter() - behind:.3f}s")
+
+    cfg = Config(CONFIG_FOR_TESTS)
+    pipe = _Pipeline(cfg)
+    band = np.zeros((150, 600, 3), np.uint8)
+    band[:, :300] = (255, 0, 0)
+    band[:, 300:] = (0, 0, 255)
+    out = pipe.render(band, cfg.snapshot())
+    check("the pipeline returns one byte triple per LED",
+          out.shape == (cfg.get("led_count"), 3), str(out.shape))
+    check("the pipeline emits uint8 for the wire", out.dtype == np.uint8)
+
+    first_key = pipe._key
+    pipe.render(band, cfg.snapshot())
+    check("the mapping is cached between frames", pipe._key is first_key or
+          pipe._key == first_key)
+    pipe.invalidate()
+    check("invalidate forces a rebuild", pipe._key is None)
+
+    # A sleeping display removes the monitor entirely. Sync must wait it out,
+    # not end the thread, or it never returns without restarting the program.
+    import ambilight.engine as eng
+    from ambilight.engine import Engine, capture_hint
+
+    hint = capture_hint(IndexError("monitor 1 not found; 0 attached"))
+    check("a missing display is explained in plain words", "asleep" in hint)
+    check("other capture errors are passed through",
+          "something else" in capture_hint(RuntimeError("something else")))
+
+    class FakeCapture:
+        name = "fake"
+        alive = False
+
+        def open(self, monitor_index, band_height):
+            if not FakeCapture.alive:
+                raise IndexError("monitor 1 not found; 0 attached")
+            return 600, 150
+
+        def grab(self):
+            if not FakeCapture.alive:
+                raise OSError("monitor 1 not found; 0 attached")
+            band = np.zeros((150, 600, 3), np.uint8)
+            band[:, :300] = (200, 30, 30)
+            return band
+
+        def close(self):
+            pass
+
+    real_capture, real_retry = eng.MSSCapture, eng.RETRY_DISPLAY_S
+    eng.MSSCapture, eng.RETRY_DISPLAY_S = FakeCapture, 0.3
+    try:
+        sleep_cfg = Config(CONFIG_FOR_TESTS)
+        sleep_cfg.update({"wled_ip": "127.0.0.1", "led_count": 60})
+        engine = Engine(sleep_cfg)
+        engine.start()
+        time.sleep(1.0)
+        check("a sleeping display does not kill the engine", engine.running is True)
+        check("the user is told why the lights stopped",
+              "asleep" in (engine.last_error or ""))
+
+        FakeCapture.alive = True
+        time.sleep(1.5)
+        check("sync resumes by itself when the display wakes", engine.fps > 5,
+              f"{engine.fps:.0f} fps")
+        check("the sleep warning clears on wake", not engine.last_error,
+              str(engine.last_error))
+
+        FakeCapture.alive = False
+        time.sleep(1.2)
+        check("it survives the display sleeping again", engine.running is True)
+        engine.stop()
+    finally:
+        eng.MSSCapture, eng.RETRY_DISPLAY_S = real_capture, real_retry
+        FakeCapture.alive = False
 
 
 def test_api(base):
@@ -328,8 +465,8 @@ def test_serial_api(base):
 
 def test_provision():
     print("\n9. Flashing and provisioning")
-    from ambilight.provision import (_FIVE_GHZ_HINT, build_packet, parse_packets,
-                                     pick_binary, wifi_packet, TYPE_RPC)
+    from ambilight.provision import (_FIVE_GHZ_HINT, build_packet, flash_size_mb,
+                                     parse_packets, pick_binary, wifi_packet, TYPE_RPC)
 
     # An ESP8266 cannot join 5GHz, so flagging those names prevents the most
     # common provisioning failure.
@@ -357,12 +494,30 @@ def test_provision():
     check("a corrupted checksum is rejected", bad and not bad[0]["valid"])
 
     # Flashing the wrong variant bricks a board, so matching must be exact.
+    # Names are copied from the real v16.0.1 release.
     builds = [{"name": n} for n in (
-        "WLED_16.0.1_ESP01.bin", "WLED_16.0.1_ESP32.bin",
+        "WLED_16.0.1_ESP01.bin", "WLED_16.0.1_ESP01_160.bin",
+        "WLED_16.0.1_ESP02.bin", "WLED_16.0.1_ESP02_min.bin",
+        "WLED_16.0.1_ESP32.bin",
         "WLED_16.0.1_ESP32-C3.bin", "WLED_16.0.1_ESP32-S2.bin",
-        "WLED_16.0.1_ESP32-S3_8MB_none.bin", "WLED_16.0.1_ESP32_Ethernet.bin")]
-    check("ESP8266 picks the ESP01 build",
-          pick_binary("esp8266", builds)["name"] == "WLED_16.0.1_ESP01.bin")
+        "WLED_16.0.1_ESP32-S3_8MB_none.bin", "WLED_16.0.1_ESP32_Ethernet.bin",
+        "WLED_16.0.1_ESP8266.bin", "WLED_16.0.1_ESP8266_160.bin",
+        "WLED_16.0.1_ESP8266_compat.bin")]
+    # ESP8266 builds differ by flash layout: a 4MB NodeMCU wants the full
+    # build, and the 4MB layout would not boot on a 1MB ESP-01.
+    check("4MB ESP8266 (NodeMCU) picks the ESP8266 build",
+          pick_binary("esp8266", builds, 4)["name"] == "WLED_16.0.1_ESP8266.bin")
+    check("2MB ESP8266 picks the plain ESP02 build",
+          pick_binary("esp8266", builds, 2)["name"] == "WLED_16.0.1_ESP02.bin")
+    check("1MB ESP8266 picks the ESP01 build",
+          pick_binary("esp8266", builds, 1)["name"] == "WLED_16.0.1_ESP01.bin")
+    check("ESP8266 of unknown flash size gets no binary",
+          pick_binary("esp8266", builds, None) is None)
+    flash_id_output = ("Detecting chip type... ESP8266\nChip type:          ESP8266EX\n"
+                       "Manufacturer: 68\nDevice: 4016\nDetected flash size: 4MB\n")
+    check("flash size is read from esptool output",
+          flash_size_mb(flash_id_output) == 4)
+    check("missing flash size reads as unknown", flash_size_mb("Connecting....") is None)
     check("plain ESP32 does NOT pick a C3/S3 build",
           pick_binary("esp32", builds)["name"] == "WLED_16.0.1_ESP32.bin",
           pick_binary("esp32", builds)["name"])
@@ -423,6 +578,161 @@ def test_provision_api(base):
               nets["networks"][0]["ssid"] == nets["current"])
 
 
+def test_letterbox():
+    print("\n10. Picture edge detection (letterbox / pillarbox)")
+    from ambilight.processing import find_picture
+    from ambilight.engine import _PictureTracker
+
+    W, H = 1280, 500
+
+    def strip(bottom_black=0, side_black=0, subtitle=False):
+        """A bright test picture, with black bars where a video would leave them."""
+        img = np.full((H, W, 3), 140, dtype=np.uint8)
+        if bottom_black:
+            img[H - bottom_black:] = 0
+        if side_black:
+            img[:, :side_black] = 0
+            img[:, W - side_black:] = 0
+        if subtitle and bottom_black:
+            img[H - bottom_black // 2 - 5:H - bottom_black // 2 + 5, 500:780] = 255
+        return img
+
+    inset, left, right = find_picture(strip())
+    check("a full-screen picture needs no inset", inset == 0, inset)
+    check("a full-screen picture keeps every column", (left, right) == (0, W), (left, right))
+
+    inset, _, _ = find_picture(strip(bottom_black=150))
+    check("letterbox bars are skipped", abs(inset - 150) <= 2, inset)
+
+    inset, _, _ = find_picture(strip(bottom_black=150, subtitle=True))
+    check("a subtitle inside the bar is not mistaken for picture",
+          abs(inset - 150) <= 2, inset)
+
+    _, left, right = find_picture(strip(side_black=200))
+    check("pillarbox bars narrow the columns",
+          abs(left - 200) <= 2 and abs(right - (W - 200)) <= 2, (left, right))
+
+    inset, left, right = find_picture(np.zeros((H, W, 3), dtype=np.uint8))
+    check("an all-black screen falls back to the default",
+          (inset, left, right) == (0, 0, W), (inset, left, right))
+
+    _, left, right = find_picture(strip(side_black=W // 2 - 20))
+    check("a sliver of light never collapses the width", (left, right) == (0, W), (left, right))
+
+    tracker = _PictureTracker()
+    bars = strip(bottom_black=150)
+    check("one odd detection is not trusted yet", tracker.update(bars) == (0, 0, W))
+    check("the same detection twice is trusted", tracker.update(bars)[0] >= 144)
+    check("a single flicker back to full screen is ignored",
+          tracker.update(strip())[0] >= 144)
+    tracker.update(strip())
+    check("a lasting change is followed", tracker.update(strip())[0] == 0)
+
+
+def test_frame_layout():
+    print("\n11. Four-sided layout around the monitor")
+    from ambilight.processing import find_frame, frame_colors
+
+    W, H, T = 1000, 600, 40
+
+    def ramp(n, along_width):
+        """Brightness 0..255 along the band's long axis, as an (h, w, 3) image."""
+        line = np.linspace(0, 255, n).astype(np.uint8)
+        band = np.tile(line, (T, 1)) if along_width else np.tile(line[:, None], (1, T))
+        return np.stack([band] * 3, axis=-1)
+
+    # Brightness encodes position along each edge, left->right and top->bottom.
+    edges = {"bottom": ramp(W, True), "top": ramp(W, True),
+             "left": ramp(H, False), "right": ramp(H, False)}
+    out = frame_colors(edges, (36, 20, 36, 20))
+    lum = out.mean(axis=1)
+    check("one colour per LED around the frame", out.shape == (112, 3), out.shape)
+
+    bottom, right, top, left = lum[:36], lum[36:56], lum[56:92], lum[92:]
+    check("bottom runs left to right", bottom[0] < 10 and bottom[-1] > 245, (bottom[0], bottom[-1]))
+    check("right runs bottom to top", right[0] > 235 and right[-1] < 20, (right[0], right[-1]))
+    check("top runs right to left", top[0] > 245 and top[-1] < 10, (top[0], top[-1]))
+    check("left runs top to bottom", left[0] < 20 and left[-1] > 235, (left[0], left[-1]))
+
+    from ambilight.processing import slice_edges
+    screen = np.zeros((H, W, 3), dtype=np.uint8)
+    screen[100:500, 100:900] = 50                       # picture, with black bars around
+    screen[100:140, 100:900] = (200, 0, 0)              # picture's top edge: red
+    screen[460:500, 100:900] = (0, 200, 0)              # bottom edge: green
+    screen[100:500, 100:140] = (0, 0, 200)              # left edge: blue
+    screen[100:500, 860:900] = (200, 200, 0)            # right edge: yellow
+    sliced = slice_edges(screen, (100, 500, 100, 900), 40)
+    check("edges are cut from the picture, not the screen border",
+          sliced["bottom"].shape == (40, 800, 3) and sliced["left"].shape == (400, 40, 3),
+          (sliced["bottom"].shape, sliced["left"].shape))
+    check("the bottom slice is the picture's bottom edge",
+          tuple(sliced["bottom"][20, 400]) == (0, 200, 0), tuple(sliced["bottom"][20, 400]))
+    check("the right slice is the picture's right edge",
+          tuple(sliced["right"][200, 20]) == (200, 200, 0), tuple(sliced["right"][200, 20]))
+    check("a thick band never exceeds half the picture",
+          slice_edges(screen, (100, 500, 100, 900), 5000)["top"].shape[0] == 200)
+
+    # The strip is stuck inside the monitor's edge, so each side covers only the
+    # middle of that screen edge. LEDs must map to that stretch, not the whole edge.
+    from ambilight.processing import coverage
+    check("14 LEDs cover ~70% of a 336mm side", abs(coverage(14, 16.7, 336) - 0.696) < 0.01,
+          coverage(14, 16.7, 336))
+    check("more LEDs than the side is long never exceeds 100%", coverage(40, 16.7, 597) == 1.0)
+
+    half = frame_colors(edges, (36, 20, 36, 20), coverage=(1.0, 0.5, 1.0, 1.0))
+    right_half = half[36:56].mean(axis=1)
+    check("a short side starts a quarter of the way up the edge",
+          abs(right_half[0] - 191) < 12, right_half[0])
+    check("a short side stops three quarters of the way up",
+          abs(right_half[-1] - 64) < 12, right_half[-1])
+
+    inner = slice_edges(screen, (100, 500, 100, 900), 40, skip=8)
+    check("the outermost pixels are skipped",
+          inner["bottom"].shape == (40, 784, 3) and tuple(inner["bottom"][-1, 400]) == (0, 200, 0),
+          (inner["bottom"].shape, tuple(inner["bottom"][-1, 400])))
+
+    from ambilight.plugins.capture_mss import MSSCapture
+
+    class FakeShot:
+        width, height = 4, 2
+        bgra = bytes([10, 20, 30, 255] * 8)        # B=10 G=20 R=30, opaque alpha
+
+    class FakeSct:
+        def grab(self, region):
+            return FakeShot()
+
+    cap = MSSCapture()
+    cap._sct = FakeSct()
+    cap._mon = {"left": 0, "top": 0, "width": 4, "height": 2}
+    grabbed = cap.grab_full()
+    check("a full grab comes back as RGB, not BGRA",
+          grabbed.shape == (2, 4, 3) and tuple(grabbed[0, 0]) == (30, 20, 10),
+          (grabbed.shape, tuple(grabbed[0, 0])))
+    check("the opaque alpha channel cannot read as picture",
+          find_frame(np.full((H, W, 4), (0, 0, 0, 255), dtype=np.uint8)[..., 2::-1]) == (0, H, 0, W))
+
+    plain = np.full((H, W, 3), 120, dtype=np.uint8)
+    check("a full-screen picture uses the whole screen",
+          find_frame(plain) == (0, H, 0, W), find_frame(plain))
+
+    boxed = plain.copy()
+    boxed[:80] = 0
+    boxed[H - 80:] = 0
+    top_, bottom_, left_, right_ = find_frame(boxed)
+    check("letterbox bars are cut off top and bottom",
+          abs(top_ - 80) <= 8 and abs(bottom_ - (H - 80)) <= 8, (top_, bottom_))
+    check("full width is kept with letterbox bars", (left_, right_) == (0, W), (left_, right_))
+
+    boxed = plain.copy()
+    boxed[:, :200] = 0
+    boxed[:, W - 200:] = 0
+    top_, bottom_, left_, right_ = find_frame(boxed)
+    check("pillarbox bars are cut off left and right",
+          abs(left_ - 200) <= 8 and abs(right_ - (W - 200)) <= 8, (left_, right_))
+    check("an all-black screen falls back to the whole screen",
+          find_frame(np.zeros((H, W, 3), dtype=np.uint8)) == (0, H, 0, W))
+
+
 def main():
     base = "http://127.0.0.1:8080"
     print("=" * 62)
@@ -434,6 +744,9 @@ def main():
     test_zones()
     test_serial()
     test_provision()
+    test_letterbox()
+    test_frame_layout()
+    test_engine_parts()
     try:
         urllib.request.urlopen(base + "/api/status", timeout=2)
     except Exception as exc:

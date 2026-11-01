@@ -3,6 +3,126 @@ import numpy as np
 
 ROW_SAMPLES = 12  # sub-sampled rows: plenty of colour signal, a fraction of the work
 
+BLACK_LEVEL = 16        # brighter than this on any channel counts as picture
+PICTURE_ROW_SHARE = 0.25  # a row is picture once this share of it is lit
+MIN_PICTURE_SHARE = 0.5   # never trust a picture narrower than this
+SEARCH_COL_STEP = 8
+
+
+def find_picture(strip):
+    """Where the real picture sits in a tall strip taken from the screen bottom.
+
+    Returns (inset, left, right): how many rows of black bar lie under the
+    picture, and the columns the picture spans. Video that does not match the
+    monitor's shape leaves black bars, and sampling those would feed the strip
+    black.
+
+    A row only counts as picture when a good share of it is lit, so subtitles
+    sitting in the bar do not read as picture. Detection runs on every 8th
+    column to stay cheap.
+    """
+    height, width = strip.shape[:2]
+    lit = strip[:, ::SEARCH_COL_STEP].max(axis=2) > BLACK_LEVEL     # (h, w/8)
+    picture_rows = np.flatnonzero(lit.mean(axis=1) > PICTURE_ROW_SHARE)
+    if picture_rows.size == 0:
+        return 0, 0, width          # nothing lit: black screen, keep the default
+    last = int(picture_rows[-1])
+    inset = height - 1 - last
+
+    # Side bars: judge the columns on the picture rows only, not the bar below.
+    cols = np.flatnonzero(lit[picture_rows].any(axis=0))
+    left = int(cols[0]) * SEARCH_COL_STEP
+    right = min(width, (int(cols[-1]) + 1) * SEARCH_COL_STEP)
+    if right - left < width * MIN_PICTURE_SHARE:
+        left, right = 0, width
+    return inset, left, right
+
+
+def find_frame(frame):
+    """The picture's rectangle in a full-screen grab: (top, bottom, left, right).
+
+    Same idea as find_picture, but for all four sides, so the lights can hug
+    the picture whatever shape the video is. Falls back to the whole screen.
+    """
+    height, width = frame.shape[:2]
+    step = SEARCH_COL_STEP
+    lit = frame[::step, ::step].max(axis=2) > BLACK_LEVEL
+    rows = np.flatnonzero(lit.mean(axis=1) > PICTURE_ROW_SHARE)
+    cols = np.flatnonzero(lit.mean(axis=0) > PICTURE_ROW_SHARE)
+    if rows.size == 0 or cols.size == 0:
+        return 0, height, 0, width
+    top, bottom = int(rows[0]) * step, min(height, (int(rows[-1]) + 1) * step)
+    left, right = int(cols[0]) * step, min(width, (int(cols[-1]) + 1) * step)
+    if (bottom - top < height * MIN_PICTURE_SHARE
+            or right - left < width * MIN_PICTURE_SHARE):
+        return 0, height, 0, width
+    return top, bottom, left, right
+
+
+def coverage(led_count, pitch_mm, side_mm):
+    """Share of a screen edge that a side's LEDs physically span (0..1].
+
+    A strip stuck inside the monitor's edge is shorter than the edge, so its
+    LEDs see only the middle of it. Spreading them over the whole edge would
+    stretch the colours.
+    """
+    return max(0.05, min(1.0, led_count * pitch_mm / side_mm))
+
+
+def slice_edges(frame, rect, thickness, skip=0):
+    """The four edges of the picture rectangle, each `thickness` deep.
+
+    `skip` drops the outermost pixels: the detected rectangle can be a few
+    pixels off, and bar edges or monitor borders there would darken the colours.
+    """
+    top, bottom, left, right = rect
+    top, bottom = top + skip, bottom - skip
+    left, right = left + skip, right - skip
+    t = int(min(thickness, (bottom - top) // 2, (right - left) // 2))
+    return {
+        "bottom": frame[bottom - t:bottom, left:right],
+        "top": frame[top:top + t, left:right],
+        "left": frame[top:bottom, left:left + t],
+        "right": frame[top:bottom, right - t:right],
+    }
+
+
+def edge_colors(band, count, reverse=False):
+    """Mean colour of `count` equal slices along a band's width, in LED order."""
+    edges = np.linspace(0, band.shape[1], count + 1).astype(np.int64)
+    starts, stops = edges[:-1], np.maximum(edges[1:], edges[:-1] + 1)
+    if reverse:
+        starts, stops = starts[::-1].copy(), stops[::-1].copy()
+    return zone_colors(band, {"starts": starts, "stops": stops})
+
+
+def _centered(band, share):
+    """The middle `share` of a band's width."""
+    margin = int(band.shape[1] * (1.0 - share) / 2)
+    return band[:, margin:band.shape[1] - margin] if margin else band
+
+
+def frame_colors(edges, counts, coverage=(1.0, 1.0, 1.0, 1.0)):
+    """LED colours for a strip wrapped round the monitor.
+
+    The strip starts at the bottom-left corner and runs bottom, right, top,
+    left. Vertical bands are turned on their side so the same slicing applies.
+    `coverage` is the share of each edge (same order) the side's LEDs span.
+    """
+    bottom, right, top, left = counts
+    cover_b, cover_r, cover_t, cover_l = coverage
+    parts = []
+    if bottom:
+        parts.append(edge_colors(_centered(edges["bottom"], cover_b), bottom))
+    if right:      # bottom to top, but the band's rows run top to bottom
+        band = _centered(edges["right"].swapaxes(0, 1), cover_r)
+        parts.append(edge_colors(band, right, reverse=True))
+    if top:        # right to left
+        parts.append(edge_colors(_centered(edges["top"], cover_t), top, reverse=True))
+    if left:       # top to bottom
+        parts.append(edge_colors(_centered(edges["left"].swapaxes(0, 1), cover_l), left))
+    return np.concatenate(parts) if parts else np.zeros((0, 3), dtype=np.float32)
+
 
 def build_mapping(led_count, left_led, right_led, width):
     """Column slice bounds per in-zone LED, plus the fade weights for the rest.

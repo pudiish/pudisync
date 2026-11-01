@@ -200,6 +200,17 @@ nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
   padding:0;transition:transform .2s var(--ease)}
 .swatches button[aria-pressed=true]{border-color:var(--fg);transform:scale(1.08)}
 
+/* ---------- effect picker ---------- */
+.fxgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fxc{border:1px solid var(--line);background:var(--surface-2);border-radius:var(--r-sm);
+  padding:12px;text-align:left;font-family:var(--sans);color:var(--fg);
+  transition:all .22s var(--ease);position:relative;overflow:hidden}
+.fxc .n{font-size:13.5px;font-weight:640;display:block}
+.fxc .a{font-size:11px;color:var(--faint);display:block;margin-top:3px;line-height:1.35}
+.fxc[aria-pressed=true]{border-color:transparent;background:var(--grad);color:#fff;
+  box-shadow:0 5px 16px -8px #5b8def80}
+.fxc[aria-pressed=true] .a{color:#ffffffc7}
+
 /* ---------- moods (inside the hero) ---------- */
 .moods{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:7px;
   padding:0 18px 16px}
@@ -349,6 +360,26 @@ details[open]>summary::before{transform:rotate(45deg)}
         <span class="n">Gaming</span></button>
     </div>
   </div>
+
+  <details class="panel sect" id="s-effects">
+    <summary><span class="sl">Colour effects</span>
+      <span class="sv" id="sum-fx">no screen needed</span></summary>
+    <div class="sbody">
+      <div class="fxgrid" id="fxgrid"></div>
+      <div class="ctl" style="margin-top:15px">
+        <div class="cr"><span class="cn">Speed</span><span class="cv" id="v-fxspeed">—</span></div>
+        <input type="range" id="fxspeed" min="0" max="255" step="1" value="100">
+      </div>
+      <div class="ctl">
+        <div class="cr"><span class="cn">Intensity</span><span class="cv" id="v-fxint">—</span></div>
+        <input type="range" id="fxint" min="0" max="255" step="1" value="128">
+      </div>
+      <div id="fxcolorwrap" class="hide">
+        <div class="swatches" id="fxswatches"></div>
+      </div>
+      <button class="btn gh" id="fxstop" style="margin-top:13px">Stop effect</button>
+    </div>
+  </details>
 
   <details class="panel sect" id="s-zones" open>
     <summary><span class="sl">Light zones</span><span class="sv" id="sum-zones"></span></summary>
@@ -1107,6 +1138,64 @@ $("serial_port").onchange=()=>api("/api/set",{serial_port:$("serial_port").value
 $("serial_baud").onchange=()=>api("/api/set",{serial_baud:$("serial_baud").value})
   .then(loadPorts).catch(e=>alertMsg(e.message));
 
+/* ---------- colour effects ---------- */
+let fxList=[], fxCurrent=null;
+const FXPALETTE=["#ff5a5a","#ffb347","#ffe66b","#3fc98a","#5b8def","#7c6cf0","#ff6bd6","#ffffff"];
+
+async function loadEffects(){
+  try{
+    const d=await api("/api/effects");
+    fxList=d.effects||[];
+    const grid=$("fxgrid"); grid.innerHTML="";
+    fxList.forEach(e=>{
+      const b=document.createElement("button");
+      b.className="fxc"; b.dataset.fx=e.fx;
+      b.innerHTML=`<span class="n">${e.name}</span><span class="a">${e.about}</span>`;
+      b.setAttribute("aria-pressed",String(fxCurrent===e.fx));
+      b.onclick=()=>runEffect(e);
+      grid.appendChild(b);
+    });
+    const sw=$("fxswatches"); sw.innerHTML="";
+    FXPALETTE.forEach(c=>{
+      const b=document.createElement("button");
+      b.style.background=c;
+      b.onclick=()=>{ $("fxswatches")._c=c;
+        sw.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false"));
+        b.setAttribute("aria-pressed","true");
+        if(fxCurrent!==null) runEffect(fxList.find(e=>e.fx===fxCurrent),c); };
+      sw.appendChild(b);
+    });
+  }catch(e){}
+}
+async function runEffect(e, colour){
+  if(!e) return;
+  fxCurrent=e.fx;
+  const params={fx:e.fx, speed:$("fxspeed").value, intensity:$("fxint").value};
+  const c = colour || $("fxswatches")._c;
+  if(c) params.color=c.replace("#","");
+  document.querySelectorAll(".fxc").forEach(b=>
+    b.setAttribute("aria-pressed", String(Number(b.dataset.fx)===e.fx)));
+  $("fxcolorwrap").classList.toggle("hide", e.fx!==0 && e.fx!==12);
+  $("sum-fx").textContent=e.name;
+  try{ await api("/api/effect/run",params); await refresh(); }
+  catch(err){ alertMsg(err.message); }
+}
+["fxspeed","fxint"].forEach(id=>{
+  const el=$(id); let t=null;
+  el.oninput=()=>{
+    $(id==="fxspeed"?"v-fxspeed":"v-fxint").textContent=el.value;
+    clearTimeout(t);
+    t=setTimeout(()=>{ if(fxCurrent!==null)
+      runEffect(fxList.find(e=>e.fx===fxCurrent)); },140);
+  };
+});
+$("fxstop").onclick=async()=>{
+  fxCurrent=null;
+  document.querySelectorAll(".fxc").forEach(b=>b.setAttribute("aria-pressed","false"));
+  $("sum-fx").textContent="no screen needed";
+  try{ await api("/api/wled/power",{on:0}); await refresh(); }catch(e){ alertMsg(e.message); }
+};
+
 /* ---------- flash & provision ---------- */
 let flashTimer=null;
 const MANUAL="\u0000manual";
@@ -1245,7 +1334,7 @@ function fillForm(){
   });
 }
 (async()=>{
-  await refresh(); fillForm(); loadMeta(); loadPorts();
+  await refresh(); fillForm(); loadMeta(); loadPorts(); loadEffects();
   setInterval(async()=>{ if(!polling) return;
     await refresh();
     if(!document.querySelector('section[data-page=diag]').classList.contains("hide")) refreshDiag();

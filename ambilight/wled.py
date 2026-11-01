@@ -144,5 +144,9 @@ class WLEDClient:
     def set_effect(self, index):
         return self._post({"seg": [{"id": 0, "fx": int(index)}]})
 
+    def apply(self, payload):
+        """Send an arbitrary state object (used by the effect runner)."""
+        return self._post(payload)
+
     def set_palette(self, index):
         return self._post({"seg": [{"id": 0, "pal": int(index)}]})
