@@ -45,6 +45,11 @@ DEFAULTS = {
     "contrast": 1.5,
     "black_level": 0.03,
     "colour_weight": 0.6,
+    # LED safety (safety.py). Defaults suit a 5V 5A supply: peaks stay under
+    # 3.8A (WLED's own limiter, set to 4A, is the hardware-side backstop) and a
+    # bright scene held for minutes settles at 3A.
+    "power_limit_ma": 3800,
+    "sustained_ma": 3000,
     "spread": 0.3,
     "sync_on_start": False,
     # Skip black bars under video that is not the monitor's shape.
@@ -62,9 +67,8 @@ DEFAULTS = {
     "screen_mm_h": 336.0,
     "led_pitch_mm": 16.7,
     # Measured size of the strip's rectangle; 0 = estimate from LED counts.
-    # The owner's strip sits just outside the screen's visible edges.
-    "box_mm_w": 615.0,
-    "box_mm_h": 350.0,
+    "box_mm_w": 0.0,
+    "box_mm_h": 0.0,
     "edge_skip": 8,
     "zones": [],
     "output": "udp",
@@ -161,6 +165,8 @@ _LIMITS = {
     "contrast": (0.5, 2.5),
     "black_level": (0.0, 0.2),
     "colour_weight": (0.0, 1.0),
+    "power_limit_ma": (200, 20000),
+    "sustained_ma": (200, 20000),
     "spread": (0.0, 0.8),
     "led_count": (1, 1500),
     "left_led": (0, 1499),

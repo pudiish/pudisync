@@ -982,6 +982,65 @@ def test_recorder():
     check("a recording stops itself after its length", Recorder(path, 1, 0.0).add(2.0, first[0]) is False)
 
 
+def test_safety():
+    print("\n15. LED safety (power budget, heat, anti-strobe, stale-frame fade)")
+    from ambilight.safety import Guard, estimate_ma
+    from ambilight.engine import OutputStage
+
+    cfg = {"power_limit_ma": 3800, "sustained_ma": 3000}
+    white = np.full((180, 3), 255.0, np.float32)
+    check("full white on 180 LEDs is ~9.9A", 9700 < estimate_ma(white) < 10200, estimate_ma(white))
+
+    guard = Guard()
+    out = guard.apply(white, 0.0, cfg)
+    check("a frame over the budget is scaled under it", estimate_ma(out) <= 3800 * 1.01, estimate_ma(out))
+    check("the limit is reported", guard.state()["power_limited"] is True)
+    dim = np.full((180, 3), 40.0, np.float32)
+    check("a frame under the budget is untouched", np.allclose(Guard().apply(dim, 0.0, cfg), dim))
+
+    near = np.full((180, 3), 80.0, np.float32)       # ~3.3A: fits the budget
+    after = guard.apply(near, 0.1, cfg)
+    check("brightness returns gradually after a limit, not in one jump",
+          after.mean() < near.mean() * 0.99, (after.mean(), near.mean()))
+    for i in range(30):
+        later = guard.apply(near, 0.2 + i * 0.05, cfg)
+    check("and fully once the release time has passed", np.allclose(later, near, atol=0.5))
+
+    hot = Guard()
+    steady = np.full((180, 3), 85.0, np.float32)      # ~3.5A, inside the budget
+    burst = [hot.apply(steady, t * 0.5, cfg) for t in range(10)][-1]
+    check("a short bright scene is not dimmed for heat", estimate_ma(burst) > 3400, estimate_ma(burst))
+    for t in range(10, 1400):
+        long_run = hot.apply(steady, t * 0.5, cfg)
+    check("ten minutes of bright light settles at the sustained limit",
+          abs(estimate_ma(long_run) - 3000) < 90, estimate_ma(long_run))
+    check("heat limiting is reported", hot.state()["heat_limited"] is True)
+
+    strobe = Guard()
+    black = np.zeros((180, 3), np.float32)
+    bright = np.full((180, 3), 60.0, np.float32)
+    swings = []
+    for i in range(20):                               # 10 flashes a second
+        frame = strobe.apply(bright if i % 2 else black, i * 0.05, cfg)
+        swings.append(frame.mean())
+    check("a 10Hz strobe is damped after the third flash",
+          max(swings[-6:]) - min(swings[-6:]) < 0.5 * 60, swings[-6:])
+    check("anti-strobe is reported", strobe.state()["strobe_damped"] is True)
+    cut = Guard()
+    cut.apply(black, 0.0, cfg)
+    check("a single scene cut is not treated as a strobe",
+          np.allclose(cut.apply(bright, 0.05, cfg), bright))
+
+    stage = OutputStage()
+    live = {"blend": 1.0, "led_gamma": 1.0, "contrast": 1.0, "black_level": 0.0, "colour_match": False,
+            "zones": [], "led_count": 4, "brightness": 1.0, "power_limit_ma": 3800, "sustained_ma": 3000}
+    stage.set_target(np.full((4, 3), 0.8, np.float32), 0.0)
+    fresh = stage.frame(0.5, live)
+    stale = stage.frame(6.0, live)
+    check("a frozen capture fades the strip out instead of holding it",
+          fresh.max() > 150 and stale.max() == 0, (fresh.max(), stale.max()))
+
+
 def main():
     base = "http://127.0.0.1:8080"
     print("=" * 62)
@@ -998,6 +1057,7 @@ def main():
     test_color_engine()
     test_smoothing()
     test_recorder()
+    test_safety()
     test_engine_parts()
     try:
         urllib.request.urlopen(base + "/api/status", timeout=2)

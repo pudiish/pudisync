@@ -8,6 +8,7 @@ from . import color, processing, zones as zonelib
 from .plugins.capture_mss import MSSCapture
 from .plugins.output_wled_udp import WLEDUDPOutput
 from .recorder import Recorder, new_path
+from .safety import Guard
 from .smoothing import Quantizer, Smoother, settle_seconds
 
 # Each packet tells WLED to hold this long; comfortably over one frame interval
@@ -105,14 +106,20 @@ class OutputStage:
     when capture is slower than the output.
     """
 
+    STALE_S = 2.0       # no fresh capture for this long: the screen info is stale
+    FADE_S = 1.5        # ...and the sync layer fades out over this long
+
     def __init__(self):
         self.lock = threading.Lock()
         self.smoother = Smoother()
         self.quantizer = Quantizer()
+        self.guard = Guard()
+        self.last_target = None
 
     def set_target(self, target, now):
         with self.lock:
             self.smoother.set_target(target, now)
+            self.last_target = now
 
     def frame(self, now, cfg):
         """Bytes to send now, or None before the first target."""
@@ -120,11 +127,20 @@ class OutputStage:
             shown = self.smoother.step(now, settle_seconds(cfg["blend"]))
             if shown is None:
                 return None
-            levels = color.to_led(shown, cfg)
+            # A frozen or lost capture must not hold the last bright frame on
+            # the wall indefinitely.
+            age = now - self.last_target
+            levels = color.to_led(shown, cfg) * max(0.0, 1.0 - (age - self.STALE_S) / self.FADE_S
+                                                    if age > self.STALE_S else 1.0)
             # Zones paint over the sync layer after smoothing, so a solid zone
             # is not dragged toward screen colour.
             composed = zonelib.composite(levels, cfg["zones"], cfg["led_count"])
-            return self.quantizer.apply(composed * cfg["brightness"])
+            safe = self.guard.apply(composed * cfg["brightness"], now, cfg)
+            return self.quantizer.apply(safe)
+
+    def safety(self):
+        with self.lock:
+            return self.guard.state()
 
 
 class _Pipeline:
@@ -525,6 +541,7 @@ class Engine:
             "measured_fps": round(self.fps, 1),
             "output_fps": round(self.output_fps, 1),
             "recording": self.recorder is not None,
+            "safety": self.stage.safety(),
             "last_recording": self.last_recording,
             "last_error": self.last_error,
             "capture_plugin": self.capture_name,
