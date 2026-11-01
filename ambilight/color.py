@@ -26,6 +26,33 @@ def linear_to_srgb(values):
 # 8-bit sRGB code value -> linear light, built once.
 SRGB_LUT = srgb_to_linear(np.arange(256, dtype=np.float32) / 255.0)
 
+# Linear sRGB -> CIE XYZ (D65).
+SRGB_TO_XYZ = np.array([[0.4124, 0.3576, 0.1805],
+                        [0.2126, 0.7152, 0.0722],
+                        [0.0193, 0.1192, 0.9505]])
+
+# WS2812B primaries per the WorldSemi datasheet: CIE 1931 xy of the centre
+# wavelength, and luminous intensity (mcd) at full drive.
+WS2812B_PRIMARIES = ((0.7006, 0.2993, 405.0),   # red   620-630nm, 390-420mcd
+                     (0.0743, 0.8338, 690.0),   # green 515-530nm, 660-720mcd
+                     (0.1241, 0.0578, 190.0))   # blue  465-475nm, 180-200mcd
+
+
+def led_matrix(primaries):
+    """Linear screen light -> linear LED channel light (Philips' XYZ route).
+
+    The strip's primaries are not the screen's: its blue is relatively bright,
+    so driving it 1:1 turns warm colours and white bluish-white. Going through
+    CIE XYZ asks each LED channel for exactly the light that reproduces the
+    screen colour. Scaled so screen white puts the busiest channel at full.
+    """
+    columns = [np.array([x * lum / y, lum, (1 - x - y) * lum / y]) for x, y, lum in primaries]
+    matrix = np.linalg.solve(np.column_stack(columns), SRGB_TO_XYZ)
+    return (matrix / (matrix @ np.ones(3)).max()).astype(np.float32)
+
+
+LED_MATRIX = led_matrix(WS2812B_PRIMARIES)
+
 
 def smoothstep(lo, hi, x):
     t = np.clip((x - lo) / (hi - lo), 0.0, 1.0)
@@ -94,4 +121,13 @@ def to_led(perceptual, cfg):
     black = cfg["black_level"]
     if black > 0:
         p = p * smoothstep(black * 0.5, black, p @ LUMA)[:, None]
-    return (p ** cfg["led_gamma"]) * 255.0
+    if not cfg["colour_match"]:
+        return (p ** cfg["led_gamma"]) * 255.0
+
+    light = np.clip(srgb_to_linear(p) @ LED_MATRIX.T, 0.0, None)
+    peak = light.max(axis=1, keepdims=True)
+    # The matrix sets only the mix of the three channels. Brightness keeps the
+    # unmatched curve, taken from the screen colour itself, so a saturated
+    # red is as bright on the wall as it is on screen.
+    level = p.max(axis=1, keepdims=True) ** cfg["led_gamma"]
+    return light * (level / np.maximum(peak, 1e-12)) * 255.0

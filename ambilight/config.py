@@ -31,11 +31,13 @@ DEFAULTS = {
     "blend": 0.3,
     "brightness": 1.0,
     "fps": 60,
-    # Colour engine. WS2812B white runs cold; these gains are HyperHDR's "warm"
-    # preset, a starting point for the /calibrate page.
+    # Colour engine. colour_match converts screen colour into the WS2812B's own
+    # primaries (colour.LED_MATRIX), which already corrects its cold white; the
+    # white-balance gains are left neutral for fine-tuning on /calibrate.
+    "colour_match": True,
     "wb_r": 1.0,
-    "wb_g": 0.93,
-    "wb_b": 0.85,
+    "wb_g": 1.0,
+    "wb_b": 1.0,
     "led_gamma": 1.5,
     "black_level": 0.03,
     "colour_weight": 0.6,

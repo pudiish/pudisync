@@ -787,7 +787,7 @@ def test_color_engine():
           weighted[0] / weighted.sum() > plain[0] / plain.sum(), (plain, weighted))
 
     cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 2.0,
-           "led_gamma": 1.5, "black_level": 0.03}
+           "led_gamma": 1.5, "black_level": 0.03, "colour_match": False}
     orange = color.srgb_to_linear(np.array([[0.9, 0.5, 0.2]], np.float32))
     graded = color.grade(orange, cfg)
     h_in = color.rgb_to_hsv(np.array([[0.9, 0.5, 0.2]], np.float32))[0, 0]
@@ -816,6 +816,26 @@ def test_color_engine():
     check("near-black fades out instead of glowing", near_black.max() == 0, near_black)
     above = color.to_led(np.array([[0.2, 0.2, 0.2]], np.float32), cfg)
     check("a dim but real colour is kept", above.min() > 0, above)
+
+    # WS2812B primaries differ from the screen's: its blue is relatively strong,
+    # so screen white or warm yellow driven 1:1 washes out bluish-white.
+    match = dict(cfg, colour_match=True)
+    warm_yellow = np.array([[1.0, 200 / 255, 90 / 255]], np.float32)
+    plain_led = color.to_led(warm_yellow, cfg)[0]
+    matched_led = color.to_led(warm_yellow, match)[0]
+    check("warm yellow drives far less blue once matched to the LEDs",
+          matched_led[2] / matched_led[0] < 0.5 * plain_led[2] / plain_led[0],
+          (plain_led.round(), matched_led.round()))
+    check("warm yellow keeps strong red and green",
+          matched_led[1] > 0.6 * matched_led[0], matched_led.round())
+    led_white = color.to_led(np.ones((1, 3), np.float32), match)[0]
+    check("screen white needs much less LED blue", led_white[2] < 0.6 * led_white[1], led_white)
+    check("matched white is still full brightness", led_white.max() > 254, led_white)
+    led_red = color.to_led(np.array([[1.0, 0.0, 0.0]], np.float32), match)[0]
+    check("red stays red", led_red[0] > 3 * max(led_red[1], led_red[2]), led_red)
+    dim = color.to_led(np.array([[0.5, 0.5, 0.5]], np.float32), match)[0]
+    check("matching changes the mix, not the brightness curve",
+          abs(dim.max() - 255 * 0.5 ** 1.5) < 2, dim)
 
     row = np.zeros((5, 3), np.float32)
     row[2] = 1.0
@@ -905,7 +925,8 @@ def test_recorder():
     check("a recording is written", os.path.exists(path))
 
     cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 1.2, "led_gamma": 1.5,
-           "black_level": 0.03, "blend": 0.35, "spread": 0.0, "brightness": 1.0}
+           "black_level": 0.03, "blend": 0.35, "spread": 0.0, "brightness": 1.0,
+           "colour_match": True}
     first, stats = replay(path, cfg)
     second, _ = replay(path, cfg)
     check("replay is deterministic", np.array_equal(first, second))
