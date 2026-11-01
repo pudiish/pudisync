@@ -1,11 +1,13 @@
 """Colour grading: screen light in, LED-ready colour out.
 
 Modelled on HyperHDR's float pipeline. Averages arrive in *linear* light (what
-the screen actually emits); white balance works there. Saturation then works
-in HSV on gamma-encoded values, so a boost can never push a channel out of
-range and shift the hue. Last comes the LED gamma: WS2812B brightness is
-linear in its PWM value, so sending the screen's sRGB code values straight
-through makes dark greys glow far brighter on the wall than on the screen.
+the screen actually emits). Saturation works in HSV on gamma-encoded values,
+so a boost can never push a channel out of range and shift the hue. The
+colour is then converted into the strip's own primaries (with a warmer white
+point for neutrals), trimmed by the strip's channel balance, and given the LED
+gamma: WS2812B brightness is linear in its PWM value, so sending the screen's
+sRGB code values straight through makes dark greys glow far brighter on the
+wall than on the screen.
 """
 from functools import lru_cache
 
@@ -134,9 +136,7 @@ def grade(linear, cfg):
     into garish colour. Very dark colours are eased toward neutral for the same
     reason.
     """
-    balanced = np.asarray(linear, dtype=np.float32) * np.array(
-        [cfg["wb_r"], cfg["wb_g"], cfg["wb_b"]], dtype=np.float32)
-    hsv = rgb_to_hsv(linear_to_srgb(balanced))
+    hsv = rgb_to_hsv(linear_to_srgb(np.asarray(linear, dtype=np.float32)))
     sat, val = hsv[:, 1], hsv[:, 2]
 
     gain = cfg["saturation"]
@@ -173,8 +173,12 @@ def to_led(perceptual, cfg):
     black = cfg["black_level"]
     if black > 0:
         p = p * smoothstep(black * 0.5, black, p @ LUMA)[:, None]
+    # Strip balance: this strip's own channel strengths (its green runs strong
+    # next to the datasheet's average), trimmed in LED light so every colour
+    # scales alike.
+    balance = np.array([cfg["wb_r"], cfg["wb_g"], cfg["wb_b"]], dtype=np.float32)
     if not cfg["colour_match"]:
-        return contrast_curve(p ** cfg["led_gamma"], cfg["contrast"]) * 255.0
+        return contrast_curve(p ** cfg["led_gamma"], cfg["contrast"]) * balance * 255.0
 
     linear = srgb_to_linear(p)
     light = linear @ led_matrix(NEUTRAL_KELVIN).T
@@ -186,7 +190,7 @@ def to_led(perceptual, cfg):
         warm = linear @ led_matrix(kelvin).T
         share = 1.0 - smoothstep(0.35, 0.75, rgb_to_hsv(p)[:, 1:2])
         light = light + (warm - light) * share
-    light = np.clip(light, 0.0, None)
+    light = np.clip(light, 0.0, None) * balance
     peak = light.max(axis=1, keepdims=True)
     # The matrix sets only the mix of the three channels. Brightness keeps the
     # unmatched curve, taken from the screen colour itself, so a saturated

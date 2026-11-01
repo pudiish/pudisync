@@ -823,9 +823,20 @@ def test_color_engine():
           color.rgb_to_hsv(murk_out)[0, 1] <= color.rgb_to_hsv(murk)[0, 1] + 1e-3,
           (color.rgb_to_hsv(murk)[0, 1], color.rgb_to_hsv(murk_out)[0, 1]))
 
-    warm = dict(cfg, saturation=1.0, wb_g=0.9, wb_b=0.8)
-    white = color.grade(np.ones((1, 3), np.float32), warm)[0]
-    check("white balance tints white", white[0] > white[1] > white[2], white)
+    # Strip balance trims the LED channels themselves (this strip's green runs
+    # strong), so it scales every colour alike instead of feeding the
+    # saturation boost a tinted white.
+    trim = dict(cfg, saturation=1.0, wb_g=0.8, colour_match=True, white_kelvin=6500, contrast=1.0)
+    even = dict(trim, wb_g=1.0)
+    white_even = color.to_led(np.ones((1, 3), np.float32), even)[0]
+    white_trim = color.to_led(np.ones((1, 3), np.float32), trim)[0]
+    check("strip balance takes green out of white",
+          abs(white_trim[1] / white_trim[0] - 0.8 * white_even[1] / white_even[0]) < 0.02,
+          (white_even.round(), white_trim.round()))
+    skin_rgb = np.array([[224 / 255, 172 / 255, 138 / 255]], np.float32)
+    check("grading no longer depends on strip balance",
+          np.allclose(color.grade(color.srgb_to_linear(skin_rgb), trim),
+                      color.grade(color.srgb_to_linear(skin_rgb), even)))
 
     led = color.to_led(np.array([[0.5, 0.5, 0.5]], np.float32), cfg)[0]
     check("LED gamma darkens mid tones", abs(led[0] - 255 * 0.5 ** 1.5) < 1, led)
@@ -1033,7 +1044,8 @@ def test_safety():
 
     stage = OutputStage()
     live = {"blend": 1.0, "led_gamma": 1.0, "contrast": 1.0, "black_level": 0.0, "colour_match": False,
-            "zones": [], "led_count": 4, "brightness": 1.0, "power_limit_ma": 3800, "sustained_ma": 3000}
+            "zones": [], "led_count": 4, "brightness": 1.0, "power_limit_ma": 3800, "sustained_ma": 3000,
+            "wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0}
     stage.set_target(np.full((4, 3), 0.8, np.float32), 0.0)
     fresh = stage.frame(0.5, live)
     stale = stage.frame(6.0, live)
