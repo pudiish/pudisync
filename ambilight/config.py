@@ -35,6 +35,8 @@ DEFAULTS = {
     # primaries (colour.LED_MATRIX), which already corrects its cold white; the
     # white-balance gains are left neutral for fine-tuning on /calibrate.
     "colour_match": True,
+    # The strip's white point. 6500 keeps the screen's own D65; lower is warmer.
+    "white_kelvin": 4500,
     "wb_r": 1.0,
     "wb_g": 1.0,
     "wb_b": 1.0,
@@ -149,6 +151,7 @@ _LIMITS = {
     "wb_g": (0.2, 1.0),
     "wb_b": (0.2, 1.0),
     "led_gamma": (0.5, 3.0),
+    "white_kelvin": (2700, 6500),
     "black_level": (0.0, 0.2),
     "colour_weight": (0.0, 1.0),
     "spread": (0.0, 0.8),

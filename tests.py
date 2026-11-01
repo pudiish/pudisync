@@ -819,7 +819,7 @@ def test_color_engine():
 
     # WS2812B primaries differ from the screen's: its blue is relatively strong,
     # so screen white or warm yellow driven 1:1 washes out bluish-white.
-    match = dict(cfg, colour_match=True)
+    match = dict(cfg, colour_match=True, white_kelvin=6500)
     warm_yellow = np.array([[1.0, 200 / 255, 90 / 255]], np.float32)
     plain_led = color.to_led(warm_yellow, cfg)[0]
     matched_led = color.to_led(warm_yellow, match)[0]
@@ -836,6 +836,23 @@ def test_color_engine():
     dim = color.to_led(np.array([[0.5, 0.5, 0.5]], np.float32), match)[0]
     check("matching changes the mix, not the brightness curve",
           abs(dim.max() - 255 * 0.5 ** 1.5) < 2, dim)
+
+    # Warmth: the strip's white point, moved along the blackbody line.
+    skin = np.array([[224 / 255, 172 / 255, 138 / 255]], np.float32)
+    cool = color.to_led(skin, match)[0]
+    warm = color.to_led(skin, dict(match, white_kelvin=4500))[0]
+    check("a warmer white point takes blue out of skin",
+          warm[2] / warm[0] < 0.75 * cool[2] / cool[0], (cool.round(), warm.round()))
+    warm_white = color.to_led(np.ones((1, 3), np.float32), dict(match, white_kelvin=4500))[0]
+    check("a warm white leans red over blue", warm_white[0] > 2.5 * warm_white[2], warm_white)
+    check("warmth keeps white at full brightness", warm_white.max() > 254, warm_white)
+    hot = color.to_led(skin, dict(match, white_kelvin=3000))[0]
+    check("lower Kelvin is warmer still", hot[2] / hot[0] < warm[2] / warm[0], hot.round())
+    deep_sky = np.array([[40 / 255, 110 / 255, 220 / 255]], np.float32)
+    check("warmth leaves saturated colours alone",
+          np.allclose(color.to_led(deep_sky, match), color.to_led(deep_sky, dict(match, white_kelvin=4500)),
+                      atol=1.0),
+          (color.to_led(deep_sky, match).round(), color.to_led(deep_sky, dict(match, white_kelvin=4500)).round()))
 
     row = np.zeros((5, 3), np.float32)
     row[2] = 1.0
@@ -926,7 +943,7 @@ def test_recorder():
 
     cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 1.2, "led_gamma": 1.5,
            "black_level": 0.03, "blend": 0.35, "spread": 0.0, "brightness": 1.0,
-           "colour_match": True}
+           "colour_match": True, "white_kelvin": 4500}
     first, stats = replay(path, cfg)
     second, _ = replay(path, cfg)
     check("replay is deterministic", np.array_equal(first, second))

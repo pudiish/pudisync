@@ -7,6 +7,8 @@ range and shift the hue. Last comes the LED gamma: WS2812B brightness is
 linear in its PWM value, so sending the screen's sRGB code values straight
 through makes dark greys glow far brighter on the wall than on the screen.
 """
+from functools import lru_cache
+
 import numpy as np
 
 # Luma weights (Rec. 709), for "how bright does this look".
@@ -38,20 +40,57 @@ WS2812B_PRIMARIES = ((0.7006, 0.2993, 405.0),   # red   620-630nm, 390-420mcd
                      (0.1241, 0.0578, 190.0))   # blue  465-475nm, 180-200mcd
 
 
-def led_matrix(primaries):
+# Bradford cone response, the standard chromatic-adaptation transform.
+BRADFORD = np.array([[0.8951, 0.2664, -0.1614],
+                     [-0.7502, 1.7135, 0.0367],
+                     [0.0389, -0.0685, 1.0296]])
+D65_XY = (0.3127, 0.3290)
+NEUTRAL_KELVIN = 6500   # at or above this, the strip keeps the screen's own D65 white
+
+
+def blackbody_xy(kelvin):
+    """CIE 1931 xy of a blackbody (Kim et al. cubic fit, valid 1667-25000K)."""
+    t = float(kelvin)
+    if t <= 4000:
+        x = -0.2661239e9 / t**3 - 0.2343589e6 / t**2 + 0.8776956e3 / t + 0.179910
+    else:
+        x = -3.0258469e9 / t**3 + 2.1070379e6 / t**2 + 0.2226347e3 / t + 0.240390
+    if t <= 2222:
+        y = -1.1063814 * x**3 - 1.34811020 * x**2 + 2.18555832 * x - 0.20219683
+    elif t <= 4000:
+        y = -0.9549476 * x**3 - 1.37418593 * x**2 + 2.09137015 * x - 0.16748867
+    else:
+        y = 3.0817580 * x**3 - 5.87338670 * x**2 + 3.75112997 * x - 0.37001483
+    return x, y
+
+
+def white_xyz(xy):
+    x, y = xy
+    return np.array([x / y, 1.0, (1 - x - y) / y])
+
+
+def adaptation(kelvin):
+    """XYZ -> XYZ that moves the screen's D65 white to a blackbody white."""
+    if kelvin >= NEUTRAL_KELVIN:
+        return np.eye(3)
+    source = BRADFORD @ white_xyz(D65_XY)
+    target = BRADFORD @ white_xyz(blackbody_xy(kelvin))
+    return np.linalg.inv(BRADFORD) @ np.diag(target / source) @ BRADFORD
+
+
+@lru_cache(maxsize=16)
+def led_matrix(kelvin, primaries=WS2812B_PRIMARIES):
     """Linear screen light -> linear LED channel light (Philips' XYZ route).
 
     The strip's primaries are not the screen's: its blue is relatively bright,
     so driving it 1:1 turns warm colours and white bluish-white. Going through
     CIE XYZ asks each LED channel for exactly the light that reproduces the
-    screen colour. Scaled so screen white puts the busiest channel at full.
+    screen colour, seen under a `kelvin` white instead of the screen's D65.
+    Scaled so white puts the busiest channel at full.
     """
     columns = [np.array([x * lum / y, lum, (1 - x - y) * lum / y]) for x, y, lum in primaries]
-    matrix = np.linalg.solve(np.column_stack(columns), SRGB_TO_XYZ)
+    matrix = np.linalg.solve(np.column_stack(columns), adaptation(kelvin) @ SRGB_TO_XYZ)
     return (matrix / (matrix @ np.ones(3)).max()).astype(np.float32)
-
-
-LED_MATRIX = led_matrix(WS2812B_PRIMARIES)
 
 
 def smoothstep(lo, hi, x):
@@ -124,7 +163,17 @@ def to_led(perceptual, cfg):
     if not cfg["colour_match"]:
         return (p ** cfg["led_gamma"]) * 255.0
 
-    light = np.clip(srgb_to_linear(p) @ LED_MATRIX.T, 0.0, None)
+    linear = srgb_to_linear(p)
+    light = linear @ led_matrix(NEUTRAL_KELVIN).T
+    kelvin = int(cfg["white_kelvin"])
+    if kelvin < NEUTRAL_KELVIN:
+        # Warmth is for whites, greys and skin. The eye stays adapted to the
+        # screen, so saturated colours keep the screen's own look; warming a
+        # sky blue toward the warm white would only make it pale.
+        warm = linear @ led_matrix(kelvin).T
+        share = 1.0 - smoothstep(0.35, 0.75, rgb_to_hsv(p)[:, 1:2])
+        light = light + (warm - light) * share
+    light = np.clip(light, 0.0, None)
     peak = light.max(axis=1, keepdims=True)
     # The matrix sets only the mix of the three channels. Brightness keeps the
     # unmatched curve, taken from the screen colour itself, so a saturated

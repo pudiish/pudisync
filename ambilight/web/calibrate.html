@@ -34,6 +34,7 @@
   <p>Keep screen sync on. Pick a patch, then move the sliders until the light
      on the wall looks like the screen. Start with white, then the greys.</p>
   <div class="patches" id="patches"></div>
+  <label>Warmth (K) <input type="range" id="white_kelvin" min="2700" max="6500" step="100"><output></output></label>
   <label>Red balance <input type="range" id="wb_r" min="0.2" max="1" step="0.01"><output></output></label>
   <label>Green balance <input type="range" id="wb_g" min="0.2" max="1" step="0.01"><output></output></label>
   <label>Blue balance <input type="range" id="wb_b" min="0.2" max="1" step="0.01"><output></output></label>
@@ -79,12 +80,13 @@ PATCHES.forEach(([name, hex], i) => {
   $("patches").append(b);
 });
 
-const SLIDERS = ["wb_r", "wb_g", "wb_b", "led_gamma", "saturation", "black_level"];
+const SLIDERS = ["white_kelvin", "wb_r", "wb_g", "wb_b", "led_gamma", "saturation", "black_level"];
+const fmt = (key, v) => key === "white_kelvin" ? String(Math.round(v)) : Number(v).toFixed(2);
 for (const key of SLIDERS) {
   const el = $(key), out = el.nextElementSibling;
   let timer = null;
   el.oninput = () => {
-    out.textContent = Number(el.value).toFixed(2);
+    out.textContent = fmt(key, el.value);
     clearTimeout(timer);
     timer = setTimeout(() => api("/api/set", { [key]: el.value }).then(() => msg(""), e => msg(e.message)), 80);
   };
@@ -95,7 +97,7 @@ async function load() {
     const cfg = await api("/api/config");
     for (const key of SLIDERS) {
       $(key).value = cfg[key];
-      $(key).nextElementSibling.textContent = Number(cfg[key]).toFixed(2);
+      $(key).nextElementSibling.textContent = fmt(key, cfg[key]);
     }
     const st = await api("/api/status");
     if (!st.running) msg("Screen sync is off: turn it on so the strip follows this page.");
