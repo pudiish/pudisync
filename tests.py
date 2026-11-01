@@ -716,6 +716,13 @@ def test_frame_layout():
           abs(shares[1] - 14 * 16.7 / 336) < 1e-6, shares)
     check("the box is as wide as its longer horizontal side",
           abs(shares[0] - 35 * 16.7 / 597) < 1e-6, shares)
+    # A measured strip rectangle overrides the LED-count estimate; one a bit
+    # outside the screen samples every edge corner to corner, and never more.
+    outside = box_coverage((35, 14, 35, 13), 16.7, 597, 336, box_mm=(615, 350))
+    check("a box just outside the screen covers each full edge", outside == (1.0, 1.0, 1.0, 1.0), outside)
+    inside = box_coverage((35, 14, 35, 13), 16.7, 597, 336, box_mm=(560, 300))
+    check("a measured box inside the screen maps to its own size",
+          abs(inside[0] - 560 / 597) < 1e-6 and abs(inside[1] - 300 / 336) < 1e-6, inside)
 
     half = frame_colors(edges, (36, 20, 36, 20), coverage=(1.0, 0.5, 1.0, 1.0))
     from ambilight.color import linear_to_srgb

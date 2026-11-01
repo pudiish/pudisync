@@ -61,6 +61,10 @@ DEFAULTS = {
     "screen_mm_w": 597.0,
     "screen_mm_h": 336.0,
     "led_pitch_mm": 16.7,
+    # Measured size of the strip's rectangle; 0 = estimate from LED counts.
+    # The owner's strip sits just outside the screen's visible edges.
+    "box_mm_w": 615.0,
+    "box_mm_h": 350.0,
     "edge_skip": 8,
     "zones": [],
     "output": "udp",
@@ -168,6 +172,8 @@ _LIMITS = {
     "edge_left": (0, 500),
     "screen_mm_w": (50.0, 5000.0),
     "screen_mm_h": (50.0, 5000.0),
+    "box_mm_w": (0.0, 5000.0),
+    "box_mm_h": (0.0, 5000.0),
     "led_pitch_mm": (5.0, 100.0),
     "edge_skip": (0, 100),
     "http_port": (1024, 65535),

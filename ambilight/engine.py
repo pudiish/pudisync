@@ -165,7 +165,8 @@ class _Pipeline:
         """Four screen edges -> (linear averages, target), for a strip round the monitor."""
         counts = (cfg["edge_bottom"], cfg["edge_right"], cfg["edge_top"], cfg["edge_left"])
         share = processing.box_coverage(
-            counts, cfg["led_pitch_mm"], cfg["screen_mm_w"], cfg["screen_mm_h"])
+            counts, cfg["led_pitch_mm"], cfg["screen_mm_w"], cfg["screen_mm_h"],
+            (cfg["box_mm_w"], cfg["box_mm_h"]))
         linear = processing.spread(
             processing.frame_colors(edges, counts, share, cfg["colour_weight"]),
             cfg["spread"], ring=True)

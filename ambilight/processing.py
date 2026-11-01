@@ -80,17 +80,22 @@ def coverage(led_count, pitch_mm, side_mm):
     return max(0.05, min(1.0, led_count * pitch_mm / side_mm))
 
 
-def box_coverage(counts, pitch_mm, screen_w_mm, screen_h_mm):
+def box_coverage(counts, pitch_mm, screen_w_mm, screen_h_mm, box_mm=(0, 0)):
     """Share of each screen edge (bottom, right, top, left) the strip spans.
 
     The strip is one rectangle centred behind the screen, so both upright
     sides span its full height even when one has an LED fewer (lost at a
-    bend), and top matches bottom. Its size comes from the longer side of
-    each pair; each side's LEDs then spread evenly over the whole side.
+    bend), and top matches bottom. A measured `box_mm` (width, height) wins;
+    otherwise the size comes from the longer side of each pair. A box at or
+    beyond the screen's edges samples each full edge, corner to corner.
+    Each side's LEDs then spread evenly over the whole side.
     """
     bottom, right, top, left = counts
-    across = coverage(max(bottom, top), pitch_mm, screen_w_mm)
-    upright = coverage(max(right, left), pitch_mm, screen_h_mm)
+    box_w, box_h = box_mm
+    wide = box_w if box_w > 0 else max(bottom, top) * pitch_mm
+    tall = box_h if box_h > 0 else max(right, left) * pitch_mm
+    across = coverage(1, wide, screen_w_mm)
+    upright = coverage(1, tall, screen_h_mm)
     return across, upright, across, upright
 
 
