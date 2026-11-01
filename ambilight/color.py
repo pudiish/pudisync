@@ -151,6 +151,19 @@ def grade(linear, cfg):
     return np.clip(hsv_to_rgb(hsv), 0.0, 1.0)
 
 
+def contrast_curve(level, amount):
+    """S-curve on 0..1 drive levels: brights up, darks down, ends fixed.
+
+    amount 1.0 leaves levels unchanged; 1.5 lifts an 82% level to 91% and drops
+    a 12% level to 5%.
+    """
+    if abs(amount - 1.0) < 1e-3:
+        return level
+    level = np.clip(level, 0.0, 1.0)
+    up, down = level ** amount, (1.0 - level) ** amount
+    return up / np.maximum(up + down, 1e-12)
+
+
 def to_led(perceptual, cfg):
     """Perceptual colours -> 0..255 LED drive levels (float, not yet quantized).
 
@@ -161,7 +174,7 @@ def to_led(perceptual, cfg):
     if black > 0:
         p = p * smoothstep(black * 0.5, black, p @ LUMA)[:, None]
     if not cfg["colour_match"]:
-        return (p ** cfg["led_gamma"]) * 255.0
+        return contrast_curve(p ** cfg["led_gamma"], cfg["contrast"]) * 255.0
 
     linear = srgb_to_linear(p)
     light = linear @ led_matrix(NEUTRAL_KELVIN).T
@@ -178,5 +191,5 @@ def to_led(perceptual, cfg):
     # The matrix sets only the mix of the three channels. Brightness keeps the
     # unmatched curve, taken from the screen colour itself, so a saturated
     # red is as bright on the wall as it is on screen.
-    level = p.max(axis=1, keepdims=True) ** cfg["led_gamma"]
+    level = contrast_curve(p.max(axis=1, keepdims=True) ** cfg["led_gamma"], cfg["contrast"])
     return light * (level / np.maximum(peak, 1e-12)) * 255.0

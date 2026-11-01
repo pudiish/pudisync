@@ -39,6 +39,7 @@
   <label>Green balance <input type="range" id="wb_g" min="0.2" max="1" step="0.01"><output></output></label>
   <label>Blue balance <input type="range" id="wb_b" min="0.2" max="1" step="0.01"><output></output></label>
   <label>LED gamma <input type="range" id="led_gamma" min="0.8" max="2.5" step="0.05"><output></output></label>
+  <label>Contrast <input type="range" id="contrast" min="0.5" max="2.5" step="0.05"><output></output></label>
   <label>Colour intensity <input type="range" id="saturation" min="0.5" max="2" step="0.05"><output></output></label>
   <label>Black cut-off <input type="range" id="black_level" min="0" max="0.12" step="0.005"><output></output></label>
   <div class="row">
@@ -80,7 +81,7 @@ PATCHES.forEach(([name, hex], i) => {
   $("patches").append(b);
 });
 
-const SLIDERS = ["white_kelvin", "wb_r", "wb_g", "wb_b", "led_gamma", "saturation", "black_level"];
+const SLIDERS = ["white_kelvin", "wb_r", "wb_g", "wb_b", "led_gamma", "contrast", "saturation", "black_level"];
 const fmt = (key, v) => key === "white_kelvin" ? String(Math.round(v)) : Number(v).toFixed(2);
 for (const key of SLIDERS) {
   const el = $(key), out = el.nextElementSibling;

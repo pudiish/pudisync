@@ -787,7 +787,7 @@ def test_color_engine():
           weighted[0] / weighted.sum() > plain[0] / plain.sum(), (plain, weighted))
 
     cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 2.0,
-           "led_gamma": 1.5, "black_level": 0.03, "colour_match": False}
+           "led_gamma": 1.5, "black_level": 0.03, "colour_match": False, "contrast": 1.0}
     orange = color.srgb_to_linear(np.array([[0.9, 0.5, 0.2]], np.float32))
     graded = color.grade(orange, cfg)
     h_in = color.rgb_to_hsv(np.array([[0.9, 0.5, 0.2]], np.float32))[0, 0]
@@ -848,6 +848,18 @@ def test_color_engine():
     check("warmth keeps white at full brightness", warm_white.max() > 254, warm_white)
     hot = color.to_led(skin, dict(match, white_kelvin=3000))[0]
     check("lower Kelvin is warmer still", hot[2] / hot[0] < warm[2] / warm[0], hot.round())
+    flat = dict(match, contrast=1.0)
+    punchy = dict(match, contrast=1.5)
+    level = lambda c, conf: color.to_led(np.array([c], np.float32), conf)[0].max()
+    check("contrast brightens bright colours", level((0.88, 0.67, 0.54), punchy)
+          > level((0.88, 0.67, 0.54), flat) + 10,
+          (level((0.88, 0.67, 0.54), flat), level((0.88, 0.67, 0.54), punchy)))
+    check("contrast darkens dark colours", level((0.25, 0.25, 0.25), punchy)
+          < level((0.25, 0.25, 0.25), flat))
+    check("contrast keeps full white full", level((1, 1, 1), punchy) > 254)
+    check("contrast 1.0 changes nothing",
+          np.allclose(color.to_led(skin, flat), color.to_led(skin, dict(match, contrast=1.0))))
+
     deep_sky = np.array([[40 / 255, 110 / 255, 220 / 255]], np.float32)
     check("warmth leaves saturated colours alone",
           np.allclose(color.to_led(deep_sky, match), color.to_led(deep_sky, dict(match, white_kelvin=4500)),
@@ -943,7 +955,7 @@ def test_recorder():
 
     cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 1.2, "led_gamma": 1.5,
            "black_level": 0.03, "blend": 0.35, "spread": 0.0, "brightness": 1.0,
-           "colour_match": True, "white_kelvin": 4500}
+           "colour_match": True, "white_kelvin": 4500, "contrast": 1.5}
     first, stats = replay(path, cfg)
     second, _ = replay(path, cfg)
     check("replay is deterministic", np.array_equal(first, second))

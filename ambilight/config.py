@@ -41,6 +41,8 @@ DEFAULTS = {
     "wb_g": 1.0,
     "wb_b": 1.0,
     "led_gamma": 1.5,
+    # S-curve after the LED gamma: brights brighter, darks darker. 1.0 = none.
+    "contrast": 1.5,
     "black_level": 0.03,
     "colour_weight": 0.6,
     "spread": 0.3,
@@ -152,6 +154,7 @@ _LIMITS = {
     "wb_b": (0.2, 1.0),
     "led_gamma": (0.5, 3.0),
     "white_kelvin": (2700, 6500),
+    "contrast": (0.5, 2.5),
     "black_level": (0.0, 0.2),
     "colour_weight": (0.0, 1.0),
     "spread": (0.0, 0.8),
