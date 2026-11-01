@@ -1041,6 +1041,65 @@ def test_safety():
           fresh.max() > 150 and stale.max() == 0, (fresh.max(), stale.max()))
 
 
+def test_config():
+    print("\n16. Config: validation, atomic saves, recovery")
+    import os, tempfile, threading as th
+    from ambilight.config import Config, DEFAULTS, PROFILES
+
+    folder = tempfile.mkdtemp()
+    path = os.path.join(folder, "config.json")
+    with open(path, "w") as fh:
+        json.dump({"fps": "60", "saturation": "1.4", "layout": "frame", "bogus": 1}, fh)
+    cfg = Config(path)
+    check("stored values are coerced on load", cfg.get("fps") == 60 and cfg.get("saturation") == 1.4)
+    check("unknown stored keys are dropped", "bogus" not in cfg.snapshot())
+
+    with open(path, "w") as fh:
+        fh.write("{ not json")
+    recovered = Config(path)
+    check("a corrupt config falls back to defaults", recovered.get("fps") == DEFAULTS["fps"])
+    check("and the bad file is kept aside, not deleted", os.path.exists(path + ".bad"))
+
+    def rejects(changes):
+        try:
+            recovered.update(changes)
+        except ValueError:
+            return True
+        return False
+
+    check("layout only accepts known values", rejects({"layout": "banana"}))
+    check("layout is case-insensitive", recovered.update({"layout": "Frame"}) == ["layout"]
+          and recovered.get("layout") == "frame")
+    check("an output that does not exist is refused", rejects({"output": "laser"}))
+    check("a controller address cannot carry a URL", rejects({"wled_ip": "evil.example/x"}))
+    check("an mDNS controller name is accepted", recovered.update({"wled_ip": "wled-6b0bc6.local"}) == ["wled_ip"])
+    check("an IP controller address is accepted", recovered.update({"wled_ip": "192.168.29.57"}) == ["wled_ip"])
+    check("infinite numbers are refused", rejects({"fps": "1e400"}))
+    check("non-numbers are refused, not crashed on", rejects({"fps": "fast"}))
+    check("a serial port must be a device path", rejects({"serial_port": "../../etc/passwd"}))
+
+    before = recovered.get("saturation")
+    recovered.apply_profile("game")
+    check("moods change response only, not colour tuning",
+          recovered.get("saturation") == before and recovered.get("blend") == PROFILES["game"]["blend"])
+
+    errors = []
+    def hammer(i):
+        try:
+            for k in range(30):
+                recovered.update({"brightness": ((i * 30 + k) % 100) / 100})
+        except Exception as exc:
+            errors.append(exc)
+    threads = [th.Thread(target=hammer, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    check("concurrent saves never fail", not errors, errors[:1])
+    with open(path) as fh:
+        check("and always leave a readable file", isinstance(json.load(fh), dict))
+
+
 def main():
     base = "http://127.0.0.1:8080"
     print("=" * 62)
@@ -1058,6 +1117,7 @@ def main():
     test_smoothing()
     test_recorder()
     test_safety()
+    test_config()
     test_engine_parts()
     try:
         urllib.request.urlopen(base + "/api/status", timeout=2)

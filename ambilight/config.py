@@ -1,16 +1,24 @@
 """Single-file JSON config, saved on every change."""
+import ipaddress
 import json
+import logging
+import math
+import os
+import re
+import tempfile
 import threading
 from pathlib import Path
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
-# Profiles tune responsiveness vs. smoothness. Values here override the live
-# settings whenever a profile is selected. "blend" is the Response setting:
-# 0.3 settles in ~0.37s, 0.7 in ~0.13s (see smoothing.settle_seconds).
+log = logging.getLogger(__name__)
+
+# Moods trade smoothness for reaction time. They only touch motion, never the
+# colour tuning, so picking one cannot undo a calibration. "blend" is the
+# Response setting: 0.3 settles in ~0.37s, 0.7 in ~0.13s (smoothing.settle_seconds).
 PROFILES = {
-    "movie": {"saturation": 1.2, "blend": 0.3, "fps": 60},
-    "game": {"saturation": 1.15, "blend": 0.70, "fps": 60},
+    "movie": {"blend": 0.3, "fps": 60},
+    "game": {"blend": 0.70, "fps": 60},
 }
 
 DEFAULTS = {
@@ -81,6 +89,7 @@ class Config:
     def __init__(self, path=CONFIG_PATH):
         self._path = Path(path)
         self._lock = threading.Lock()
+        self.save_lock = threading.Lock()
         self._data = dict(DEFAULTS)
         self.load()
 
@@ -89,18 +98,57 @@ class Config:
             return
         try:
             stored = json.loads(self._path.read_text())
+            if not isinstance(stored, dict):
+                raise ValueError("top level is not an object")
         except (OSError, ValueError) as exc:
-            raise RuntimeError(f"config at {self._path} is unreadable: {exc}") from exc
-        # Unknown keys are dropped so a stale config cannot inject surprises.
+            # A crash loop under launchd helps nobody: keep the bad file for
+            # inspection and start from defaults, loudly.
+            aside = self._path.with_name(self._path.name + ".bad")
+            os.replace(self._path, aside)
+            log.error("config %s is unreadable (%s); moved to %s, using defaults",
+                      self._path, exc, aside)
+            return
+        # Unknown keys are dropped so a stale config cannot inject surprises,
+        # and every value is validated as if it had arrived over the network.
+        clean = {}
+        for key, raw in stored.items():
+            if key not in DEFAULTS:
+                continue
+            try:
+                clean[key] = self.validate(key, raw)
+            except ValueError as exc:
+                log.warning("ignoring stored %s: %s", key, exc)
         with self._lock:
-            self._data.update({k: v for k, v in stored.items() if k in DEFAULTS})
+            self._data.update(clean)
 
     def save(self):
-        with self._lock:
-            payload = json.dumps(self._data, indent=2, sort_keys=True)
-        tmp = self._path.with_suffix(".json.tmp")
-        tmp.write_text(payload)
-        tmp.replace(self._path)
+        """Write atomically: a temp file in the same folder, flushed, then renamed."""
+        with self.save_lock:
+            with self._lock:
+                payload = json.dumps(self._data, indent=2, sort_keys=True)
+            handle, tmp = tempfile.mkstemp(dir=self._path.parent, prefix=".config-", suffix=".tmp")
+            try:
+                with os.fdopen(handle, "w") as fh:
+                    fh.write(payload)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, self._path)
+            except OSError:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+                raise
+
+    def validate(self, key, raw):
+        if key == "zones":
+            from .zones import normalize
+
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except ValueError as exc:
+                    raise ValueError(f"zones is not valid JSON: {exc}") from None
+            return normalize(raw, self._data["led_count"])
+        return _coerce(key, raw)
 
     def snapshot(self):
         with self._lock:
@@ -112,21 +160,7 @@ class Config:
 
     def update(self, changes):
         """Apply validated changes and persist. Returns the keys that changed."""
-        clean = {}
-        for key, raw in changes.items():
-            if key not in DEFAULTS:
-                continue
-            if key == "zones":
-                from .zones import normalize
-
-                if isinstance(raw, str):
-                    try:
-                        raw = json.loads(raw)
-                    except ValueError as exc:
-                        raise ValueError(f"zones is not valid JSON: {exc}") from None
-                clean[key] = normalize(raw, self._data["led_count"])
-                continue
-            clean[key] = _coerce(key, raw)
+        clean = {key: self.validate(key, raw) for key, raw in changes.items() if key in DEFAULTS}
         with self._lock:
             changed = [k for k, v in clean.items() if self._data.get(k) != v]
             self._data.update(clean)
@@ -189,17 +223,63 @@ _LIMITS = {
 }
 
 
+# Settings with a fixed set of values. Matching is case-insensitive.
+CHOICES = {
+    "layout": ("strip", "frame"),
+    "output": ("udp", "serial"),
+    "profile": tuple(PROFILES),
+}
+
+# Free-text settings and the shape they must have. The controller address
+# goes into URLs and sockets, so it must be a bare IP or host name.
+HOST_NAME = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,62})(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}))*$")
+PATTERNS = {
+    "serial_port": re.compile(r"^(/dev/[A-Za-z0-9._-]+)?$"),
+    "pin": re.compile(r"^[A-Za-z0-9]{0,16}$"),
+}
+
+
 def _coerce(key, raw):
     default = DEFAULTS[key]
     if isinstance(default, bool):
         if isinstance(raw, str):
             return raw.lower() in ("1", "true", "on", "yes")
         return bool(raw)
-    if isinstance(default, int):
-        value = int(float(raw))
-    elif isinstance(default, float):
-        value = float(raw)
-    else:
-        return str(raw).strip()
+    if isinstance(default, (int, float)):
+        return coerce_number(key, raw, int if isinstance(default, int) else float)
+    return coerce_text(key, str(raw).strip())
+
+
+def coerce_number(key, raw, kind):
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a number, not {raw!r}") from None
+    if not math.isfinite(number):
+        raise ValueError(f"{key} must be a finite number")
     lo, hi = _LIMITS[key]
-    return max(lo, min(hi, value))
+    return max(lo, min(hi, kind(number)))
+
+
+def coerce_text(key, text):
+    if key in CHOICES:
+        lowered = text.lower()
+        if lowered not in CHOICES[key]:
+            raise ValueError(f"{key} must be one of {', '.join(CHOICES[key])}")
+        return lowered
+    if key == "wled_ip":
+        return controller_address(text)
+    if key in PATTERNS and not PATTERNS[key].match(text):
+        raise ValueError(f"{key} has an invalid format")
+    return text
+
+
+def controller_address(text):
+    """A bare IP address or host name (e.g. wled-6b0bc6.local), nothing else."""
+    try:
+        return str(ipaddress.ip_address(text))
+    except ValueError:
+        pass
+    if len(text) > 253 or not HOST_NAME.match(text):
+        raise ValueError("the controller address must be an IP address or a host name")
+    return text.lower()
