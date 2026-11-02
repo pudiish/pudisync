@@ -3,1347 +3,1417 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0c0c0b">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Ambilight">
-<meta name="theme-color" content="#08080b">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
 <title>Ambilight Hub</title>
 <style>
-/* ============================================================
-   Ambilight Hub — modular dark UI
-   Tokens drive every surface so a card can be restyled in one place.
-   ============================================================ */
 :root{
-  --bg:#070809;
-  --surface:#0e1013;
-  --surface-2:#14171c;
-  --surface-3:#1a1e24;
-  --line:#1c2026;
-  --line-2:#272c35;
-  --fg:#e8eaed;
-  --dim:#8a919c;
-  --faint:#555c67;
-
-  --brand:#5b8def;
-  --brand-2:#7c6cf0;
-  --amber:#e0a450;
-  --live:#3fc98a;
-  --bad:#e05a5a;
-
-  --grad:linear-gradient(135deg,var(--brand) 0%,var(--brand-2) 100%);
-  --glow:0 0 0 1px #5b8def2e, 0 10px 40px -14px #5b8def66;
-
-  --r-sm:10px; --r:16px; --r-lg:22px;
-  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
-  --mono:ui-monospace,"SF Mono",Menlo,monospace;
-  --ease:cubic-bezier(.22,1,.36,1);
   color-scheme:dark;
+  --bg:#0c0c0b;--panel:#151513;--raised:#1f1e1b;--inset:#070706;
+  --rule:#2b2a26;--rule-hi:#3b3a35;--lamp-off:#2e2d29;
+  --ink:#ece6d6;--dim:#a49d8c;
+  --amber:#ffb000;--amber-ink:#1a1200;--green:#4be37a;--red:#ff6a55;
+  --r:4px;--tabbar:64px;
+  --text:-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --bevel:inset 0 1px 0 rgb(255 255 255/.06),inset 0 -1px 0 rgb(0 0 0/.55);
+  --sunk:inset 0 1px 3px rgb(0 0 0/.85);
 }
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{overscroll-behavior-y:none}
-body{margin:0;padding:0 14px calc(92px + env(safe-area-inset-bottom));
-  background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);
-  -webkit-font-smoothing:antialiased}
-/* ambient wash tinted by the live strip */
-body::before{content:"";position:fixed;inset:0 0 auto;height:320px;z-index:-1;
-  background:radial-gradient(90% 150% at 50% -30%,var(--amb,#6b8cff) 0%,transparent 68%);
-  opacity:.10;transition:opacity .9s var(--ease),background .8s var(--ease);
-  pointer-events:none}
-body.syncing::before{opacity:.20}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--text);
+  -webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.45}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+p{margin:0}
+code{font:13px/1.4 var(--mono);color:var(--amber);word-break:break-all}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
-/* ---------- header ---------- */
-header{position:sticky;top:0;z-index:40;
-  padding:calc(12px + env(safe-area-inset-top)) 0 11px;
-  display:flex;align-items:center;gap:12px;
-  background:linear-gradient(var(--bg) 62%,transparent)}
-.mark{width:34px;height:34px;border-radius:11px;flex:none;position:relative;
-  background:var(--surface-2);border:1px solid var(--line);display:grid;place-items:center}
-.mark::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--faint);
-  transition:all .4s var(--ease)}
-.mark.live{background:var(--grad);border-color:transparent;box-shadow:0 0 18px -4px #5b8def}
-.mark.live::after{background:#fff;box-shadow:0 0 10px #fff}
-h1{font-size:17px;margin:0;font-weight:650;letter-spacing:-.02em;flex:1}
-.hz{font:600 11px/1 var(--mono);color:var(--dim);background:var(--surface-2);
-  border:1px solid var(--line);padding:6px 9px;border-radius:8px;
-  font-variant-numeric:tabular-nums}
-.hz.on{color:var(--live);border-color:#2fd98a40}
+/* recessed wells: inputs, readouts, meters */
+.now,.readout,output,.meter,.ask,.rocker,.preview,.zone-map,.log,.toggle,.seg,
+input[type=text],input[type=number],input[type=password],select{
+  background:var(--inset);border:1px solid #000;border-radius:2px;box-shadow:var(--sunk)}
+/* raised keys: buttons, tiles */
+.btn,.tile,.seg button,.rocker-well span,.toggle::after{
+  background:var(--raised);border:1px solid var(--rule-hi);border-bottom-color:#000;
+  border-radius:var(--r);box-shadow:var(--bevel)}
+h2,h3,.label,.btn,.seg button,.tab,.tile-name,label,.switch,summary{
+  margin:0;font:600 12px/1.3 var(--text);letter-spacing:.14em;text-transform:uppercase}
+h2,h3,.label{font-size:11px;letter-spacing:.16em;color:var(--dim)}
+.hint{font-size:13px;color:var(--dim)}
+[data-tone=ok]{color:var(--green)}
+[data-tone=bad]{color:var(--red)}
 
-/* ---------- tab bar ---------- */
-nav{position:fixed;left:12px;right:12px;bottom:calc(10px + env(safe-area-inset-bottom));
-  z-index:50;display:grid;grid-template-columns:repeat(4,1fr);gap:3px;padding:6px;
-  background:color-mix(in srgb,var(--surface) 82%,transparent);
-  border:1px solid var(--line);border-radius:20px;
-  backdrop-filter:saturate(180%) blur(26px);-webkit-backdrop-filter:saturate(180%) blur(26px);
-  box-shadow:0 12px 40px -16px #000}
-nav button{border:0;background:none;color:var(--faint);font-family:var(--sans);
-  font-size:10px;font-weight:620;padding:9px 2px;border-radius:14px;
-  display:flex;flex-direction:column;align-items:center;gap:5px;letter-spacing:.02em;
-  transition:all .25s var(--ease)}
-nav button svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.75;
-  stroke-linecap:round;stroke-linejoin:round}
-nav button[aria-current=page]{color:var(--fg);background:var(--surface-3)}
-
-/* ---------- cards ---------- */
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
-  padding:16px;margin-bottom:10px;position:relative}
-.ph{display:flex;align-items:center;gap:10px;margin-bottom:13px}
-.ph h2{font-size:12px;letter-spacing:.02em;color:var(--dim);margin:0;flex:1;font-weight:640}
-.ph .act{font-size:12.5px;color:var(--brand);font-weight:620;background:none;border:0;
-  font-family:var(--sans);padding:0}
-
-/* ---------- hero ---------- */
-.hero{position:relative;border-radius:var(--r-lg);overflow:hidden;margin-bottom:13px;
-  background:var(--surface);border:1px solid var(--line);transition:box-shadow .5s var(--ease)}
-.hero.live{box-shadow:var(--glow);border-color:transparent}
-.hero .wash{position:absolute;inset:0;opacity:0;transition:opacity .6s var(--ease);
-  background:radial-gradient(120% 130% at 20% 120%,var(--w1,#6b8cff) 0%,transparent 70%)}
-.hero.live .wash{opacity:.14}
-.hero .body{position:relative;display:flex;align-items:center;gap:15px;padding:18px}
-.pw{width:62px;height:62px;border-radius:21px;flex:none;border:1px solid var(--line-2);
-  background:var(--surface-2);display:grid;place-items:center;color:var(--dim);
-  font-family:inherit;transition:all .45s var(--ease)}
-.pw svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
-.hero.live .pw{background:var(--grad);border-color:transparent;color:#fff;
-  box-shadow:0 8px 26px -10px #5b8defaa;animation:breathe 3.4s var(--ease) infinite}
-@keyframes breathe{
-  0%,100%{box-shadow:0 8px 26px -10px #5b8defaa}
-  50%    {box-shadow:0 8px 34px -6px #5b8defd9}
+/* layout */
+.top{display:flex;align-items:center;gap:10px;max-width:760px;margin:0 auto;
+  padding:calc(14px + env(safe-area-inset-top)) 16px 12px}
+.brand{margin:0;display:flex;align-items:center;gap:10px;font:700 13px/1 var(--mono);letter-spacing:.24em;color:var(--amber)}
+.brand span{color:var(--dim)}
+.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(4,1fr);
+  background:var(--panel);border-top:1px solid var(--rule-hi);
+  padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
+  min-height:var(--tabbar);background:none;border:0;color:var(--dim);font-size:10.5px}
+.tab::before{content:"";width:20px;height:4px;border-radius:1px;background:var(--lamp-off)}
+.tab[aria-current=page]{color:var(--amber)}
+.tab[aria-current=page]::before{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+main{max-width:760px;margin:0 auto;padding:0 16px calc(var(--tabbar) + 28px + env(safe-area-inset-bottom))}
+.screen,.steps,.panel,.stack,.field,.ask,.zones,.zone,.now{display:grid;gap:14px;align-content:start}
+.field{gap:6px}
+.steps,.zones{list-style:none;margin:0;padding:0;gap:12px}
+@media (min-width:860px){
+  .tabs{position:static;display:flex;gap:2px;margin-left:auto;padding:0;background:none;border:0}
+  .tab{flex-direction:row;gap:8px;min-height:44px;padding:0 12px}
+  .tab::before{width:6px;height:6px;border-radius:50%}
+  main{padding-bottom:40px}
 }
-@media (prefers-reduced-motion:reduce){.hero.live .pw{animation:none}}
-.hero .txt{flex:1;min-width:0}
-.hero .t1{font-size:19px;font-weight:680;letter-spacing:-.025em}
-.hero .t2{font-size:12.5px;color:var(--dim);margin-top:4px}
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:650;
-  padding:4px 9px;border-radius:999px;background:var(--surface-3);color:var(--dim);
-  margin-top:9px;border:1px solid var(--line)}
-.pill b{color:var(--live)}
+.panel{padding:16px;background:var(--panel);border:1px solid var(--rule);border-top-color:var(--rule-hi);
+  border-radius:var(--r);box-shadow:var(--bevel),0 2px 0 #000}
+.panel>h2{display:flex;align-items:center;gap:10px}
+.panel>h2::after{content:"";flex:1;height:1px;background:var(--rule)}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.row>.btn{flex:1 1 140px}
+.inline{display:flex;gap:8px}
+.inline>input,.inline>select{flex:1;min-width:0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
 
-/* ---------- live strip ---------- */
-.stage{padding:16px}
-.ruler{display:flex;justify-content:space-between;align-items:center;
-  font:600 10px/1 var(--sans);color:var(--faint);margin-bottom:10px;letter-spacing:.04em}
-.ruler #rmid{color:var(--dim);font-weight:550;letter-spacing:0;font-size:9.5px;opacity:.75}
-.track{position:relative;height:66px;border-radius:var(--r);overflow:hidden;
-  background:#040506;border:1px solid var(--line);touch-action:pan-y;
-  box-shadow:inset 0 1px 12px #000c}
-.leds{position:absolute;inset:0;display:flex;gap:1.5px;padding:5px}
-.leds i{flex:1;border-radius:3px;background:#0d0f12;
-  transition:background .1s linear,box-shadow .1s linear}
-/* light spilling off the strip onto the surface below it */
-.spill{height:20px;margin:-6px 6px -10px;border-radius:0 0 18px 18px;filter:blur(12px);
-  opacity:.5;transition:opacity .5s var(--ease);pointer-events:none;
-  display:flex;gap:2px}
-.spill i{flex:1;background:#000;transition:background .18s linear}
-.track.off .leds i{box-shadow:none}
-.screenmark{position:absolute;top:0;bottom:0;pointer-events:none;z-index:4;
-  border-left:1.5px dashed #ffffff5c;border-right:1.5px dashed #ffffff5c;
-  background:linear-gradient(#ffffff0f,transparent 40%)}
-.screenmark .tag{position:absolute;top:6px;left:50%;transform:translateX(-50%);
-  font:700 8px/1 var(--sans);color:#ffffff7a;letter-spacing:.2em;white-space:nowrap}
-.screenmark .sgrip{position:absolute;top:-1px;width:15px;height:20px;pointer-events:auto;
-  cursor:ew-resize;touch-action:none;background:#ffffffe6;border-radius:0 0 5px 5px;
-  display:grid;place-items:center;box-shadow:0 2px 8px #000a}
-.screenmark .sgrip::after{content:"";width:1.5px;height:8px;background:#070809;
-  border-radius:1px;box-shadow:3px 0 0 #070809,-3px 0 0 #070809}
-.screenmark .sgrip.l{left:-8px} .screenmark .sgrip.r{right:-8px}
-.zlayer{position:absolute;inset:0;pointer-events:none;z-index:2}
-.zband{position:absolute;top:0;bottom:0;pointer-events:auto;border-radius:5px;
-  border:1.5px solid var(--zc,#fff);
-  background:linear-gradient(var(--zc,#fff) 0%,transparent 26%,transparent 74%,var(--zc,#fff) 100%);
-  opacity:.85;transition:opacity .2s}
-.zband .lbl{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);
-  font:700 8.5px/1 var(--sans);letter-spacing:.12em;color:var(--zc,#fff);
-  white-space:nowrap;text-shadow:0 1px 6px #000}
-.zband .grip{position:absolute;top:50%;width:17px;height:34px;margin-top:-17px;
-  border-radius:6px;background:var(--zc,#fff);display:grid;place-items:center;
-  cursor:ew-resize;touch-action:none;box-shadow:0 2px 8px #0008}
-.zband .grip::after{content:"";width:2px;height:13px;background:#000;opacity:.4;
-  border-radius:2px;box-shadow:4px 0 0 #00000066,-4px 0 0 #00000066}
-.zband .grip.l{left:-9px} .zband .grip.r{right:-9px}
-.zband.sel{opacity:1;outline:2px solid var(--fg);outline-offset:2px;z-index:3}
-.screenmark .sgrip{z-index:5}
+/* controls */
+.btn{min-height:44px;padding:0 16px}
+.btn:active:not(:disabled),.tile:active{box-shadow:var(--sunk);transform:translateY(1px)}
+.btn.primary{background:var(--amber);color:var(--amber-ink);border-color:#ffd166 #7a5400 #4d3500}
+.btn.small{padding:0 12px;font-size:11px}
+.btn.wide{width:100%}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:3px;padding:3px}
+.seg button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 4px;
+  border-radius:2px;color:var(--dim);font-size:11px;letter-spacing:.1em}
+.seg button::before,.tile-name::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--lamp-off)}
+.seg button[aria-pressed=true],.tile[aria-pressed=true]{color:var(--ink);background:var(--panel);
+  border-color:#000;box-shadow:var(--sunk)}
+.seg button[aria-pressed=true]::before,.tile[aria-pressed=true] .tile-name::before{
+  background:var(--amber);box-shadow:0 0 6px var(--amber)}
+input[type=text],input[type=number],input[type=password],select{width:100%;min-height:44px;
+  padding:10px 12px;font:16px/1.3 var(--mono)}
+input[type=number]{-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+select{-webkit-appearance:none;appearance:none;padding-right:36px;font-family:var(--text);
+  background:var(--inset) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23a49d8c' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 12px center}
+input[type=color]{width:72px;height:44px;padding:3px;background:var(--inset);border:1px solid #000;border-radius:2px}
+.check{display:flex;align-items:flex-start;gap:12px;min-height:44px;font:15px/1.4 var(--text);
+  letter-spacing:0;text-transform:none}
+.check input{width:22px;height:22px;margin:0;flex:none;accent-color:var(--amber)}
+.fader{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 12px}
+.fader input,.fader .hint{grid-column:1/-1}
+.readout,output{padding:7px 8px;min-width:80px;text-align:right;font:600 14px/1 var(--mono);
+  color:var(--amber);font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:44px;margin:0;background:none}
+input[type=range]::-webkit-slider-runnable-track{height:8px;background:var(--inset);border:1px solid #000;box-shadow:var(--sunk)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:34px;margin-top:-14px;
+  border:1px solid #000;border-radius:2px;background:#cfc8b6;
+  box-shadow:inset 0 0 0 1px #ebe5d5,inset 0 -7px 0 #9d9684,0 2px 3px rgb(0 0 0/.6)}
+input[type=range]::-moz-range-track{height:8px;background:var(--inset);border:1px solid #000}
+input[type=range]::-moz-range-thumb{width:22px;height:34px;border:1px solid #000;border-radius:2px;
+  background:#cfc8b6;box-shadow:inset 0 -7px 0 #9d9684}
+.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;
+  min-height:52px;padding:4px 0;background:none;border:0;text-align:left}
+.switch+.hint{margin-top:-12px}
+.toggle{position:relative;flex:none;width:54px;height:30px;border-radius:3px}
+.toggle::before{content:"";position:absolute;left:9px;top:10px;width:8px;height:8px;border-radius:50%;
+  background:var(--green);box-shadow:0 0 6px var(--green);opacity:0}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:24px;height:24px;border-radius:2px;transition:left .15s}
+.switch[aria-checked=true] .toggle::before{opacity:1}
+.switch[aria-checked=true] .toggle::after{left:26px}
 
-.zlist{margin-top:11px;display:flex;flex-direction:column;gap:7px}
-.zrow{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:var(--r-sm);
-  background:var(--surface-2);border:1px solid var(--line);transition:all .22s var(--ease)}
-.zrow.sel{border-color:var(--brand);background:var(--surface-3)}
-.zrow .sw{width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center}
-.zrow .sw svg{width:16px;height:16px;stroke:#0b0d12;fill:none;stroke-width:2.1;
-  stroke-linecap:round;stroke-linejoin:round}
-.zrow .meta{flex:1;min-width:0}
-.zrow .nm{font-size:14px;font-weight:640}
-/* a scale drawing of where this zone sits on the strip */
-.zrow .mini{display:block;position:relative;height:5px;border-radius:3px;
-  background:var(--surface-3);margin-top:7px;overflow:hidden}
-.zrow .mini i{position:absolute;top:0;bottom:0;border-radius:3px}
-.zrow .pct{font:600 12px/1 var(--mono);color:var(--dim);flex:none;
-  font-variant-numeric:tabular-nums}
-.zrow .pct small{font-size:9px;opacity:.6}
-.zrow .x{border:0;background:none;color:var(--faint);font-size:20px;font-family:var(--sans);
-  padding:0 4px;line-height:1}
-.empty{text-align:center;padding:14px 10px}
-.empty .ebar{display:block;height:6px;border-radius:3px;margin:0 auto 11px;max-width:200px;
-  background:linear-gradient(90deg,#5b8def,#7c6cf0,#5b8def)}
-.empty p{font-size:12.5px;color:var(--faint);margin:0;font-weight:500}
+/* home */
+.lamp{flex:none;width:10px;height:10px;border-radius:50%;background:var(--lamp-off);box-shadow:var(--sunk)}
+.lamp[data-state=on]{background:var(--green);box-shadow:0 0 8px var(--green)}
+.lamp[data-state=effect]{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+.lamp[data-state=fault]{background:var(--red);box-shadow:0 0 8px var(--red)}
+.rocker{display:flex;align-items:center;gap:18px;width:100%;min-height:100px;padding:12px 16px;
+  border-radius:var(--r);text-align:left}
+.rocker-well{flex:none;display:grid;grid-template-rows:1fr 1fr;width:58px;height:78px;padding:3px;
+  background:#000;border-radius:3px}
+.rocker-well span{display:grid;place-items:center;font:700 16px/1 var(--mono);color:var(--dim)}
+.rocker[aria-checked=true] .rocker-well span:first-child,.rocker[aria-checked=false] .rocker-well span:last-child{
+  background:#121210;border-color:#000;box-shadow:var(--sunk)}
+.rocker[aria-checked=true] .rocker-well span:first-child{color:var(--amber)}
+.rocker-text{display:grid;gap:6px}
+.rocker-state{font:700 30px/1 var(--mono);letter-spacing:.08em}
+.rocker[aria-checked=true] .rocker-state{color:var(--green);text-shadow:0 0 10px rgb(75 227 122/.45)}
+.now{padding:14px;border-radius:var(--r);gap:10px}
+.now-name{font:700 22px/1.2 var(--mono);color:var(--amber)}
+.meters{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.meter{display:grid;gap:8px;align-content:start;padding:10px;border-radius:var(--r)}
+.meter b{display:flex;align-items:center;gap:6px;font:600 20px/1 var(--mono);color:var(--amber);
+  font-variant-numeric:tabular-nums;text-shadow:0 0 8px rgb(255 176 0/.35);white-space:nowrap}
+.meter small{font-size:11px;color:var(--dim);text-shadow:none}
+#status-word{font-size:13px;letter-spacing:.06em;color:var(--ink);text-shadow:none}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:4px 8px;border:1px solid var(--amber);border-radius:2px;
+  font:600 10.5px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--amber)}
+.preview{display:block;width:100%;height:120px;border-radius:var(--r)}
 
-.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:2px}
-.modes button{border:1px solid var(--line);background:var(--surface-2);color:var(--dim);
-  border-radius:var(--r-sm);padding:12px 3px;font-family:var(--sans);font-size:10.5px;
-  font-weight:620;display:flex;flex-direction:column;align-items:center;gap:7px;
-  transition:all .22s var(--ease)}
-.modes button svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.75;
-  stroke-linecap:round;stroke-linejoin:round}
-.modes button[aria-pressed=true]{color:#fff;border-color:transparent;background:var(--grad);
-  box-shadow:0 5px 16px -8px #5b8def80}
-.swatches{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
-.swatches button{width:36px;height:36px;border-radius:12px;border:2px solid transparent;
-  padding:0;transition:transform .2s var(--ease)}
-.swatches button[aria-pressed=true]{border-color:var(--fg);transform:scale(1.08)}
+/* effects */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.tile{display:grid;gap:4px;align-content:start;min-height:76px;padding:12px;text-align:left}
+.tile-name{display:flex;align-items:center;gap:8px}
+.tile[aria-pressed=true] .tile-name{color:var(--amber)}
+.tile-about{font-size:12.5px;line-height:1.35;color:var(--dim)}
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+@media (min-width:560px){.swatches{grid-template-columns:repeat(8,1fr)}}
+.swatch{min-height:44px;border:1px solid #000;border-radius:2px}
+.swatch[aria-pressed=true]{outline:2px solid var(--amber);outline-offset:2px}
+.colour-row{display:flex;align-items:center;gap:12px}
+.colour-row .hint{font-weight:400;letter-spacing:0;text-transform:none}
 
-/* ---------- effect picker ---------- */
-.fxgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.fxc{border:1px solid var(--line);background:var(--surface-2);border-radius:var(--r-sm);
-  padding:12px;text-align:left;font-family:var(--sans);color:var(--fg);
-  transition:all .22s var(--ease);position:relative;overflow:hidden}
-.fxc .n{font-size:13.5px;font-weight:640;display:block}
-.fxc .a{font-size:11px;color:var(--faint);display:block;margin-top:3px;line-height:1.35}
-.fxc[aria-pressed=true]{border-color:transparent;background:var(--grad);color:#fff;
-  box-shadow:0 5px 16px -8px #5b8def80}
-.fxc[aria-pressed=true] .a{color:#ffffffc7}
+/* setup */
+.step-no{display:inline-grid;place-items:center;width:26px;height:26px;border:1px solid var(--amber);
+  border-radius:2px;color:var(--amber);font:700 13px/1 var(--mono);letter-spacing:0}
+.ask{padding:14px;border-radius:var(--r);gap:12px}
+.ask-q{font-size:16px;font-weight:600}
+.nudge{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.nudge .btn{padding:0;font-family:var(--mono)}
+details{border-top:1px solid var(--rule);padding-top:4px}
+summary{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+";width:16px;font:700 16px/1 var(--mono);color:var(--amber)}
+details[open]>summary::before{content:"\2212"}
+.warn{padding:12px;border:1px solid var(--red);border-radius:2px;font-size:14px}
+progress{width:100%;height:10px;-webkit-appearance:none;appearance:none;background:var(--inset);border:1px solid #000}
+progress::-webkit-progress-bar{background:var(--inset)}
+progress::-webkit-progress-value{background:var(--amber)}
+progress::-moz-progress-bar{background:var(--amber)}
+.log{max-height:160px;overflow:auto;margin:0;padding:10px;font:12px/1.6 var(--mono);color:var(--dim);white-space:pre-wrap}
+.log .fail{color:var(--red)}
+.urls{margin:0;padding:0;list-style:none}
 
-/* ---------- moods (inside the hero) ---------- */
-.moods{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:7px;
-  padding:0 18px 16px}
-.moodc{border:1px solid var(--line);background:var(--surface-2);border-radius:var(--r-sm);
-  padding:11px;font-family:var(--sans);color:var(--dim);display:flex;align-items:center;
-  justify-content:center;gap:8px;transition:all .25s var(--ease)}
-.moodc svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;
-  stroke-linecap:round;stroke-linejoin:round;flex:none}
-.moodc .n{font-size:13.5px;font-weight:620;letter-spacing:-.01em}
-.moodc[aria-pressed=true]{border-color:transparent;background:var(--grad);color:#fff;
-  box-shadow:0 6px 16px -6px #6b8cff99}
-/* collapsed lamp panel */
-#lamp{padding:0 18px}
-#lamp>summary{padding:17px 0}
+/* advanced */
+.zone-map{position:relative;height:20px;overflow:hidden}
+.zone-map span{position:absolute;top:3px;bottom:3px}
+.zone{padding:12px;border:1px solid var(--rule);border-radius:var(--r);gap:12px}
+.zone h3{flex:1;display:flex;align-items:center;gap:8px}
+.zone .row>.btn{flex:none}
+.zone-dot{width:12px;height:12px;border:1px solid #000;border-radius:2px}
+.stepper{display:grid;grid-template-columns:44px 1fr 44px;gap:4px}
+.stepper input{text-align:center;padding:10px 4px}
+.stepper .btn{padding:0;font:700 18px/1 var(--mono)}
+.kv{display:grid;grid-template-columns:auto 1fr;margin:0;font-size:14px}
+.kv dt,.kv dd{margin:0;padding:10px 0;border-bottom:1px solid var(--rule)}
+.kv dt{color:var(--dim)}
+.kv dd{text-align:right;font-family:var(--mono);word-break:break-word}
 
-/* ---------- collapsible sections ---------- */
-.sect{padding:0;overflow:hidden}
-.sect>summary{padding:15px 16px;display:flex;align-items:center;gap:10px;
-  font-size:13.5px;font-weight:640;color:var(--fg)}
-.sect>summary::before{order:3;margin-left:auto}
-.sect>summary .sl{flex:none}
-.sect>summary .sv{font:600 11px/1 var(--mono);color:var(--faint);
-  font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sect[open]>summary{border-bottom:1px solid var(--line)}
-.sect .sbody{padding:16px;animation:drop .3s var(--ease)}
-@keyframes drop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.sect .sbody{animation:none}}
-.sect .sbody.stage{padding:16px}
-
-/* ---------- flashing ---------- */
-.rowchk{display:flex;align-items:flex-start;gap:10px;font-size:12.5px;color:var(--dim);
-  line-height:1.45;margin-top:4px}
-.rowchk input{width:18px;height:18px;flex:none;margin:1px 0 0;accent-color:var(--brand)}
-.bar{height:6px;border-radius:4px;background:var(--surface-3);overflow:hidden;
-  border:1px solid var(--line);margin-bottom:13px}
-.bar i{display:block;height:100%;width:0;background:var(--grad);
-  transition:width .45s var(--ease)}
-.flog{font:11px/1.7 var(--mono);color:var(--faint);background:var(--surface-2);
-  border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 13px;
-  max-height:150px;overflow-y:auto;margin-bottom:12px;white-space:pre-wrap}
-.flog b{color:var(--live);font-weight:600}
-.flog u{color:var(--bad);text-decoration:none}
-
-/* ---------- controls ---------- */
-.ctl{margin-bottom:15px}
-.ctl:last-child{margin-bottom:0}
-.ctl .cr{display:flex;align-items:center;gap:9px;margin-bottom:7px}
-.ctl .cn{font-size:13.5px;font-weight:580;flex:1}
-.ctl .cv{font:650 11px/1 var(--mono);color:var(--fg);background:var(--surface-3);
-  padding:5px 9px;border-radius:7px;font-variant-numeric:tabular-nums;border:1px solid var(--line)}
-.ctl .cd{font-size:11.5px;color:var(--faint);margin-top:6px;line-height:1.45}
-input[type=range]{width:100%;height:26px;-webkit-appearance:none;background:transparent;
-  margin:0;display:block}
-input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:4px;
-  background:var(--surface-3);border:1px solid var(--line)}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;
-  border-radius:50%;background:#fff;margin-top:-11px;border:0;
-  box-shadow:0 2px 10px #0007,0 0 0 1px #0003}
-input[type=range]:active::-webkit-slider-thumb{background:var(--brand);transform:scale(1.1)}
-input[type=text],input[type=number],select{width:100%;padding:13px;border-radius:var(--r-sm);
-  border:1px solid var(--line);background:var(--surface-2);color:var(--fg);font-size:16px;
-  font-family:var(--sans)}
-select{appearance:none;background-image:
-  linear-gradient(45deg,transparent 50%,var(--dim) 50%),
-  linear-gradient(135deg,var(--dim) 50%,transparent 50%);
-  background-position:calc(100% - 19px) 21px,calc(100% - 14px) 21px;
-  background-size:5px 5px,5px 5px;background-repeat:no-repeat}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.btn{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);padding:13px;
-  border-radius:var(--r-sm);font-size:13.5px;font-weight:620;width:100%;font-family:var(--sans);
-  transition:all .22s var(--ease)}
-.btn.pri{background:var(--grad);border-color:transparent;color:#fff;
-  box-shadow:0 5px 16px -8px #5b8def80}
-.btn:active,.chips button:active,.modes button:active,.moodc:active,.nudge button:active{
-  transform:scale(.975)}
-.btn,.chips button,.modes button,.moodc,.nudge button{transition:all .2s var(--ease)}
-.btn.gh{background:transparent;color:var(--dim)}
-.chips{display:flex;flex-wrap:wrap;gap:7px}
-.chips button{border:1px solid var(--line);background:var(--surface-2);color:var(--dim);
-  padding:10px 14px;border-radius:var(--r-sm);font-size:13px;font-weight:600;
-  font-family:var(--sans);transition:all .22s var(--ease)}
-.chips button[aria-pressed=true]{border-color:transparent;background:var(--grad);color:#fff}
-.hide{display:none!important}
-.kv{display:flex;justify-content:space-between;gap:10px;padding:12px 0;
-  border-bottom:1px solid var(--line);font-size:13.5px}
-.kv:last-child{border:0}
-.kv span{color:var(--dim)}
-.kv b{font-weight:620;text-align:right;word-break:break-word;font-variant-numeric:tabular-nums}
-.kv b.ok{color:var(--live)} .kv b.no{color:var(--bad)}
-.alert{border-radius:var(--r-sm);padding:13px 15px;font-size:12.5px;margin-bottom:13px;
-  line-height:1.5;border:1px solid #ff6b6b4d;background:#ff6b6b14;color:var(--fg)}
-.alert.warn{border-color:#ffb3474d;background:#ffb34714}
-.note{font-size:11.5px;color:var(--faint);line-height:1.55;margin:11px 0 0}
-details>summary{list-style:none;cursor:pointer;padding:13px 0;font-size:12.5px;font-weight:620;
-  color:var(--dim);display:flex;align-items:center;gap:8px;font-family:var(--sans)}
-details>summary::-webkit-details-marker{display:none}
-details>summary::before{content:"";width:6px;height:6px;border-right:1.6px solid currentColor;
-  border-bottom:1.6px solid currentColor;transform:rotate(-45deg);transition:transform .25s var(--ease);
-  margin-left:2px}
-details[open]>summary::before{transform:rotate(45deg)}
-.step{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
-.step:first-child{border:0;padding-top:0;margin-top:0}
-.step h3{font-size:15.5px;margin:0 0 6px;font-weight:650;display:flex;align-items:center;gap:10px;
-  letter-spacing:-.01em}
-.step h3 .n{width:24px;height:24px;border-radius:9px;background:var(--grad);color:#fff;
-  font-size:11.5px;display:grid;place-items:center;flex:none;font-weight:700}
-.ask{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);
-  padding:18px;margin:14px 0;text-align:center}
-.ask p{margin:0 0 15px;font-size:15px;font-weight:600;line-height:1.4}
-.nudge{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:11px}
-.nudge button{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);
-  padding:15px 0;border-radius:var(--r-sm);font-size:14px;font-weight:650;
-  font-family:var(--mono);font-variant-numeric:tabular-nums}
-.ok{color:var(--live);font-weight:620;font-size:12.5px;margin-top:10px}
-.cen{text-align:center;font-size:12.5px;color:var(--dim);margin:4px 0 13px;font-weight:580}
+/* messages */
+.banner{display:flex;gap:10px;align-items:center;padding:12px 14px;margin-bottom:12px;font-size:14px;
+  background:var(--panel);border:1px solid var(--rule);border-left:3px solid var(--amber);border-radius:var(--r)}
+.banner p{flex:1}
+.banner.fault{border-left-color:var(--red)}
+.toasts{position:fixed;z-index:30;left:16px;right:16px;max-width:520px;margin:0 auto;display:grid;gap:8px;
+  bottom:calc(var(--tabbar) + 12px + env(safe-area-inset-bottom));pointer-events:none}
+@media (min-width:860px){.toasts{bottom:24px}}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 14px;font-size:14px;
+  background:var(--raised);border:1px solid var(--rule-hi);border-left:3px solid var(--green);
+  border-radius:var(--r);box-shadow:0 6px 20px #000}
+.toast.error{border-left-color:var(--red)}
+.toast p{flex:1}
+.toast-close{flex:none;width:44px;height:44px;background:none;border:0;color:var(--dim);font-size:20px}
+dialog{width:min(360px,calc(100% - 32px));padding:20px;background:var(--panel);color:var(--ink);
+  border:1px solid var(--rule-hi);border-radius:var(--r);box-shadow:0 20px 60px #000}
+dialog::backdrop{background:rgb(0 0 0/.75)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}}
 </style>
 </head>
 <body>
-
-<header>
-  <span class="mark" id="mark"></span>
-  <h1 id="htitle">Ambilight</h1>
-  <span class="hz" id="hz">—</span>
+<header class="top">
+  <h1 class="brand"><i class="lamp" id="head-lamp" aria-hidden="true"></i>AMBILIGHT <span>HUB</span></h1>
+  <nav class="tabs" aria-label="Sections">
+    <button class="tab" type="button" data-action="tab" data-value="home">Home</button>
+    <button class="tab" type="button" data-action="tab" data-value="effects">Effects</button>
+    <button class="tab" type="button" data-action="tab" data-value="setup">Setup</button>
+    <button class="tab" type="button" data-action="tab" data-value="advanced">Advanced</button>
+  </nav>
 </header>
 
-<div id="alert" class="alert hide"></div>
-
-<!-- ============ LIGHTS ============ -->
-<section data-page="home">
-  <div class="hero" id="hero">
-    <span class="wash" id="wash"></span>
-    <div class="body">
-      <button class="pw" id="pw" aria-label="Toggle screen sync">
-        <svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.5 7a8 8 0 1 0 11 0"/></svg>
-      </button>
-      <div class="txt">
-        <div class="t1" id="t1">Lights off</div>
-        <div class="t2" id="t2">Tap to mirror your screen</div>
-      </div>
-    </div>
-    <div class="moods" id="moods">
-      <button class="moodc" data-profile="movie">
-        <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M7 5l2 4M13 5l2 4"/></svg>
-        <span class="n">Cinema</span></button>
-      <button class="moodc" data-profile="game">
-        <svg viewBox="0 0 24 24"><path d="M6 11h4M8 9v4"/><circle cx="16" cy="11" r="1"/><rect x="2" y="6" width="20" height="12" rx="4"/></svg>
-        <span class="n">Gaming</span></button>
-    </div>
+<main>
+  <div role="status" aria-live="polite">
+    <div class="banner" id="offline-banner" hidden><p>Hub offline — retrying.</p></div>
+    <div class="banner" id="locked-banner" hidden><p>This hub is protected by a PIN.</p>
+      <button class="btn small" type="button" data-action="unlock">Enter PIN</button></div>
+    <div class="banner fault" id="engine-banner" hidden><p id="engine-error"></p></div>
   </div>
 
-  <details class="panel sect" id="s-effects">
-    <summary><span class="sl">Colour effects</span>
-      <span class="sv" id="sum-fx">no screen needed</span></summary>
-    <div class="sbody">
-      <div class="fxgrid" id="fxgrid"></div>
-      <div class="ctl" style="margin-top:15px">
-        <div class="cr"><span class="cn">Speed</span><span class="cv" id="v-fxspeed">—</span></div>
-        <input type="range" id="fxspeed" min="0" max="255" step="1" value="100">
-      </div>
-      <div class="ctl">
-        <div class="cr"><span class="cn">Intensity</span><span class="cv" id="v-fxint">—</span></div>
-        <input type="range" id="fxint" min="0" max="255" step="1" value="128">
-      </div>
-      <div id="fxcolorwrap" class="hide">
-        <div class="swatches" id="fxswatches"></div>
-      </div>
-      <button class="btn gh" id="fxstop" style="margin-top:13px">Stop effect</button>
-    </div>
-  </details>
-
-  <details class="panel sect" id="s-zones" open>
-    <summary><span class="sl">Light zones</span><span class="sv" id="sum-zones"></span></summary>
-    <div class="sbody stage">
-    <div class="ruler"><span id="r0">LEFT OF DESK</span>
-      <span id="rmid">drag · to resize</span><span id="r1">RIGHT OF DESK</span></div>
-    <div class="track" id="track">
-      <div class="leds" id="leds"></div>
-      <div class="screenmark" id="smark"></div>
-      <div class="zlayer" id="zlayer"></div>
-    </div>
-    <div class="spill" id="spill"></div>
-    <div class="zlist" id="zlist"></div>
-    <div class="g2" style="margin-top:11px">
-      <button class="btn" id="zadd">+ Add zone</button>
-      <button class="btn gh" id="zclear">Clear zones</button>
-    </div>
-    <p class="note" id="znote"></p>
-    </div>
-  </details>
-
-  <div class="panel" id="zedit" style="display:none">
-    <div class="ph"><h2>Zone <span id="zidx"></span></h2>
-      <button class="act" id="zdone">Done</button></div>
-    <div class="modes" id="zmodes">
-      <button data-mode="sync"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/></svg>Screen</button>
-      <button data-mode="warm"><svg viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 1 3 11v1H9v-1a6 6 0 0 1 3-11z"/></svg>Lamp</button>
-      <button data-mode="solid"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>Colour</button>
-      <button data-mode="off"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M6 6l12 12"/></svg>Off</button>
-    </div>
-    <div id="zcolorwrap" class="hide">
-      <div class="swatches" id="zswatches"></div>
-    </div>
-    <div class="ctl" style="margin-top:15px">
-      <div class="cr"><span class="cn">Zone brightness</span><span class="cv" id="v-zbri">—</span></div>
-      <input type="range" id="zbri" min="0" max="100" step="1">
-    </div>
-    <div class="g2">
-      <div class="ctl"><div class="cr"><span class="cn">From</span></div>
-        <input type="number" id="zstart" min="0"></div>
-      <div class="ctl"><div class="cr"><span class="cn">To</span></div>
-        <input type="number" id="zend" min="0"></div>
-    </div>
-  </div>
-
-
-  <details class="panel sect" id="s-adjust">
-    <summary><span class="sl">Adjust</span><span class="sv" id="sum-adjust"></span></summary>
-    <div class="sbody">
-    <div class="ctl"><div class="cr"><span class="cn">Brightness</span>
-      <span class="cv" id="v-brightness">—</span></div>
-      <input type="range" id="brightness" min="0" max="100" step="1"></div>
-    <div class="ctl"><div class="cr"><span class="cn">Colour intensity</span>
-      <span class="cv" id="v-saturation">—</span></div>
-      <input type="range" id="saturation" min="0" max="300" step="5"></div>
-    <div class="ctl"><div class="cr"><span class="cn">Response</span>
-      <span class="cv" id="v-blend">—</span></div>
-      <input type="range" id="blend" min="1" max="100" step="1">
-      <div class="cd">Glide ←→ Instant</div></div>
-    </div>
-  </details>
-
-  <details class="panel" id="lamp"><summary>Light without screen sync</summary>
-    <div style="padding-top:4px">
-    <div class="g2" style="margin-bottom:14px">
-      <button class="btn" id="wled-on">Turn on</button>
-      <button class="btn" id="wled-off">Turn off</button>
-    </div>
-    <div class="ctl"><div class="cr"><span class="cn">Lamp brightness</span>
-      <span class="cv" id="v-wbri">—</span></div>
-      <input type="range" id="wbri" min="0" max="255" step="1"></div>
-    <div style="margin-top:15px"><div class="ph"><h2>Saved looks</h2></div>
-      <div class="chips" id="presets"><span class="note">Checking…</span></div></div>
-    <div class="ctl" style="margin-top:17px"><div class="cr"><span class="cn">Effect</span></div>
-      <select id="effect"></select></div>
-    <div class="ctl"><div class="cr"><span class="cn">Palette</span></div>
-      <select id="palette"></select></div>
-    <p class="note">Effects stop screen mirroring.</p>
-    </div>
-  </details>
-
-  <details><summary>Advanced</summary>
+  <section class="screen" id="tab-home" aria-label="Home">
     <div class="panel">
-      <div class="ctl"><div class="cr"><span class="cn">Frame rate</span>
-        <span class="cv" id="v-fps">—</span></div>
-        <input type="range" id="fps" min="10" max="120" step="5">
-        <div class="cd" id="fpscap">Capture limit ≈ 65/sec</div></div>
-      <p class="note"><a href="/calibrate" target="_blank">Calibrate colours</a>: open on the
-        synced monitor to match the strip's white, greys and colours to the screen.</p>
-    </div>
-  </details>
-</section>
-
-<!-- ============ SETUP ============ -->
-<section data-page="wizard" class="hide">
-  <details class="panel sect" id="s-flash">
-    <summary><span class="sl">Set up a new controller</span>
-      <span class="sv" id="sum-flash">flash &amp; connect over USB</span></summary>
-    <div class="sbody">
-      <p class="note" style="margin:0 0 14px">Sets up a controller over USB. Once only.</p>
-      <div id="flash-pre">
-        <div class="ctl"><div class="cr"><span class="cn">Board</span>
-          <span class="cv" id="flash-port-n"></span>
-          <button class="act" id="port-rescan" type="button">Refresh</button></div>
-          <select id="flash-port"></select>
-          <div class="cd" id="flash-porthint"></div></div>
-        <div class="ctl"><div class="cr"><span class="cn">Wi-Fi network</span>
-          <button class="act" id="ssid-rescan" type="button">Refresh</button></div>
-          <select id="flash-ssid-sel"></select>
-          <input type="text" id="flash-ssid" class="hide" autocapitalize="off"
-                 autocorrect="off" spellcheck="false" placeholder="network name"
-                 style="margin-top:9px">
-          <div class="cd" id="ssid-hint">Networks this Mac remembers.</div></div>
-        <div class="ctl"><div class="cr"><span class="cn">Wi-Fi password</span></div>
-          <input type="password" id="flash-pass" autocomplete="off"></div>
-        <label class="rowchk"><input type="checkbox" id="flash-erase">
-          <span><b>Install WLED firmware</b> — only for a new board. This erases
-          everything already on it.</span></label>
-        <div class="alert warn hide" id="erase-warn" style="margin:13px 0 0">
-          <b>This wipes the board.</b> Its firmware, saved Wi-Fi, LED count,
-          segments and presets are all erased and cannot be recovered.
-          Leave this unticked if the board already runs WLED.</div>
-        <button class="btn pri" id="flash-go" style="margin-top:14px">Connect to Wi-Fi</button>
-        <p class="note" id="flash-warn"></p>
+      <button class="rocker" id="power" type="button" role="switch" aria-checked="false"
+              aria-label="Screen sync" aria-describedby="power-hint" data-action="power">
+        <span class="rocker-well" aria-hidden="true"><span>I</span><span>O</span></span>
+        <span class="rocker-text"><span class="label">Screen sync</span>
+          <span class="rocker-state" id="power-state">OFF</span>
+          <span class="hint" id="power-hint"></span></span>
+      </button>
+      <div class="now" id="now" hidden>
+        <p class="label">Now showing</p>
+        <p class="now-name" id="now-name"></p>
+        <div class="row">
+          <button class="btn primary" type="button" data-action="sync-on">Back to screen sync</button>
+          <button class="btn" type="button" data-action="lights-off">Turn off</button>
+        </div>
       </div>
-      <div id="flash-run" class="hide">
-        <div class="bar"><i id="flash-bar"></i></div>
-        <div class="cen" id="flash-step">Starting…</div>
-        <div class="flog" id="flash-log"></div>
-        <button class="btn gh" id="flash-close" class="hide">Close</button>
+      <div class="meters">
+        <div class="meter"><span class="label">Status</span>
+          <b><i class="lamp" id="hero-lamp" aria-hidden="true"></i><span id="status-word">—</span></b></div>
+        <div class="meter"><span class="label">Output</span><b><span id="fps">--.-</span><small>FPS</small></b></div>
+        <div class="meter"><span class="label">Load</span><b><span id="amps">-.--</span><small>A</small></b></div>
+      </div>
+      <div class="chips">
+        <span class="chip" data-flag="power_limited" hidden>Power limited</span>
+        <span class="chip" data-flag="heat_limited" hidden>Heat limited</span>
+        <span class="chip" data-flag="strobe_damped" hidden>Flashes damped</span>
       </div>
     </div>
-  </details>
-
-  <div class="panel">
-    <p class="note" style="margin:0">Run once at install, or after moving the strip.
-      Your lights will change during setup — that's expected.</p>
-  </div>
-  <div class="panel">
-    <div class="step">
-      <h3><span class="n">1</span> Strip length</h3>
-      <p class="note" style="margin-top:0">About eight taps.</p>
-      <button class="btn pri" id="count-start">Begin</button>
-      <div id="count-box" class="hide">
-        <div class="ask"><p>Is the <b>very last light</b> on your strip lit?</p>
-          <div class="g2"><button class="btn pri" id="count-yes">Yes</button>
-            <button class="btn" id="count-no">No</button></div></div>
-        <div class="cen" id="count-prog">—</div>
-        <button class="btn gh" id="count-stop">Cancel</button>
+    <div class="panel">
+      <h2>Live preview</h2>
+      <canvas class="preview" id="preview" role="img" aria-label="Live preview of the colours on the LED strip"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Picture</h2>
+      <div class="seg" role="group" aria-label="Mood">
+        <button type="button" data-action="profile" data-value="movie" aria-pressed="false">Cinema</button>
+        <button type="button" data-action="profile" data-value="game" aria-pressed="false">Gaming</button>
       </div>
-      <p class="ok hide" id="count-done"></p>
+      <p class="hint">Cinema glides gently; Gaming follows the action quickly.</p>
+      <div class="fader" data-fader="brightness"></div>
+      <div class="fader" data-fader="saturation"></div>
+      <div class="fader" data-fader="blend" data-hint="How long the light takes to settle on a new colour."></div>
     </div>
-    <div class="step">
-      <h3><span class="n">2</span> Screen corners</h3>
-      <p class="note" style="margin-top:0">One light glows <b>orange</b>. Walk it along
-        until it sits behind a corner of your monitor, then assign it.</p>
-      <div class="cen" id="marker-val">—</div>
-      <div class="nudge"><button data-nudge="-10">−10</button><button data-nudge="-1">−1</button>
-        <button data-nudge="1">+1</button><button data-nudge="10">+10</button></div>
-      <div class="g2"><button class="btn pri" id="set-left">Left corner</button>
-        <button class="btn pri" id="set-right">Right corner</button></div>
-      <p class="ok hide" id="edge-done"></p>
-      <details><summary>Enter a number</summary><input type="number" id="marker-num" min="0"></details>
-    </div>
-    <div class="step">
-      <h3><span class="n">3</span> Spill &amp; check</h3>
-      <div class="ctl"><div class="cr"><span class="cn">Spill past the screen</span>
-        <span class="cv" id="v-fade_leds">—</span></div>
-        <input type="range" id="fade_leds" min="0" max="120" step="1">
-        <div class="cd">Lights beyond the monitor fade out across this many. Zero cuts dead.</div></div>
-      <button class="btn" id="gradient">Show test colours</button>
-      <p class="note">Expect <b style="color:#ff5a5a">red</b> left → <b style="color:#5b8def">blue</b> right.</p>
-      <button class="btn pri" id="wizard-done" style="margin-top:13px">Finish</button>
-    </div>
-  </div>
-</section>
+  </section>
 
-<!-- ============ SETTINGS ============ -->
-<section data-page="settings" class="hide">
-  <div class="panel">
-    <div class="ph"><h2>Controller</h2></div>
-    <div class="ctl"><div class="cr"><span class="cn">WLED address</span></div>
-      <input type="text" id="wled_ip" inputmode="decimal" autocapitalize="off" autocorrect="off"
-             spellcheck="false" placeholder="192.168.1.50">
-      <div class="cd">Where the WLED box lives on your Wi-Fi.</div></div>
-    <div class="ctl"><div class="cr"><span class="cn">Light count</span></div>
-      <input type="number" id="led_count" min="1" max="1500">
-      <div class="cd">Set in Setup</div></div>
-    <div class="ctl"><div class="cr"><span class="cn">Display</span></div>
-      <input type="number" id="monitor_index" min="0" max="8">
-      <div class="cd">1 = main screen</div></div>
-    <button class="btn pri" id="save-conn">Save</button>
-  </div>
-  <div class="panel">
-    <div class="ph"><h2>Connection</h2>
-      <button class="act" id="ports-refresh">Rescan</button></div>
-    <div class="modes" id="outmodes" style="grid-template-columns:1fr 1fr">
-      <button data-out="udp"><svg viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5.5 5.5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/></svg>Wi-Fi</button>
-      <button data-out="serial"><svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="7" rx="1.5"/><path d="M12 10v6M9 16h6v5H9z"/></svg>USB cable</button>
+  <section class="screen" id="tab-effects" aria-label="Effects and colour" hidden>
+    <p class="banner" id="fx-serial" hidden>Effects need the controller on Wi-Fi. Switch output in Advanced.</p>
+    <div class="panel">
+      <h2>Effects</h2>
+      <div class="tiles" id="fx-tiles"><p class="hint">Loading effects…</p></div>
+      <div class="fader" data-fader="fx_speed"></div>
+      <div class="fader" data-fader="fx_intensity"></div>
     </div>
-    <div id="serialwrap" class="hide">
-      <div class="ctl" style="margin-top:17px"><div class="cr"><span class="cn">Device</span></div>
-        <select id="serial_port"></select>
-        <div class="cd" id="serialhint"></div></div>
-      <div class="ctl"><div class="cr"><span class="cn">Speed</span>
-        <span class="cv" id="baudrec"></span></div>
-        <select id="serial_baud">
-          <option value="115200">115200</option><option value="230400">230400</option>
-          <option value="460800">460800</option><option value="500000">500000</option>
-          <option value="921600">921600</option><option value="1000000">1000000</option>
-          <option value="2000000">2000000</option>
-        </select>
-        <div class="cd" id="baudwarn"></div></div>
+    <div class="panel">
+      <h2>Colour</h2>
+      <div class="colour-row"><input type="color" id="colour" value="#ffb46b">
+        <label for="colour" class="hint">Pick any colour, or tap a swatch</label></div>
+      <div class="swatches" id="swatches" role="group" aria-label="Quick colours"></div>
+      <div class="fader" data-fader="fx_brightness"></div>
     </div>
-    <p class="note" id="outnote"></p>
-  </div>
+    <div class="panel">
+      <h2>Saved looks</h2>
+      <div class="chips" id="presets"></div>
+      <p class="hint" id="presets-hint"></p>
+      <div class="field"><label for="wled-fx">More effects</label><select id="wled-fx" disabled></select></div>
+    </div>
+    <button class="btn primary wide" type="button" data-action="sync-on">Back to screen sync</button>
+  </section>
 
-  <div class="panel">
-    <div class="ph"><h2>Access</h2></div>
-    <div class="ctl"><div class="cr"><span class="cn">PIN</span></div>
-      <input type="text" id="pin" inputmode="numeric" autocomplete="off" placeholder="blank = open">
-      <div class="cd">Blank = open</div></div>
-    <div class="ctl"><div class="cr"><span class="cn">Web port</span></div>
-      <input type="number" id="http_port" min="1024" max="65535"></div>
-    <button class="btn" id="save-access">Save</button>
-    <p class="note">Restart to apply. Home network only.</p>
-  </div>
-</section>
+  <section class="screen" id="tab-setup" aria-label="Setup" hidden>
+    <p class="hint">Do these once after fitting the strip. Steps that light test patterns pause screen sync.</p>
+    <ol class="steps">
+      <li class="panel">
+        <h2><span class="step-no">1</span>Controller</h2>
+        <form class="field" id="form-ip">
+          <label for="wled_ip">Controller address</label>
+          <div class="inline"><input type="text" id="wled_ip" inputmode="decimal" autocapitalize="off"
+            autocorrect="off" spellcheck="false" placeholder="192.168.1.50" aria-describedby="ip-state">
+            <button class="btn" type="submit">Save</button></div>
+          <p class="hint" id="ip-state"></p>
+        </form>
+        <details id="flash">
+          <summary>Set up a new board over USB</summary>
+          <form class="stack" id="flash-form">
+            <p class="hint">Plug the board into the Mac that runs the hub with a USB data cable. This puts it
+              on your Wi-Fi and points the hub at it.</p>
+            <div class="field"><label for="flash-port">Board</label>
+              <div class="inline"><select id="flash-port"></select>
+                <button class="btn small" type="button" data-action="flash-ports">Refresh</button></div>
+              <p class="hint" id="flash-tools"></p></div>
+            <div class="field"><label for="flash-ssid">Wi-Fi network</label>
+              <div class="inline"><select id="flash-ssid"></select>
+                <button class="btn small" type="button" data-action="flash-networks">Refresh</button></div>
+              <input type="text" id="flash-ssid-manual" aria-label="Wi-Fi network name" autocapitalize="off"
+                autocorrect="off" spellcheck="false" hidden>
+              <p class="hint" id="ssid-hint"></p></div>
+            <div class="field"><label for="flash-pass">Wi-Fi password</label>
+              <input type="password" id="flash-pass" autocomplete="off"></div>
+            <label class="check"><input type="checkbox" id="flash-erase">
+              Install WLED firmware — only for a brand-new board</label>
+            <p class="warn" id="erase-warn" hidden>This wipes the board: firmware, saved Wi-Fi, LED count,
+              segments and presets are erased for good. Leave it unticked if the board already runs WLED.</p>
+            <button class="btn primary" type="submit" id="flash-go">Connect to Wi-Fi</button>
+          </form>
+          <div class="stack" id="flash-run" hidden>
+            <progress id="flash-progress" max="100" value="0" aria-label="Board setup progress"></progress>
+            <p role="status" id="flash-step"></p>
+            <pre class="log" id="flash-log"></pre>
+            <button class="btn" type="button" data-action="flash-close" id="flash-close" hidden>Close</button>
+          </div>
+        </details>
+      </li>
 
-<!-- ============ HEALTH ============ -->
-<section data-page="diag" class="hide">
-  <div class="panel">
-    <div class="ph"><h2>Status</h2></div>
-    <div class="kv"><span>Screen mirroring</span><b id="d-running">—</b></div>
-    <div class="kv"><span>Frame rate</span><b id="d-fps">—</b></div>
-    <div class="kv"><span>Controller</span><b id="d-reach">—</b></div>
-    <div class="kv"><span>Lights reported</span><b id="d-wleds">—</b></div>
-    <div class="kv"><span>Capture region</span><b id="d-cap">—</b></div>
-    <div class="kv"><span>Issues</span><b id="d-err">None</b></div>
-  </div>
-  <div class="panel">
-    <div class="ph"><h2>Layout</h2></div>
-    <div class="kv"><span>Left corner</span><b id="d-left">—</b></div>
-    <div class="kv"><span>Right corner</span><b id="d-right">—</b></div>
-    <div class="kv"><span>Wiring direction</span><b id="d-dir">—</b></div>
-  </div>
-  <details><summary>Engine internals</summary>
-    <div class="panel"><div class="ph"><h2>Plugins</h2></div><div id="d-plugins"></div></div>
-  </details>
-</section>
+      <li class="panel">
+        <h2><span class="step-no">2</span>Strip length</h2>
+        <p class="hint">The strip has <b id="led-count">—</b> LEDs. Not sure? Answer a few yes/no questions.</p>
+        <button class="btn primary" type="button" data-action="count-start" id="count-start">Start counting</button>
+        <div class="ask" id="count-ask" hidden>
+          <p class="ask-q" id="count-msg" role="status"></p>
+          <p class="hint" id="count-range"></p>
+          <div class="row">
+            <button class="btn primary" type="button" data-action="count-yes">Yes, it's lit</button>
+            <button class="btn" type="button" data-action="count-no">No</button>
+          </div>
+          <button class="btn small" type="button" data-action="wizard-stop">Cancel</button>
+        </div>
+        <form class="field" id="form-count"><label for="led_count">Or type the count</label>
+          <div class="inline"><input type="number" id="led_count" min="1" max="1500" inputmode="numeric">
+            <button class="btn" type="submit">Save</button></div></form>
+      </li>
 
-<nav>
-  <button data-tab="home" aria-current="page">
-    <svg viewBox="0 0 24 24"><path d="M3 10h18M5 6h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>Lights</button>
-  <button data-tab="wizard">
-    <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/><circle cx="12" cy="12" r="3"/></svg>Setup</button>
-  <button data-tab="settings">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H7a1.7 1.7 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V7a1.7 1.7 0 0 0 1.5 1H23a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
-  <button data-tab="diag">
-    <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Health</button>
-</nav>
+      <li class="panel">
+        <h2><span class="step-no">3</span>Layout</h2>
+        <div class="seg" role="group" aria-label="Strip layout">
+          <button type="button" data-action="layout" data-value="frame" aria-pressed="false">Around the monitor</button>
+          <button type="button" data-action="layout" data-value="strip" aria-pressed="false">Bottom only</button>
+        </div>
+        <form class="stack" id="form-frame" hidden>
+          <p class="hint">Count the LEDs on each side. The strip starts at the bottom-left corner.</p>
+          <div class="grid2">
+            <div class="field"><label for="edge_bottom">Bottom · L→R</label><input type="number" id="edge_bottom" min="0" max="500" inputmode="numeric"></div>
+            <div class="field"><label for="edge_right">Right · up</label><input type="number" id="edge_right" min="0" max="500" inputmode="numeric"></div>
+            <div class="field"><label for="edge_top">Top · R→L</label><input type="number" id="edge_top" min="0" max="500" inputmode="numeric"></div>
+            <div class="field"><label for="edge_left">Left · down</label><input type="number" id="edge_left" min="0" max="500" inputmode="numeric"></div>
+          </div>
+          <p class="hint" id="edge-sum" role="status"></p>
+          <p class="hint">Measured the strip's rectangle? Enter it for a closer match (0 = estimate).</p>
+          <div class="grid2">
+            <div class="field"><label for="box_mm_w">Width, mm</label><input type="number" id="box_mm_w" min="0" max="5000" inputmode="numeric"></div>
+            <div class="field"><label for="box_mm_h">Height, mm</label><input type="number" id="box_mm_h" min="0" max="5000" inputmode="numeric"></div>
+          </div>
+          <button class="btn primary" type="submit" id="frame-save">Save layout</button>
+        </form>
+        <div class="stack" id="strip-fields" hidden>
+          <p class="hint">Find the LEDs behind the screen's left and right edges: one LED glows orange; walk it
+            along, then save it as an edge.</p>
+          <button class="btn" type="button" data-action="marker-start" id="marker-start">Start edge finder</button>
+          <div class="stack" id="marker-box" hidden>
+            <p class="label">Orange LED <span class="readout" id="marker-at">000</span></p>
+            <div class="nudge">
+              <button class="btn" type="button" data-action="nudge" data-value="-10" aria-label="Back 10 LEDs">−10</button>
+              <button class="btn" type="button" data-action="nudge" data-value="-1" aria-label="Back 1 LED">−1</button>
+              <button class="btn" type="button" data-action="nudge" data-value="1" aria-label="Forward 1 LED">+1</button>
+              <button class="btn" type="button" data-action="nudge" data-value="10" aria-label="Forward 10 LEDs">+10</button>
+            </div>
+            <div class="row">
+              <button class="btn primary" type="button" data-action="set-edge" data-value="left_led">Left edge</button>
+              <button class="btn primary" type="button" data-action="set-edge" data-value="right_led">Right edge</button>
+            </div>
+          </div>
+          <div class="fader" data-fader="fade_leds" data-hint="LEDs beyond the screen fade out across this many."></div>
+        </div>
+      </li>
+
+      <li class="panel">
+        <h2><span class="step-no">4</span>Test pattern</h2>
+        <p class="hint" id="test-hint"></p>
+        <div class="row">
+          <button class="btn" type="button" data-action="test-start">Show test pattern</button>
+          <button class="btn" type="button" data-action="wizard-stop">Stop pattern</button>
+        </div>
+      </li>
+
+      <li class="panel">
+        <h2><span class="step-no">5</span>Calibrate colours</h2>
+        <p class="hint">Open the calibration page <b>on the Mac monitor the strip is synced to</b>, with screen
+          sync on. From another device, type this address into the Mac's browser:</p>
+        <ul class="urls" id="cal-urls"></ul>
+        <button class="btn" type="button" data-action="open-calibrate">Open calibration here</button>
+      </li>
+    </ol>
+    <button class="btn primary wide" type="button" data-action="finish">Finish setup</button>
+  </section>
+
+  <section class="screen" id="tab-advanced" aria-label="Advanced" hidden>
+    <div class="panel" id="zones">
+      <h2>Zones</h2>
+      <p class="hint">Give part of the strip its own light — a lamp glow, a fixed colour, or off. The rest
+        follows the screen.</p>
+      <div class="zone-map" id="zone-map" aria-hidden="true"></div>
+      <ol class="zones" id="zone-list"></ol>
+      <button class="btn" type="button" data-action="zone-add">Add zone</button>
+    </div>
+    <div class="panel">
+      <h2>Capture</h2>
+      <div class="field"><label for="monitor_index">Display</label><select id="monitor_index"></select></div>
+      <button class="switch" type="button" role="switch" aria-checked="false" data-switch="letterbox"
+        aria-describedby="hint-letterbox">Skip black bars<span class="toggle" aria-hidden="true"></span></button>
+      <p class="hint" id="hint-letterbox">Ignores letterbox bars under films (bottom-only layout).</p>
+      <div class="fader" data-fader="fps"></div>
+    </div>
+    <div class="panel">
+      <h2>Colour</h2>
+      <button class="switch" type="button" role="switch" aria-checked="false" data-switch="colour_match"
+        aria-describedby="hint-match">Colour match<span class="toggle" aria-hidden="true"></span></button>
+      <p class="hint" id="hint-match">Converts screen colour into the strip's own LED colours.</p>
+      <div class="fader" data-fader="white_kelvin"></div>
+      <div class="fader" data-fader="contrast"></div>
+      <div class="fader" data-fader="spread" data-hint="Blends neighbouring LEDs for a softer wall."></div>
+      <div class="fader" data-fader="colour_weight" data-hint="Higher favours vivid areas over large grey ones."></div>
+      <p class="label">Strip balance — trims each LED channel</p>
+      <div class="fader" data-fader="wb_r"></div>
+      <div class="fader" data-fader="wb_g"></div>
+      <div class="fader" data-fader="wb_b"></div>
+      <button class="btn" type="button" data-action="reset-colours">Reset colour settings to defaults</button>
+    </div>
+    <div class="panel">
+      <h2>Output</h2>
+      <div class="seg" role="group" aria-label="Output">
+        <button type="button" data-action="output" data-value="udp" aria-pressed="false">Wi-Fi</button>
+        <button type="button" data-action="output" data-value="serial" aria-pressed="false">USB cable</button>
+      </div>
+      <div class="stack" id="serial-fields" hidden>
+        <div class="field"><label for="serial_port">USB device</label>
+          <div class="inline"><select id="serial_port"></select>
+            <button class="btn small" type="button" data-action="ports">Rescan</button></div></div>
+        <div class="field"><label for="serial_baud">Speed (baud)</label>
+          <select id="serial_baud" aria-describedby="baud-hint"></select><p class="hint" id="baud-hint"></p></div>
+      </div>
+      <button class="switch" type="button" role="switch" aria-checked="false" data-switch="sync_on_start">
+        Sync when the hub starts<span class="toggle" aria-hidden="true"></span></button>
+    </div>
+    <div class="panel">
+      <h2>Access</h2>
+      <p class="hint" id="pin-state"></p>
+      <form class="field" id="form-pin"><label for="new-pin">New PIN</label>
+        <div class="inline"><input type="password" id="new-pin" inputmode="numeric" autocomplete="new-password">
+          <button class="btn" type="submit">Set PIN</button></div></form>
+      <button class="btn" type="button" data-action="pin-remove" id="pin-remove" hidden>Remove PIN</button>
+      <form class="field" id="form-port"><label for="http_port">Web port</label>
+        <div class="inline"><input type="number" id="http_port" min="1024" max="65535" inputmode="numeric">
+          <button class="btn" type="submit">Save</button></div>
+        <p class="hint">Takes effect when the hub restarts.</p></form>
+    </div>
+    <div class="panel">
+      <h2>Health</h2>
+      <dl class="kv" id="health"></dl>
+      <button class="btn" type="button" data-action="health">Refresh</button>
+    </div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<dialog id="unlock" aria-labelledby="unlock-title">
+  <form class="stack" id="unlock-form">
+    <h2 id="unlock-title">Unlock</h2>
+    <p class="hint" id="unlock-msg"></p>
+    <div class="field"><label for="unlock-pin">PIN</label>
+      <input type="password" id="unlock-pin" inputmode="numeric" autocomplete="current-password" required></div>
+    <div class="row">
+      <button class="btn primary" type="submit">Unlock</button>
+      <button class="btn" type="button" data-action="unlock-cancel">Not now</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 "use strict";
-const PIN = new URLSearchParams(location.search).get("pin") || "";
+const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, PIN_KEY = "ambilight-pin";
+const TABS = ["home", "effects", "setup", "advanced"];
+const EDGE_KEYS = ["edge_bottom", "edge_right", "edge_top", "edge_left"];
+const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g", "wb_b",
+  "led_gamma", "contrast", "black_level", "colour_weight", "spread"];
+const SWATCHES = [["Warm white", "#ffb46b"], ["Cool white", "#ffffff"], ["Red", "#ff2010"],
+  ["Amber", "#ff8c00"], ["Green", "#20e050"], ["Cyan", "#00c8ff"], ["Blue", "#2040ff"], ["Magenta", "#e030ff"]];
+const ZONE_MODES = [["sync", "Screen"], ["warm", "Lamp"], ["solid", "Colour"], ["off", "Off"]];
+const ZONE_TINT = {sync: "#4be37a", warm: "#ffb46b", off: "#3b3a35"};
+const BAUDS = [115200, 230400, 460800, 500000, 921600, 1000000, 2000000];
+const MANUAL_SSID = "\u0000manual";
+
+const settle = blend => 0.06 * Math.pow(0.8 / 0.06, 1 - blend);
+const pct = v => `${Math.round(v * 100)}%`;
+const two = v => v.toFixed(2);
+const FADERS = {
+  brightness: {label: "Brightness", min: 0, max: 100, scale: 100, fmt: pct},
+  saturation: {label: "Colour", min: 0, max: 300, step: 5, scale: 100, fmt: pct},
+  blend: {label: "Response", min: 1, max: 100, scale: 100, fmt: v => `${two(settle(v))} s`,
+    say: v => `settles in ${two(settle(v))} seconds`},
+  white_kelvin: {label: "Warmth", min: 2700, max: 6500, step: 100, fmt: v => `${v} K`},
+  contrast: {label: "Contrast", min: 50, max: 250, step: 5, scale: 100, fmt: v => `${two(v)}×`},
+  spread: {label: "Spread", min: 0, max: 80, scale: 100, fmt: pct},
+  colour_weight: {label: "Colour weight", min: 0, max: 100, scale: 100, fmt: pct},
+  wb_r: {label: "Red", min: 20, max: 100, scale: 100, fmt: two},
+  wb_g: {label: "Green", min: 20, max: 100, scale: 100, fmt: two},
+  wb_b: {label: "Blue", min: 20, max: 100, scale: 100, fmt: two},
+  fps: {label: "Frame rate", min: 5, max: 120, step: 5, fmt: v => `${v} fps`},
+  fade_leds: {label: "Spill past the screen", min: 0, max: 120, fmt: v => v ? `${v} LEDs` : "Hard edge"},
+  fx_speed: {label: "Speed", min: 0, max: 255, fmt: String, apply: () => runEffect()},
+  fx_intensity: {label: "Intensity", min: 0, max: 255, fmt: String, apply: () => runEffect()},
+  fx_brightness: {label: "Effect brightness", min: 0, max: 255, fmt: v => `${Math.round(v / 2.55)}%`,
+    apply: v => act("/api/wled/brightness", {value: v})},
+};
+
 const $ = id => document.getElementById(id);
-let cfg = {}, polling = true, dirty = 0, sel = -1, zonesLocal = null;
+const $$ = sel => [...document.querySelectorAll(sel)];
+const faders = {}, editedAt = {};
+let state = null, pin = readPin(), offline = false, pinDismissed = false, currentTab = "";
+let wizardLive = false, markerAt = null, effects = [], activeFx = null, lookName = "";
+let metaLoadedAt = 0, zones = [], zonesJson = "", previewKey = "", urlsKey = "", flashLogSize = -1;
 
-if (location.protocol === "file:"){
-  document.body.innerHTML = '<div class="alert warn" style="margin:40px 14px">'+
-    '<b>Open this from the server</b><br><br>You opened the HTML file directly, so the '+
-    'page cannot reach the Ambilight program.<br><br>Go to <b>http://localhost:8080</b> on '+
-    'this Mac, or <b>http://&lt;mac-ip&gt;:8080</b> from your phone — the program prints '+
-    'the exact address when it starts.</div>';
-  throw new Error("file://");
-}
-
-async function api(path, params){
-  const u = new URL(path, location.origin);
-  if (params) for (const [k,v] of Object.entries(params)) u.searchParams.set(k,v);
-  if (PIN) u.searchParams.set("pin", PIN);
-  const r = await fetch(u,{cache:"no-store"});
-  if (r.status === 403) throw new Error("Locked — add ?pin=YOURPIN to the address.");
-  if (!r.ok) throw new Error("Program unreachable ("+r.status+")");
-  return r.json();
-}
-function alertMsg(m,kind){
-  const a=$("alert");
-  if(!m){a.classList.add("hide");return;}
-  a.className="alert"+(kind?" "+kind:""); a.textContent=m;
-}
-function friendly(e){
-  if(/Screen Recording/i.test(e))
-    return "macOS is blocking screen capture. System Settings ▸ Privacy & Security ▸ "+
-           "Screen Recording ▸ enable your terminal, then restart the program.";
-  if(/unreachable|UDP send failed/i.test(e))
-    return "Can't reach the controller. Check it's powered on and joined to Wi-Fi.";
-  return e;
+/* ---------- plumbing ---------- */
+class HubError extends Error {
+  constructor(kind, message) { super(message); this.kind = kind; }
 }
 
-document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
-  document.querySelectorAll("nav button").forEach(x=>x.removeAttribute("aria-current"));
-  b.setAttribute("aria-current","page");
-  document.querySelectorAll("section").forEach(s=>
-    s.classList.toggle("hide", s.dataset.page!==b.dataset.tab));
-  $("htitle").textContent = {home:"Ambilight",wizard:"Setup",settings:"Settings",diag:"Health"}[b.dataset.tab];
-  if(b.dataset.tab==="diag") refreshDiag();
-  if(b.dataset.tab==="settings") loadPorts();
-  if(b.dataset.tab==="wizard"){ startMarker(); flashCheck(); }
-});
-
-/* ---------- live strip ---------- */
-const NLED = 56, ledbox = $("leds"), spillbox = $("spill");
-for(let i=0;i<NLED;i++) ledbox.appendChild(document.createElement("i"));
-for(let i=0;i<14;i++) spillbox.appendChild(document.createElement("i"));
-const ledEls = ledbox.querySelectorAll("i");
-const spillEls = spillbox.querySelectorAll("i");
-function isDark(hex){
-  const n=parseInt(hex.slice(1),16);
-  return ((n>>16&255)*0.299 + (n>>8&255)*0.587 + (n&255)*0.114) < 22;
+function readPin() {
+  try { return localStorage.getItem(PIN_KEY) || ""; }
+  catch (err) { console.warn("PIN storage unavailable", err); return ""; }
 }
-function paintLeds(colors){
-  if(!colors||!colors.length){
-    ledEls.forEach(c=>{ c.style.background="#0d0f12"; c.style.boxShadow="none"; });
-    spillEls.forEach(c=>c.style.background="transparent");
-    spillbox.style.opacity=0;
+
+function storePin(value) {
+  pin = value;
+  try { value ? localStorage.setItem(PIN_KEY, value) : localStorage.removeItem(PIN_KEY); }
+  catch (err) { console.warn("PIN kept for this visit only", err); }
+}
+
+const pinHeaders = () => pin ? {"X-Ambilight-Pin": pin} : {};
+
+async function api(path, params) {
+  const query = new URLSearchParams(params || {}).toString();
+  let res;
+  try {
+    res = await fetch(path + (query ? `?${query}` : ""), {cache: "no-store", headers: pinHeaders()});
+  } catch (err) {
+    throw new HubError("offline", "Can't reach the hub. Is this device on the home Wi-Fi?");
+  }
+  const body = await res.json().catch(() => ({}));
+  showLocked(res.status === 403);
+  if (res.status === 403) throw new HubError("locked", "Enter the hub's PIN to continue.");
+  if (!res.ok || body.error) throw new HubError("failed", body.error || `The hub answered ${res.status}.`);
+  if (body.ok === false) throw new HubError("failed", "The controller didn't respond. Is it powered and on Wi-Fi?");
+  return body;
+}
+
+function reportError(err) {
+  if (err.kind !== "locked") toast(err.message, "error");
+}
+
+async function act(path, params, okMessage) {
+  try {
+    const body = await api(path, params);
+    if ("running" in body) render(body);
+    if (okMessage) toast(okMessage);
+    return body;
+  } catch (err) {
+    reportError(err);
+    return null;
+  }
+}
+
+async function load(path, show) {
+  try { show(await api(path)); }
+  catch (err) { reportError(err); }
+}
+
+const setKey = (key, value, okMessage) => act("/api/set", {[key]: value}, okMessage);
+const recent = time => Date.now() - (time || 0) < HOLD_MS;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const press = (el, on, attr = "aria-pressed") => el.setAttribute(attr, String(!!on));
+
+function debounce(fn, ms) {
+  let timer = 0;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
+
+function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
+
+function make(tag, props, ...children) {
+  const el = Object.assign(document.createElement(tag), props);
+  el.append(...children);
+  return el;
+}
+
+function button(label, className, onClick, ariaLabel) {
+  const b = make("button", {type: "button", className, textContent: label});
+  b.addEventListener("click", onClick);
+  if (ariaLabel) b.setAttribute("aria-label", ariaLabel);
+  return b;
+}
+
+function fillInput(el, value) {
+  if (value != null && el !== document.activeElement && !el.dataset.dirty && el.value !== String(value))
+    el.value = String(value);
+}
+
+function toast(message, kind = "info", action) {
+  const box = make("div", {className: `toast ${kind}`}, make("p", {textContent: message}));
+  if (action) box.append(button(action.label, "btn primary small", () => { box.remove(); action.run(); }));
+  box.append(button("×", "toast-close", () => box.remove(), "Dismiss"));
+  const area = $("toasts");
+  while (area.children.length >= 3) area.firstElementChild.remove();
+  area.append(box);
+  setTimeout(() => box.remove(), action ? 12000 : kind === "error" ? 8000 : 4000);
+}
+
+function friendly(error) {
+  if (/screen recording|not permitted|permission/i.test(error))
+    return "macOS is blocking screen capture. Open System Settings › Privacy & Security › Screen Recording, allow the hub, then restart it.";
+  if (/udp send failed|unreachable|timed out|no route/i.test(error))
+    return "Can't reach the LED controller. Check it's powered on and joined to Wi-Fi.";
+  if (/serial/i.test(error))
+    return "The USB link to the controller failed. Check the cable, or switch output to Wi-Fi in Advanced.";
+  if (/display|monitor/i.test(error))
+    return "The display being captured isn't available. Pick another display in Advanced.";
+  return `The hub reported a problem: ${error}`;
+}
+
+/* ---------- polling ---------- */
+let pollTimer = 0, pollBusy = false;
+
+async function refresh() {
+  try {
+    render(await api("/api/status"));
+    setOffline(false);
+    return true;
+  } catch (err) {
+    if (err.kind === "offline") setOffline(true);
+    return false;
+  }
+}
+
+async function poll() {
+  clearTimeout(pollTimer);
+  if (pollBusy) return;
+  pollBusy = true;
+  const ok = await refresh();
+  pollBusy = false;
+  if (!document.hidden) pollTimer = setTimeout(poll, ok ? POLL_MS : OFFLINE_MS);
+}
+
+function setOffline(on) {
+  if (offline === on) return;
+  offline = on;
+  $("offline-banner").hidden = !on;
+  if (state) renderHero(state);
+}
+
+function showLocked(on) {
+  $("locked-banner").hidden = !on;
+  if (on && !pinDismissed) askPin();
+}
+
+function askPin() {
+  if ($("unlock").open) return;
+  setText($("unlock-msg"), pin ? "That PIN wasn't accepted. Try again." : "This hub is protected. Enter its PIN.");
+  $("unlock-pin").value = "";
+  $("unlock").showModal();
+}
+
+/* ---------- home ---------- */
+const modeOf = s => s.mode || (s.running ? "sync" : s.wled_on ? "effect" : "off");
+
+function render(s) {
+  state = s;
+  renderHero(s);
+  renderPreview();
+  for (const key in faders) if (!FADERS[key].apply) setFader(key, s[key]);
+  setFader("fx_brightness", s.wled_bri);
+  $$("[data-action=profile]").forEach(b => press(b, b.dataset.value === s.profile));
+  $$("[data-switch]").forEach(b => { if (!recent(editedAt[b.dataset.switch])) press(b, s[b.dataset.switch], "aria-checked"); });
+  $("engine-banner").hidden = !s.last_error;
+  if (s.last_error) setText($("engine-error"), friendly(s.last_error));
+  renderEffectsState(s);
+  renderSetup(s);
+  renderZonesFromStatus(s);
+  renderAdvanced(s);
+}
+
+function renderHero(s) {
+  const mode = modeOf(s), syncing = mode === "sync", fault = syncing && s.wled_reachable === false;
+  const lamp = offline ? "off" : fault ? "fault" : syncing ? "on" : mode === "effect" ? "effect" : "off";
+  $("head-lamp").dataset.state = $("hero-lamp").dataset.state = lamp;
+  setText($("status-word"), offline ? "OFFLINE" : fault ? "NO LINK" : syncing ? "SYNCING" : mode === "effect" ? "EFFECT" : "STANDBY");
+  press($("power"), syncing, "aria-checked");
+  $("power").hidden = mode === "effect";
+  $("now").hidden = mode !== "effect";
+  setText($("now-name"), lookName || "Effect or colour");
+  setText($("power-state"), syncing ? "ON" : "OFF");
+  setText($("power-hint"), fault ? "Syncing, but the controller isn't answering."
+    : syncing ? "The strip is following your screen." : "Press to mirror your screen on the wall.");
+  setText($("fps"), s.running ? Number(s.output_fps ?? s.measured_fps ?? 0).toFixed(1) : "--.-");
+  const safety = s.safety || {};
+  setText($("amps"), safety.power_ma != null ? (safety.power_ma / 1000).toFixed(2) : "-.--");
+  $$("[data-flag]").forEach(chip => { chip.hidden = !safety[chip.dataset.flag]; });
+}
+
+function colourAt(index, count, list) {
+  return list.length ? list[Math.min(list.length - 1, Math.floor(index * list.length / count))] : null;
+}
+
+function isLit(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return (n >> 16 & 255) * 0.299 + (n >> 8 & 255) * 0.587 + (n & 255) * 0.114 > 14;
+}
+
+function frameGeometry(s, w, h) {
+  const counts = EDGE_KEYS.map(k => Math.max(0, s[k] | 0));
+  const x0 = 14, y0 = 14, x1 = w - 14, y1 = h - 14;
+  const size = clamp(Math.min((x1 - x0) / Math.max(1, counts[0], counts[2]),
+    (y1 - y0) / Math.max(1, counts[1], counts[3])) * 0.72, 2, 9);
+  const sides = [t => [x0 + t * (x1 - x0), y1], t => [x1, y1 - t * (y1 - y0)],
+    t => [x1 - t * (x1 - x0), y0], t => [x0, y0 + t * (y1 - y0)]];
+  const leds = [];
+  counts.forEach((count, side) => {
+    for (let k = 0; k < count; k++) leds.push({index: leds.length, at: sides[side]((k + 0.5) / count)});
+  });
+  return {leds, size, screen: [x0 + 14, y0 + 14, x1 - x0 - 28, y1 - y0 - 28]};
+}
+
+function stripGeometry(s, w, h) {
+  const n = Math.max(1, s.led_count | 0), cells = Math.min(n, 120), span = w - 24;
+  const xOf = i => 12 + (i + 0.5) / n * span;
+  const leds = [];
+  for (let k = 0; k < cells; k++) {
+    const index = Math.floor((k + 0.5) * n / cells);
+    leds.push({index, at: [xOf(index), h - 14]});
+  }
+  const a = xOf(Math.min(s.left_led, s.right_led)), b = xOf(Math.max(s.left_led, s.right_led));
+  return {leds, size: clamp(span / cells * 0.72, 2, 9), screen: [a, 10, Math.max(8, b - a), h - 40]};
+}
+
+function renderPreview() {
+  const canvas = $("preview"), s = state, w = canvas.clientWidth;
+  if (!s || !w) return;
+  const list = s.preview || [];
+  const key = [w, s.layout, s.led_count, ...EDGE_KEYS.map(k => s[k]), s.left_led, s.right_led,
+    s.screen_mm_w, s.screen_mm_h, list.join("")].join("|");
+  if (key === previewKey) return;
+  previewKey = key;
+  const frame = s.layout === "frame", dpr = window.devicePixelRatio || 1;
+  const h = Math.round(w * (frame ? clamp((s.screen_mm_h || 336) / (s.screen_mm_w || 597), 0.35, 1) : 0.3));
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.height = `${h}px`;
+  const ctx = canvas.getContext("2d"), geo = (frame ? frameGeometry : stripGeometry)(s, w, h);
+  ctx.scale(dpr, dpr);
+  Object.assign(ctx, {fillStyle: "#0f0f0d", strokeStyle: "#3b3a35", textAlign: "center",
+    textBaseline: "middle", font: "600 10px ui-monospace, Menlo, monospace"});
+  ctx.fillRect(...geo.screen);
+  ctx.strokeRect(...geo.screen);
+  ctx.fillStyle = "#a49d8c";
+  ctx.fillText("SCREEN", geo.screen[0] + geo.screen[2] / 2, geo.screen[1] + geo.screen[3] / 2);
+  for (const led of geo.leds) {
+    const colour = colourAt(led.index, Math.max(1, s.led_count), list), lit = colour && isLit(colour);
+    Object.assign(ctx, {shadowColor: lit ? colour : "transparent", shadowBlur: lit ? geo.size * 2.2 : 0,
+      fillStyle: lit ? colour : "#24231f"});
+    ctx.fillRect(led.at[0] - geo.size / 2, led.at[1] - geo.size / 2, geo.size, geo.size);
+  }
+}
+
+/* ---------- faders ---------- */
+function faderValue(key) {
+  const f = faders[key];
+  return Number(f.input.value) / (f.spec.scale || 1);
+}
+
+function showFader(key) {
+  const f = faders[key], v = faderValue(key), text = f.spec.fmt(v);
+  setText(f.out, text);
+  f.input.setAttribute("aria-valuetext", f.spec.say ? f.spec.say(v) : text);
+}
+
+function setFader(key, value, force) {
+  const f = faders[key];
+  if (!f || value == null || (!force && (document.activeElement === f.input || recent(editedAt[key])))) return;
+  const ui = String(Math.round(value * (f.spec.scale || 1) * 1000) / 1000);
+  if (f.input.value !== ui) f.input.value = ui;
+  showFader(key);
+}
+
+function buildFader(host) {
+  const key = host.dataset.fader, spec = FADERS[key], id = `f-${key}`;
+  const out = make("output");
+  out.setAttribute("for", id);
+  const input = make("input", {type: "range", id, min: spec.min, max: spec.max, step: spec.step || 1});
+  host.append(make("label", {htmlFor: id, textContent: spec.label}), out, input);
+  if (host.dataset.hint) {
+    host.append(make("p", {className: "hint", id: `${id}-hint`, textContent: host.dataset.hint}));
+    input.setAttribute("aria-describedby", `${id}-hint`);
+  }
+  faders[key] = {input, out, spec};
+  const send = debounce(() => spec.apply ? spec.apply(faderValue(key)) : setKey(key, faderValue(key)), 150);
+  input.addEventListener("input", () => { editedAt[key] = Date.now(); showFader(key); send(); });
+  showFader(key);
+}
+
+/* ---------- effects and colour ---------- */
+async function loadEffects() {
+  try {
+    const body = await api("/api/effects");
+    effects = Array.isArray(body) ? body : body.effects || [];
+    $("fx-tiles").replaceChildren(...effects.map(effectTile));
+    if (state) renderEffectsState(state);
+  } catch (err) {
+    $("fx-tiles").replaceChildren(make("p", {className: "hint", textContent: `Couldn't load effects. ${err.message}`}));
+  }
+}
+
+function effectTile(fx) {
+  const tile = button("", "tile", () => pickEffect(fx));
+  tile.dataset.fx = fx.fx;
+  tile.append(make("span", {className: "tile-name", textContent: fx.name}),
+    make("span", {className: "tile-about", textContent: fx.about || ""}));
+  return tile;
+}
+
+function pickEffect(fx) {
+  if (activeFx !== fx.fx) {
+    setFader("fx_speed", fx.speed, true);
+    setFader("fx_intensity", fx.intensity, true);
+  }
+  activeFx = fx.fx;
+  lookName = fx.name;
+  runEffect();
+}
+
+function runEffect() {
+  if (activeFx == null) return;
+  markEffects(activeFx);
+  act("/api/effect/run", {fx: activeFx, speed: faderValue("fx_speed"), intensity: faderValue("fx_intensity"),
+    color: $("colour").value.slice(1), brightness: faderValue("fx_brightness")});
+}
+
+function runSolid(hex) {
+  $("colour").value = hex;
+  activeFx = 0;
+  lookName = "Solid colour";
+  runEffect();
+}
+
+function markEffects(fx) {
+  $$(".tile").forEach(t => press(t, Number(t.dataset.fx) === fx));
+  $$(".swatch").forEach(b => press(b, fx === 0 && b.dataset.hex === $("colour").value.toLowerCase()));
+}
+
+function renderEffectsState(s) {
+  if (modeOf(s) !== "effect") activeFx = null;
+  markEffects(activeFx);
+  $("fx-serial").hidden = s.output !== "serial";
+}
+
+function buildSwatches() {
+  $("swatches").replaceChildren(...SWATCHES.map(([name, hex]) => {
+    const b = button("", "swatch", () => runSolid(hex), name);
+    b.dataset.hex = hex;
+    b.style.background = hex;
+    return b;
+  }));
+}
+
+async function loadMeta(force) {
+  if (!force && Date.now() - metaLoadedAt < 30000) return;
+  try {
+    const meta = await api("/api/wled/meta");
+    metaLoadedAt = Date.now();
+    const select = $("wled-fx"), first = new Option("Choose an effect…", "");
+    first.disabled = true;
+    const options = [first];
+    (meta.effects || []).forEach((name, i) => { if (name && name !== "RSVD" && name !== "-") options.push(new Option(name, i)); });
+    select.replaceChildren(...options);
+    select.value = "";
+    select.disabled = options.length < 2;
+    const presets = meta.presets || [];
+    $("presets").replaceChildren(...presets.map(p => button(p.name, "btn small", () => runLook(p.name, "/api/wled/preset", {id: p.id}))));
+    setText($("presets-hint"), meta.offline ? "The controller isn't answering, so its lists are empty."
+      : presets.length ? "" : "No saved looks yet. Save one in the WLED app and it appears here.");
+  } catch (err) {
+    setText($("presets-hint"), `Couldn't load the controller's lists. ${err.message}`);
+  }
+}
+
+function runLook(name, path, params) {
+  lookName = name;
+  activeFx = null;
+  act(path, params);
+}
+
+/* ---------- setup ---------- */
+function renderSetup(s) {
+  fillInput($("wled_ip"), s.wled_ip);
+  setText($("ip-state"), s.wled_reachable == null ? "" : s.wled_reachable
+    ? "The controller is answering." : "No answer from a controller at this address.");
+  $("ip-state").dataset.tone = s.wled_reachable ? "ok" : "bad";
+  setText($("led-count"), String(s.led_count));
+  fillInput($("led_count"), s.led_count);
+  const frame = s.layout === "frame";
+  $$("[data-action=layout]").forEach(b => press(b, b.dataset.value === s.layout));
+  $("form-frame").hidden = !frame;
+  $("strip-fields").hidden = frame;
+  [...EDGE_KEYS, "box_mm_w", "box_mm_h"].forEach(k => fillInput($(k), s[k]));
+  renderEdgeSum();
+  setText($("test-hint"), frame
+    ? "Lights a colour ramp along the strip: red at the bottom-left corner, running round to blue."
+    : "Lights red at the screen's left edge fading to blue at the right. Backwards? Swap the edges in step 3.");
+  const urls = (s.urls || [location.origin]).map(u => `${u.replace(/\/$/, "")}/calibrate`);
+  if (urls.join() !== urlsKey) {
+    urlsKey = urls.join();
+    $("cal-urls").replaceChildren(...urls.map(u => make("li", {}, make("code", {textContent: u}))));
+  }
+}
+
+function renderEdgeSum() {
+  const n = state ? state.led_count : 0;
+  const sum = EDGE_KEYS.reduce((total, k) => total + (parseInt($(k).value, 10) || 0), 0);
+  const bad = sum > n || !sum;
+  setText($("edge-sum"), sum > n ? `Sides add up to ${sum} — more than the ${n} LEDs on the strip.`
+    : sum === n ? `Sides use all ${n} LEDs.` : `Sides use ${sum} of ${n} LEDs; the last ${n - sum} stay dark.`);
+  $("edge-sum").dataset.tone = bad ? "bad" : "ok";
+  $("frame-save").disabled = bad;
+}
+
+async function countStep(path, params) {
+  const probe = await act(path, params);
+  if (!probe) return;
+  wizardLive = !probe.done;
+  $("count-ask").hidden = probe.done;
+  $("count-start").hidden = !probe.done;
+  setText($("count-msg"), probe.message || "Is the very last LED on the strip lit?");
+  setText($("count-range"), probe.done ? "" : `Somewhere between ${probe.lo} and ${probe.hi} LEDs.`);
+  if (probe.done) {
+    toast(probe.message || `LED count set to ${probe.k}.`);
+    refresh();
+  }
+}
+
+async function showMarker(index) {
+  markerAt = clamp(Math.round(index), 0, (state ? state.led_count : 1) - 1);
+  setText($("marker-at"), String(markerAt).padStart(3, "0"));
+  $("marker-box").hidden = false;
+  $("marker-start").hidden = true;
+  if (await act("/api/wizard/marker", {index: markerAt, led: markerAt})) wizardLive = true;
+}
+
+async function stopWizard({force = false, offer = false} = {}) {
+  const live = wizardLive;
+  wizardLive = false;
+  markerAt = null;
+  $("marker-box").hidden = $("count-ask").hidden = true;
+  $("marker-start").hidden = $("count-start").hidden = false;
+  if ((!live && !force) || !await act("/api/wizard/stop")) return;
+  await refresh();
+  if (offer && state && !state.running)
+    toast("Setup patterns are off.", "info", {label: "Turn sync on", run: () => act("/api/sync/on")});
+}
+
+/* ---------- board flashing ---------- */
+function flashCheck() {
+  return load("/api/flash/check", check => {
+    const ports = check.ports || [];
+    $("flash-port").replaceChildren(...(ports.length ? ports.map(p => new Option(p.replace("/dev/cu.", ""), p))
+      : [new Option("No board found — plug it into the Mac by USB", "")]));
+    const missing = [!check.esptool && "esptool", !check.pyserial && "pyserial"].filter(Boolean);
+    setText($("flash-tools"), missing.length
+      ? `The Mac needs ${missing.join(" and ")} first: python3 -m pip install ${missing.join(" ")}` : "");
+    $("flash-go").disabled = missing.length > 0 || !ports.length;
+  });
+}
+
+function loadNetworks() {
+  return load("/api/flash/networks", list => {
+    const options = (list.networks || []).map(n =>
+      new Option(n.ssid + (n.current ? " (connected)" : n.likely_5ghz ? " (5 GHz?)" : ""), n.ssid));
+    options.push(new Option("Type it in…", MANUAL_SSID));
+    $("flash-ssid").replaceChildren(...options);
+    if (list.current) $("flash-ssid").value = list.current;
+    ssidChanged();
+  });
+}
+
+function chosenSsid() {
+  const value = $("flash-ssid").value;
+  return (value === MANUAL_SSID ? $("flash-ssid-manual").value : value).trim();
+}
+
+function ssidChanged() {
+  const manual = $("flash-ssid").value === MANUAL_SSID;
+  $("flash-ssid-manual").hidden = !manual;
+  setText($("ssid-hint"), /(^|[^a-z0-9])5\s*-?\s*(g|ghz)([^a-z0-9]|$)/i.test(chosenSsid())
+    ? "That looks like a 5 GHz network — pick the 2.4 GHz one."
+    : manual ? "Type the exact name, including capitals." : "The board only joins 2.4 GHz networks.");
+}
+
+async function startFlash(event) {
+  event.preventDefault();
+  const port = $("flash-port").value, ssid = chosenSsid(), erase = $("flash-erase").checked;
+  if (!port) return toast("Pick the board first.", "error");
+  if (!ssid) return toast("Choose your Wi-Fi network.", "error");
+  if (erase && !confirm("Erase this board completely and install WLED?\n\nIts firmware, Wi-Fi settings, " +
+    "LED count, segments and presets will be lost. This cannot be undone.")) return;
+  if (!await act("/api/flash/start", {port, ssid, password: $("flash-pass").value, flash: erase ? 1 : 0})) return;
+  $("flash-form").hidden = $("flash-close").hidden = true;
+  $("flash-run").hidden = false;
+  setText($("flash-step"), "Starting…");
+  flashLogSize = -1;
+  pollFlash();
+}
+
+async function pollFlash() {
+  let st;
+  try { st = await api("/api/flash/status"); }
+  catch (err) {
+    // The flash carries on inside the hub, so a dropped connection only delays the readout.
+    if (err.kind !== "failed") { setTimeout(pollFlash, 3000); return; }
+    reportError(err);
+    $("flash-close").hidden = false;
     return;
   }
-  spillbox.style.opacity=.55;
-  ledEls.forEach((c,i)=>{
-    const col = colors[Math.min(colors.length-1,
-      Math.floor(i*colors.length/NLED))] || "#0d0f12";
-    c.style.background = col;
-    // A lit LED glows; a dark one must not, or the whole strip hazes over.
-    c.style.boxShadow = isDark(col) ? "none" : `0 0 7px ${col}`;
-  });
-  spillEls.forEach((c,i)=>{
-    c.style.background = colors[Math.min(colors.length-1,
-      Math.floor(i*colors.length/spillEls.length))] || "transparent";
-  });
-}
-let screenLocal=null;   // live values while a screen handle is being dragged
-function screenEdges(){
-  if(screenLocal) return screenLocal;
-  const n=cfg.led_count||240;
-  return {left:cfg.left_led??0, right:cfg.right_led??n-1};
-}
-function paintScreenMark(){
-  const n=cfg.led_count||240, e=screenEdges();
-  const a=Math.min(e.left,e.right), b=Math.max(e.left,e.right);
-  const m=$("smark");
-  m.style.left=(a/n*100)+"%";
-  m.style.width=((b-a+1)/n*100)+"%";
-  if(!m.firstChild){
-    m.innerHTML='<span class="sgrip l" data-edge="left"></span>'+
-                '<span class="tag"></span>'+
-                '<span class="sgrip r" data-edge="right"></span>';
-    m.querySelectorAll(".sgrip").forEach(g=>
-      g.addEventListener("pointerdown",ev=>startScreenDrag(ev,g.dataset.edge)));
+  $("flash-progress").value = st.progress || 0;
+  setText($("flash-step"), st.step || "Working…");
+  const log = st.log || [];
+  if (log.length !== flashLogSize) {
+    flashLogSize = log.length;
+    $("flash-log").replaceChildren(...log.map(line => make("div", {className: /fail|error/i.test(line) ? "fail" : "", textContent: line})));
+    $("flash-log").scrollTop = $("flash-log").scrollHeight;
   }
-  m.querySelector(".tag").textContent = screenLocal
-    ? (b-a+1)+" LIGHTS" : "SCREEN";
-}
-/* Drag either end of the screen region straight on the strip. The handle you
-   grab maps to whichever LED index currently sits on that side, so a reversed
-   strip stays correct without a special case. */
-let sdrag=null;
-function startScreenDrag(ev,edge){
-  ev.preventDefault(); ev.stopPropagation();
-  const e=screenEdges();
-  const reversed=(e.left>e.right);
-  // "left" handle edits whichever field holds the lower index.
-  sdrag={field: edge==="left" ? (reversed?"right_led":"left_led")
-                              : (reversed?"left_led":"right_led")};
-  screenLocal={...e};
-  ev.target.setPointerCapture?.(ev.pointerId);
-  window.addEventListener("pointermove",onScreenDrag);
-  window.addEventListener("pointerup",endScreenDrag,{once:true});
-}
-function onScreenDrag(ev){
-  if(!sdrag) return;
-  const n=cfg.led_count||240, r=$("track").getBoundingClientRect();
-  let idx=Math.round((ev.clientX-r.left)/r.width*(n-1));
-  idx=Math.max(0,Math.min(n-1,idx));
-  const key = sdrag.field==="left_led" ? "left" : "right";
-  screenLocal={...screenLocal,[key]:idx};
-  paintScreenMark();
-}
-async function endScreenDrag(){
-  window.removeEventListener("pointermove",onScreenDrag);
-  if(!sdrag) return;
-  const val = sdrag.field==="left_led" ? screenLocal.left : screenLocal.right;
-  const field=sdrag.field; sdrag=null;
-  dirty=Date.now();
-  try{ await api("/api/set",{[field]:val}); await refresh(); }
-  catch(e){ alertMsg(e.message); }
-  finally{ screenLocal=null; paintScreenMark(); }
+  if (st.state === "working") { setTimeout(pollFlash, 1000); return; }
+  $("flash-close").hidden = false;
+  if (st.state === "done") {
+    $("flash-progress").value = 100;
+    setText($("flash-step"), `Done — the board joined your Wi-Fi at ${st.ip}.`);
+    if (await act("/api/flash/adopt", null, "The hub now uses the new board.")) metaLoadedAt = 0;
+  } else if (st.state === "error") {
+    setText($("flash-step"), st.error || "Board setup failed.");
+    toast(st.error || "Board setup failed.", "error");
+  }
 }
 
 /* ---------- zones ---------- */
-const ZCOL = {sync:"#6b8cff", warm:"#ffb347", solid:"#9b6bff", off:"#616c85"};
-const ZICON = {
-  sync:'<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/></svg>',
-  warm:'<svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 1 3 11v1H9v-1a6 6 0 0 1 3-11z"/></svg>',
-  solid:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>',
-  off:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M6 6l12 12"/></svg>'};
-const ZNAME = {sync:"Screen", warm:"Lamp", solid:"Colour", off:"Off"};
-const PALETTE = ["#ff8a3d","#ffd23d","#30d57f","#3dd6ff","#5b7cff","#c060ff","#ff5a8a","#ffffff"];
+const zoneTint = z => z.mode === "solid" ? z.color : ZONE_TINT[z.mode];
+const ledTotal = () => Math.max(1, state ? state.led_count : 1);
 
-function zones(){ return zonesLocal ?? (cfg.zones||[]); }
-async function pushZones(list){
-  zonesLocal = list;
-  renderZones();
-  dirty = Date.now();
-  try{ await api("/api/set",{zones:JSON.stringify(list)}); }
-  catch(e){ alertMsg(e.message); }
-  finally{ setTimeout(()=>{ zonesLocal=null; },700); }
+function renderZonesFromStatus(s) {
+  const json = JSON.stringify(s.zones || []);
+  if (json === zonesJson || recent(editedAt.zones) || document.activeElement.matches("#zones input")) return;
+  zonesJson = json;
+  zones = JSON.parse(json);
+  buildZones();
 }
-function renderZones(){
-  const n = cfg.led_count||240, zs = zones(), layer = $("zlayer");
-  layer.innerHTML = "";
-  zs.forEach((z,i)=>{
-    const d = document.createElement("div");
-    d.className = "zband"+(i===sel?" sel":"");
-    d.style.left = (z.start/n*100)+"%";
-    d.style.width = ((z.end-z.start+1)/n*100)+"%";
-    d.style.setProperty("--zc", z.mode==="solid" ? z.color : ZCOL[z.mode]);
-    d.innerHTML = `<span class="grip l" data-edge="start"></span>
-      <span class="lbl">${ZNAME[z.mode]}</span>
-      <span class="grip r" data-edge="end"></span>`;
-    d.onclick = ev => { if(!ev.target.classList.contains("grip")) selectZone(i); };
-    d.querySelectorAll(".grip").forEach(g=>g.addEventListener("pointerdown",
-      ev=>startDrag(ev,i,g.dataset.edge)));
-    layer.appendChild(d);
+
+function buildZones() {
+  $("zone-list").replaceChildren(...zones.map(zoneCard));
+  drawZoneMap();
+}
+
+function drawZoneMap() {
+  const n = ledTotal();
+  $("zone-map").replaceChildren(...zones.map(z => {
+    const bar = make("span");
+    Object.assign(bar.style, {left: `${z.start / n * 100}%`, width: `${(z.end - z.start + 1) / n * 100}%`, background: zoneTint(z)});
+    return bar;
+  }));
+}
+
+function zoneCard(z, i) {
+  const n = i + 1, dot = make("span", {className: "zone-dot"});
+  dot.style.background = zoneTint(z);
+  const head = make("div", {className: "row"}, make("h3", {}, dot, `Zone ${n}`),
+    button("Remove", "btn small", () => removeZone(i), `Remove zone ${n}`));
+  const modes = make("div", {className: "seg"});
+  modes.setAttribute("role", "group");
+  modes.setAttribute("aria-label", `Zone ${n} light`);
+  for (const [mode, label] of ZONE_MODES) {
+    const b = button(label, "", () => editZone(i, {mode}));
+    b.dataset.mode = mode;
+    press(b, z.mode === mode);
+    modes.append(b);
+  }
+  const colour = make("input", {type: "color", value: z.color});
+  colour.setAttribute("aria-label", `Zone ${n} colour`);
+  colour.addEventListener("input", () => editZone(i, {color: colour.value}));
+  colour.hidden = z.mode !== "solid";
+  const briId = `zone-${i}-bri`, out = make("output", {textContent: pct(z.brightness)});
+  const bri = make("input", {type: "range", id: briId, min: 0, max: 100, value: Math.round(z.brightness * 100)});
+  bri.setAttribute("aria-valuetext", out.textContent);
+  bri.addEventListener("input", () => {
+    out.textContent = `${bri.value}%`;
+    bri.setAttribute("aria-valuetext", out.textContent);
+    editZone(i, {brightness: bri.value / 100});
   });
-  const list = $("zlist"); list.innerHTML = "";
-  zs.forEach((z,i)=>{
-    const row = document.createElement("div");
-    row.className = "zrow"+(i===sel?" sel":"");
-    const col = z.mode==="solid" ? z.color : ZCOL[z.mode];
-    const n2=cfg.led_count||240;
-    row.innerHTML = `<span class="sw" style="background:${col}">${ZICON[z.mode]}</span>
-      <span class="meta"><span class="nm">${ZNAME[z.mode]}</span>
-        <span class="mini"><i style="left:${z.start/n2*100}%;
-          width:${(z.end-z.start+1)/n2*100}%;background:${col}"></i></span></span>
-      <span class="pct">${Math.round(z.brightness*100)}<small>%</small></span>
-      <button class="x" aria-label="Remove">×</button>`;
-    row.onclick = ev => { if(ev.target.classList.contains("x")) removeZone(i); else selectZone(i); };
-    list.appendChild(row);
-  });
-  if(!zs.length){
-    list.innerHTML = '<div class="empty"><span class="ebar"></span>'+
-      '<p>Whole strip follows your screen</p></div>';
+  const fader = make("div", {className: "fader"}, make("label", {htmlFor: briId, textContent: "Brightness"}), out, bri);
+  const range = make("div", {className: "grid2"}, zoneStepper(i, "start", "First LED"), zoneStepper(i, "end", "Last LED"));
+  return make("li", {className: "zone"}, head, modes, colour, fader, range);
+}
+
+function zoneStepper(i, field, text) {
+  const id = `zone-${i}-${field}`;
+  const input = make("input", {type: "number", id, min: 0, max: ledTotal() - 1, value: zones[i][field], inputMode: "numeric"});
+  input.dataset.field = field;
+  input.addEventListener("change", () => editZone(i, {[field]: Number(input.value)}));
+  const step = d => button(d < 0 ? "−" : "+", "btn", () => editZone(i, {[field]: zones[i][field] + d}),
+    `${text}: one ${d < 0 ? "less" : "more"}`);
+  return make("div", {className: "field"}, make("label", {htmlFor: id, textContent: text}),
+    make("div", {className: "stepper"}, step(-1), input, step(1)));
+}
+
+function editZone(i, patch) {
+  const n = ledTotal(), z = {...zones[i], ...patch};
+  z.start = clamp(Math.round(z.start) || 0, 0, n - 1);
+  z.end = clamp(Math.round(z.end) || 0, 0, n - 1);
+  if ("start" in patch && z.start > z.end) z.end = z.start;
+  if ("end" in patch && z.end < z.start) z.start = z.end;
+  zones[i] = z;
+  const card = $("zone-list").children[i];
+  card.querySelectorAll("[data-mode]").forEach(b => press(b, b.dataset.mode === z.mode));
+  card.querySelector("[type=color]").hidden = z.mode !== "solid";
+  card.querySelector(".zone-dot").style.background = zoneTint(z);
+  card.querySelectorAll("[data-field]").forEach(input => { if (input !== document.activeElement) input.value = z[input.dataset.field]; });
+  zonesChanged(false);
+}
+
+function zonesChanged(rebuild) {
+  editedAt.zones = Date.now();
+  if (rebuild) buildZones(); else drawZoneMap();
+  pushZones();
+}
+
+const pushZones = debounce(async () => {
+  const body = await setKey("zones", JSON.stringify(zones));
+  if (!body || !body.zones) return;
+  zonesJson = JSON.stringify(body.zones);
+  if (zonesJson !== JSON.stringify(zones)) { zones = JSON.parse(zonesJson); buildZones(); }
+}, 350);
+
+function addZone() {
+  const n = ledTotal();
+  let cursor = 0, best = {start: 0, length: 0};
+  for (const z of [...zones].sort((a, b) => a.start - b.start)) {
+    if (z.start - cursor > best.length) best = {start: cursor, length: z.start - cursor};
+    cursor = Math.max(cursor, z.end + 1);
   }
-  $("znote").classList.toggle("hide", true);
-  if(sel>=zs.length) sel=-1;
-  renderEditor();
-}
-function selectZone(i){ sel = (sel===i ? -1 : i); renderZones(); }
-function removeZone(i){ const z=[...zones()]; z.splice(i,1); sel=-1; pushZones(z); }
-$("zadd").onclick = ()=>{
-  const n = cfg.led_count||240, zs=[...zones()];
-  // Drop the new zone into the largest free gap so it never lands on another.
-  let cur=0, best={start:0,end:Math.max(0,Math.min(19,n-1)),len:-1};
-  const sorted=[...zs].sort((a,b)=>a.start-b.start);
-  for(const z of sorted){ if(z.start-cur>best.len) best={start:cur,end:z.start-1,len:z.start-cur}; cur=z.end+1; }
-  if(n-cur>best.len) best={start:cur,end:n-1,len:n-cur};
-  if(best.len<=0){ alertMsg("No free lights left — remove a zone first.","warn"); return; }
-  const len=Math.max(1,Math.min(Math.floor(n*0.15), best.end-best.start+1));
-  zs.push({start:best.start,end:best.start+len-1,mode:"warm",color:"#ffb46b",brightness:1});
-  sel=zs.length-1; pushZones(zs);
-};
-$("zclear").onclick = ()=>{ sel=-1; pushZones([]); };
-
-/* drag a zone edge along the track */
-let drag=null;
-function startDrag(ev,i,edge){
-  ev.preventDefault(); ev.stopPropagation();
-  drag={i,edge}; sel=i;
-  ev.target.setPointerCapture?.(ev.pointerId);
-  window.addEventListener("pointermove",onDrag);
-  window.addEventListener("pointerup",endDrag,{once:true});
-}
-function onDrag(ev){
-  if(!drag) return;
-  const n=cfg.led_count||240, r=$("track").getBoundingClientRect();
-  let idx=Math.round((ev.clientX-r.left)/r.width*(n-1));
-  idx=Math.max(0,Math.min(n-1,idx));
-  const zs=[...zones()], z={...zs[drag.i]};
-  if(drag.edge==="start") z.start=Math.min(idx,z.end); else z.end=Math.max(idx,z.start);
-  zs[drag.i]=z; zonesLocal=zs; renderZones();
-}
-function endDrag(){
-  window.removeEventListener("pointermove",onDrag);
-  if(drag){ const zs=zones(); drag=null; pushZones(zs); }
+  if (n - cursor > best.length) best = {start: cursor, length: n - cursor};
+  if (!best.length) return toast("Every LED already belongs to a zone. Remove one first.", "error");
+  const length = clamp(Math.floor(n * 0.15), 1, best.length);
+  zones.push({start: best.start, end: best.start + length - 1, mode: "warm", color: "#ffb46b", brightness: 1});
+  zonesChanged(true);
 }
 
-function renderEditor(){
-  const zs=zones(), box=$("zedit");
-  if(sel<0||!zs[sel]){ box.style.display="none"; return; }
-  const z=zs[sel];
-  box.style.display="block";
-  $("zidx").textContent = (sel+1)+" of "+zs.length;
-  document.querySelectorAll("#zmodes button").forEach(b=>
-    b.setAttribute("aria-pressed", String(b.dataset.mode===z.mode)));
-  $("zcolorwrap").classList.toggle("hide", z.mode!=="solid");
-  const sw=$("zswatches"); sw.innerHTML="";
-  PALETTE.forEach(c=>{
-    const b=document.createElement("button");
-    b.style.background=c; b.setAttribute("aria-pressed",String(c===z.color));
-    b.onclick=()=>updateZone({color:c});
-    sw.appendChild(b);
-  });
-  if(document.activeElement!==$("zbri")){
-    $("zbri").value=Math.round(z.brightness*100);
-    $("v-zbri").textContent=Math.round(z.brightness*100)+"%";
-  }
-  if(document.activeElement!==$("zstart")) $("zstart").value=z.start;
-  if(document.activeElement!==$("zend")) $("zend").value=z.end;
-  $("zstart").max=$("zend").max=(cfg.led_count||240)-1;
-}
-function updateZone(patch){
-  const zs=[...zones()]; if(sel<0||!zs[sel]) return;
-  zs[sel]={...zs[sel],...patch}; pushZones(zs);
-}
-document.querySelectorAll("#zmodes button").forEach(b=>
-  b.onclick=()=>updateZone({mode:b.dataset.mode}));
-$("zdone").onclick=()=>{ sel=-1; renderZones(); };
-$("zbri").oninput=()=>{ $("v-zbri").textContent=$("zbri").value+"%";
-  clearTimeout($("zbri")._t);
-  $("zbri")._t=setTimeout(()=>updateZone({brightness:Number($("zbri").value)/100}),110); };
-$("zstart").onchange=()=>updateZone({start:Number($("zstart").value)});
-$("zend").onchange=()=>updateZone({end:Number($("zend").value)});
-
-/* ---------- main controls ---------- */
-$("pw").onclick=async()=>{
-  try{ await api("/api/sync/"+(cfg.running?"off":"on")); await refresh(); }
-  catch(e){ alertMsg(e.message); }
-};
-document.querySelectorAll("#moods .moodc").forEach(b=>b.onclick=async()=>{
-  try{ await api("/api/profile/"+b.dataset.profile); await refresh(); }
-  catch(e){ alertMsg(e.message); }
-});
-
-const SL={
-  brightness:{s:100,f:v=>Math.round(v*100)+"%"},
-  saturation:{s:100,f:v=>v<0.6?"Muted":v<1.3?"Natural":v<2?"Vivid":"Max"},
-  blend:{s:100,f:v=>v<0.25?"Glide":v<0.55?"Smooth":v<0.85?"Quick":"Instant"},
-  fps:{s:1,f:v=>v+"/sec"},
-  fade_leds:{s:1,f:v=>v===0?"Hard edge":v+" lights"},
-};
-for(const [k,spec] of Object.entries(SL)){
-  const el=$(k); let t=null;
-  el.oninput=()=>{
-    dirty=Date.now();
-    $("v-"+k).textContent=spec.f(Number(el.value)/spec.s);
-    clearTimeout(t);
-    t=setTimeout(()=>api("/api/set",{[k]:Number(el.value)/spec.s}).catch(e=>alertMsg(e.message)),90);
-  };
-}
-$("wbri").oninput=()=>{
-  dirty=Date.now(); $("v-wbri").textContent=Math.round($("wbri").value/2.55)+"%";
-  clearTimeout($("wbri")._t);
-  $("wbri")._t=setTimeout(()=>api("/api/wled/brightness",{value:$("wbri").value})
-    .catch(e=>alertMsg(e.message)),120);
-};
-$("wled-on").onclick=()=>api("/api/wled/power",{on:1}).catch(e=>alertMsg(e.message));
-$("wled-off").onclick=()=>api("/api/wled/power",{on:0}).catch(e=>alertMsg(e.message));
-$("effect").onchange=()=>api("/api/wled/effect",{index:$("effect").value})
-  .then(refresh).catch(e=>alertMsg(e.message));
-$("palette").onchange=()=>api("/api/wled/palette",{index:$("palette").value})
-  .then(refresh).catch(e=>alertMsg(e.message));
-
-function fillSel(el,names,cur){
-  if(el.options.length!==names.length)
-    el.innerHTML=names.map((n,i)=>`<option value="${i}">${n}</option>`).join("");
-  if(document.activeElement!==el) el.value=cur;
-}
-async function loadMeta(){
-  try{
-    const m=await api("/api/wled/meta");
-    if(m.effects?.length) fillSel($("effect"),m.effects,m.fx??0);
-    if(m.palettes?.length) fillSel($("palette"),m.palettes,m.pal??0);
-    const box=$("presets");
-    if(m.presets?.length){
-      box.innerHTML="";
-      m.presets.forEach(p=>{
-        const b=document.createElement("button");
-        b.textContent=p.name; b.setAttribute("aria-pressed",String(m.ps===p.id));
-        b.onclick=()=>api("/api/wled/preset",{id:p.id}).then(refresh).catch(e=>alertMsg(e.message));
-        box.appendChild(b);
-      });
-    } else box.innerHTML='<span class="note">'+(m.offline?"Controller offline."
-      :"None saved. Create them in WLED and they appear here.")+"</span>";
-  }catch(e){}
+function removeZone(i) {
+  zones.splice(i, 1);
+  zonesChanged(true);
 }
 
-function paint(s){
-  const first = !cfg.led_count;
-  cfg=s;
-  const live=s.running;
-  $("mark").classList.toggle("live",live);
-  $("hero").classList.toggle("live",live);
-  $("t1").textContent = live?"Mirroring screen":"Lights off";
-  $("t2").textContent = live
-    ? (s.profile==="movie"?"Cinema":"Gaming")+" · "+(s.measured_fps||0).toFixed(0)+" fps"
-    : "Tap to mirror your screen";
-  $("hz").textContent = live ? (s.measured_fps||0).toFixed(0)+" FPS" : "IDLE";
-  $("hz").classList.toggle("on",live);
-  paintLeds(s.preview);
-  if(s.preview?.length){
-    const mid=s.preview[Math.floor(s.preview.length/2)];
-    $("wash").style.setProperty("--w1",mid);
-    document.body.style.setProperty("--amb",mid);
-  }
-  document.body.classList.toggle("syncing",live);
-  if(!sdrag) paintScreenMark();
-  if(!drag && zonesLocal===null) renderZones();
-  document.querySelectorAll("#moods .moodc").forEach(b=>
-    b.setAttribute("aria-pressed",String(b.dataset.profile===s.profile)));
-  if(Date.now()-dirty>1200){
-    for(const [k,spec] of Object.entries(SL)){
-      if(document.activeElement===$(k)) continue;
-      $(k).value=s[k]*spec.s; $("v-"+k).textContent=spec.f(s[k]);
-    }
-    if(s.wled_bri!=null && document.activeElement!==$("wbri")){
-      $("wbri").value=s.wled_bri; $("v-wbri").textContent=Math.round(s.wled_bri/2.55)+"%";
-    }
-  }
-  const zs=zones();
-  $("sum-zones").textContent = zs.length
-    ? zs.length+(zs.length===1?" zone":" zones")
-    : "whole strip follows screen";
-  $("sum-adjust").textContent =
-    Math.round((s.brightness??0)*100)+"% · "+SL.saturation.f(s.saturation)+
-    " · "+SL.blend.f(s.blend);
-  alertMsg(s.last_error?friendly(s.last_error):"");
-  if(first) fillForm();
-}
-async function refresh(){
-  try{ paint(await api("/api/status")); }catch(e){ alertMsg(e.message); }
+/* ---------- advanced ---------- */
+function renderAdvanced(s) {
+  $$("[data-action=output]").forEach(b => press(b, b.dataset.value === s.output));
+  $("serial-fields").hidden = s.output !== "serial";
+  const monitor = $("monitor_index");
+  if (monitor !== document.activeElement && [...monitor.options].some(o => o.value === String(s.monitor_index)))
+    monitor.value = String(s.monitor_index);
+  fillInput($("http_port"), s.http_port);
+  setText($("pin-state"), s.has_pin ? "A PIN is set. Each device asks for it once."
+    : "No PIN: anyone on your Wi-Fi can control the lights.");
+  $("pin-remove").hidden = !s.has_pin;
 }
 
-/* ---------- wizard ---------- */
-let probe=null;
-$("count-start").onclick=async()=>{
-  try{ probe=await api("/api/wizard/count/start");
-    $("count-box").classList.remove("hide"); $("count-start").classList.add("hide");
-    $("count-done").classList.add("hide"); renderProbe();
-  }catch(e){ alertMsg(e.message); }
-};
-$("count-stop").onclick=async()=>{
-  await api("/api/wizard/stop"); probe=null;
-  $("count-box").classList.add("hide"); $("count-start").classList.remove("hide");
-};
-$("count-yes").onclick=()=>answer(true);
-$("count-no").onclick=()=>answer(false);
-async function answer(lit){
-  if(!probe) return;
-  try{
-    probe=await api("/api/wizard/count/answer",{lit:lit?1:0});
-    if(probe.done){
-      $("count-box").classList.add("hide"); $("count-start").classList.remove("hide");
-      $("count-done").textContent="— Strip has "+probe.k+" lights.";
-      $("count-done").classList.remove("hide");
-      await refresh(); $("marker-num").max=probe.k-1;
-    } else renderProbe();
-  }catch(e){ alertMsg(e.message); }
-}
-function renderProbe(){
-  const span=probe.hi-probe.lo;
-  $("count-prog").textContent = span<=1?"Almost there…":"Between "+probe.lo+" and "+probe.hi+" lights";
-  if(probe.message && /raise the LED count/i.test(probe.message))
-    alertMsg("Your strip is longer than WLED is configured for. Raise its LED count in "+
-             "the WLED app first.","warn");
-}
-let marker=0;
-async function startMarker(){
-  marker=cfg.left_led??0; $("marker-num").max=(cfg.led_count??240)-1; await showMarker();
-}
-async function showMarker(){
-  marker=Math.max(0,Math.min((cfg.led_count??240)-1,Math.round(marker)));
-  $("marker-val").textContent="Orange light at position "+marker;
-  $("marker-num").value=marker;
-  try{ await api("/api/wizard/marker",{index:marker}); }catch(e){ alertMsg(e.message); }
-}
-document.querySelectorAll("[data-nudge]").forEach(b=>b.onclick=()=>{
-  marker+=Number(b.dataset.nudge); showMarker(); });
-$("marker-num").onchange=()=>{ marker=Number($("marker-num").value); showMarker(); };
-$("set-left").onclick=async()=>{ await api("/api/set",{left_led:marker}); await refresh();
-  $("edge-done").textContent="— Left corner saved."; $("edge-done").classList.remove("hide"); };
-$("set-right").onclick=async()=>{ await api("/api/set",{right_led:marker}); await refresh();
-  $("edge-done").textContent="— Right corner saved."; $("edge-done").classList.remove("hide"); };
-$("gradient").onclick=()=>api("/api/wizard/gradient").catch(e=>alertMsg(e.message));
-$("wizard-done").onclick=async()=>{
-  await api("/api/wizard/stop"); await refresh();
-  document.querySelector('nav button[data-tab=home]').click();
-};
-
-/* ---------- settings ---------- */
-$("save-conn").onclick=async()=>{
-  try{
-    await api("/api/set",{wled_ip:$("wled_ip").value,monitor_index:$("monitor_index").value,
-                          led_count:$("led_count").value});
-    await refresh(); loadMeta();
-    $("save-conn").textContent="— Saved"; setTimeout(()=>$("save-conn").textContent="Save",1500);
-  }catch(e){ alertMsg(e.message); }
-};
-$("save-access").onclick=async()=>{
-  try{
-    await api("/api/set",{pin:$("pin").value,http_port:$("http_port").value});
-    $("save-access").textContent="— Restart to apply";
-    setTimeout(()=>$("save-access").textContent="Save",2400);
-  }catch(e){ alertMsg(e.message); }
-};
-let serialInfo=null;
-async function loadPorts(){
-  try{
-    serialInfo = await api("/api/serial/ports");
-    const sw=$("serialwrap"), isSerial = serialInfo.output==="serial";
-    document.querySelectorAll("#outmodes button").forEach(b=>
-      b.setAttribute("aria-pressed", String(b.dataset.out===serialInfo.output)));
-    sw.classList.toggle("hide", !isSerial);
-
-    const sel=$("serial_port");
-    if(!serialInfo.pyserial){
-      sel.innerHTML='<option value="">pyserial not installed</option>';
-      $("serialhint").textContent="Run: python3 -m pip install pyserial";
-    } else if(!serialInfo.ports.length){
-      sel.innerHTML='<option value="">No device detected</option>';
-      $("serialhint").textContent="Plug the controller into a USB port, then tap Rescan. "+
-        "You may need its USB driver (CP2102 or CH340) installed.";
-    } else {
-      sel.innerHTML=serialInfo.ports.map(p=>`<option value="${p}">${p.replace("/dev/cu.","")}</option>`).join("");
-      if(serialInfo.current) sel.value=serialInfo.current;
-      $("serialhint").textContent="Pick the controller. Usually the usbserial or wchusbserial entry.";
-    }
-    if(document.activeElement!==$("serial_baud")) $("serial_baud").value=serialInfo.baud;
-    $("baudrec").textContent="suggest "+serialInfo.recommended_baud.toLocaleString();
-    const tooSlow = serialInfo.baud < serialInfo.recommended_baud;
-    $("baudwarn").textContent = tooSlow
-      ? "Too slow for "+(cfg.led_count||240)+" lights at this frame rate — the strip will "+
-        "lag. Set WLED's serial baud to match in its Sync settings."
-      : "Must match the baud rate set in WLED ▸ Config ▸ Sync Interfaces.";
-    $("outnote").textContent = serialInfo.output==="serial"
-      ? "USB avoids Wi-Fi entirely. Effects, presets and palettes still need the "+
-        "network, so those controls go quiet on USB."
-      : "Streaming over Wi-Fi. The controller needs a fixed address on your router.";
-  }catch(e){}
-}
-document.querySelectorAll("#outmodes button").forEach(b=>b.onclick=async()=>{
-  try{ await api("/api/set",{output:b.dataset.out}); await loadPorts(); await refresh(); }
-  catch(e){ alertMsg(e.message); }
-});
-$("ports-refresh").onclick=loadPorts;
-$("serial_port").onchange=()=>api("/api/set",{serial_port:$("serial_port").value})
-  .then(loadPorts).catch(e=>alertMsg(e.message));
-$("serial_baud").onchange=()=>api("/api/set",{serial_baud:$("serial_baud").value})
-  .then(loadPorts).catch(e=>alertMsg(e.message));
-
-/* ---------- colour effects ---------- */
-let fxList=[], fxCurrent=null;
-const FXPALETTE=["#ff5a5a","#ffb347","#ffe66b","#3fc98a","#5b8def","#7c6cf0","#ff6bd6","#ffffff"];
-
-async function loadEffects(){
-  try{
-    const d=await api("/api/effects");
-    fxList=d.effects||[];
-    const grid=$("fxgrid"); grid.innerHTML="";
-    fxList.forEach(e=>{
-      const b=document.createElement("button");
-      b.className="fxc"; b.dataset.fx=e.fx;
-      b.innerHTML=`<span class="n">${e.name}</span><span class="a">${e.about}</span>`;
-      b.setAttribute("aria-pressed",String(fxCurrent===e.fx));
-      b.onclick=()=>runEffect(e);
-      grid.appendChild(b);
-    });
-    const sw=$("fxswatches"); sw.innerHTML="";
-    FXPALETTE.forEach(c=>{
-      const b=document.createElement("button");
-      b.style.background=c;
-      b.onclick=()=>{ $("fxswatches")._c=c;
-        sw.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false"));
-        b.setAttribute("aria-pressed","true");
-        if(fxCurrent!==null) runEffect(fxList.find(e=>e.fx===fxCurrent),c); };
-      sw.appendChild(b);
-    });
-  }catch(e){}
-}
-async function runEffect(e, colour){
-  if(!e) return;
-  fxCurrent=e.fx;
-  const params={fx:e.fx, speed:$("fxspeed").value, intensity:$("fxint").value};
-  const c = colour || $("fxswatches")._c;
-  if(c) params.color=c.replace("#","");
-  document.querySelectorAll(".fxc").forEach(b=>
-    b.setAttribute("aria-pressed", String(Number(b.dataset.fx)===e.fx)));
-  $("fxcolorwrap").classList.toggle("hide", e.fx!==0 && e.fx!==12);
-  $("sum-fx").textContent=e.name;
-  try{ await api("/api/effect/run",params); await refresh(); }
-  catch(err){ alertMsg(err.message); }
-}
-["fxspeed","fxint"].forEach(id=>{
-  const el=$(id); let t=null;
-  el.oninput=()=>{
-    $(id==="fxspeed"?"v-fxspeed":"v-fxint").textContent=el.value;
-    clearTimeout(t);
-    t=setTimeout(()=>{ if(fxCurrent!==null)
-      runEffect(fxList.find(e=>e.fx===fxCurrent)); },140);
-  };
-});
-$("fxstop").onclick=async()=>{
-  fxCurrent=null;
-  document.querySelectorAll(".fxc").forEach(b=>b.setAttribute("aria-pressed","false"));
-  $("sum-fx").textContent="no screen needed";
-  try{ await api("/api/wled/power",{on:0}); await refresh(); }catch(e){ alertMsg(e.message); }
-};
-
-/* ---------- flash & provision ---------- */
-let flashTimer=null;
-const MANUAL="\u0000manual";
-function currentSsid(){
-  const sel=$("flash-ssid-sel").value;
-  return (sel===MANUAL ? $("flash-ssid").value : sel).trim();
-}
-async function loadNetworks(){
-  try{
-    const d=await api("/api/flash/networks");
-    const sel=$("flash-ssid-sel");
-    const opts=d.networks.map(n=>{
-      const tag=n.current?" (connected)":(n.likely_5ghz?"  5GHz":"");
-      return `<option value="${n.ssid.replace(/"/g,"&quot;")}">${n.ssid}${tag}</option>`;
-    });
-    opts.push(`<option value="${MANUAL}">Type it manually…</option>`);
-    sel.innerHTML=opts.join("");
-    if(d.current) sel.value=d.current;
-    ssidChanged();
-  }catch(e){
-    $("flash-ssid-sel").innerHTML=`<option value="${MANUAL}">Type it manually…</option>`;
-    ssidChanged();
-  }
-}
-function ssidChanged(){
-  const sel=$("flash-ssid-sel").value;
-  const manual=(sel===MANUAL);
-  $("flash-ssid").classList.toggle("hide",!manual);
-  const name=currentSsid();
-  const fiveGhz=/(^|[^a-z0-9])5\s*-?\s*(g|ghz)([^a-z0-9]|$)/i.test(name);
-  $("ssid-hint").textContent = manual
-    ? "Exact name, including capitals"
-    : (fiveGhz ? "Looks like 5GHz — pick the 2.4GHz network" : "2.4GHz only");
-}
-$("flash-ssid-sel").onchange=ssidChanged;
-$("flash-ssid").oninput=ssidChanged;
-$("ssid-rescan").onclick=loadNetworks;
-async function flashCheck(){  // returns a promise
-  try{
-    const c=await api("/api/flash/check");
-    const sel=$("flash-port");
-    if(!c.ports.length){
-      sel.innerHTML='<option value="">No board detected</option>';
-      $("flash-porthint").textContent="Plug in over USB, then Refresh";
-    } else {
-      sel.innerHTML=c.ports.map(p=>`<option value="${p}">${p.replace("/dev/cu.","")}</option>`).join("");
-      $("flash-porthint").textContent="";
-    }
-    $("flash-port-n").textContent=c.ports.length?c.ports.length+" found":"none";
-    const missing=[];
-    if(!c.esptool) missing.push("esptool");
-    if(!c.pyserial) missing.push("pyserial");
-    $("flash-warn").textContent = missing.length
-      ? "Install first:  python3 -m pip install "+missing.join(" ")
-      : "";
-    $("flash-go").disabled = missing.length>0;
-  }catch(e){}
-}
-$("port-rescan").onclick=()=>{
-  const b=$("port-rescan"); b.textContent="Scanning…";
-  flashCheck().finally(()=>{ b.textContent="Refresh"; });
-};
-$("flash-erase").onchange=()=>{
-  const erasing=$("flash-erase").checked;
-  $("erase-warn").classList.toggle("hide",!erasing);
-  $("flash-go").textContent = erasing ? "Erase & install WLED" : "Connect to Wi-Fi";
-};
-$("flash-go").onclick=async()=>{
-  const port=$("flash-port").value, ssid=currentSsid();
-  if(!port){ alertMsg("No board selected. Plug it in and tap Setup again.","warn"); return; }
-  if(!ssid){ alertMsg("Enter your Wi-Fi name.","warn"); return; }
-  if($("flash-erase").checked &&
-     !confirm("Erase this board completely and install WLED?\n\n"+
-              "Its firmware, Wi-Fi settings, LED count, segments and presets "+
-              "will all be lost. This cannot be undone.")) return;
-  try{
-    await api("/api/flash/start",{port,ssid,password:$("flash-pass").value,
-      flash:$("flash-erase").checked?1:0});
-    $("flash-pre").classList.add("hide"); $("flash-run").classList.remove("hide");
-    pollFlash();
-  }catch(e){ alertMsg(e.message); }
-};
-function pollFlash(){
-  clearInterval(flashTimer);
-  flashTimer=setInterval(async()=>{
-    try{
-      const st=await api("/api/flash/status");
-      $("flash-bar").style.width=st.progress+"%";
-      $("flash-step").textContent=st.step||"Working…";
-      $("flash-log").innerHTML=(st.log||[]).map(l=>
-        /failed/i.test(l)?"<u>"+l+"</u>":l).join("\n");
-      $("flash-log").scrollTop=$("flash-log").scrollHeight;
-      if(st.state==="done"){
-        clearInterval(flashTimer);
-        $("flash-step").innerHTML="Done — board is on your network at <b>"+st.ip+"</b>";
-        $("flash-bar").style.width="100%";
-        try{ await api("/api/flash/adopt"); await refresh(); fillForm(); loadMeta(); }catch(e){}
-        $("flash-close").classList.remove("hide");
-      }
-      if(st.state==="error"){
-        clearInterval(flashTimer);
-        alertMsg(st.error||"Setup failed.");
-        $("flash-close").classList.remove("hide");
-      }
-    }catch(e){ clearInterval(flashTimer); }
-  },900);
-}
-$("flash-close").onclick=()=>{
-  $("flash-run").classList.add("hide"); $("flash-pre").classList.remove("hide");
-  $("flash-close").classList.add("hide"); flashCheck();
-};
-
-async function refreshDiag(){
-  try{
-    const d=await api("/api/diagnostics");
-    const set=(id,t,ok)=>{const e=$(id);e.textContent=t;
-      e.className=ok===undefined?"":(ok?"ok":"no");};
-    set("d-running",d.running?"Active":"Idle",d.running);
-    set("d-fps",d.running?(d.fps>=45?"Excellent · "+d.fps.toFixed(0)+"/sec"
-      :d.fps>=25?"Good · "+d.fps.toFixed(0)+"/sec":"Slow · "+d.fps.toFixed(0)+"/sec")
-      :"—",d.running?d.fps>=25:undefined);
-    set("d-reach",d.wled_reachable?"Connected":"Not reachable",d.wled_reachable);
-    set("d-wleds",d.wled_led_count??"Unknown");
-    set("d-cap",d.capture_size||"—");
-    set("d-err",d.last_error?friendly(d.last_error):"None",!d.last_error);
-    set("d-left","light "+d.left_led); set("d-right","light "+d.right_led);
-    set("d-dir",d.reversed?"Right to left":"Left to right");
-    $("d-plugins").innerHTML=d.plugins.map(p=>
-      `<div class="kv"><span>${p.kind}: ${p.name}</span><b>${
-        p.active?"active":(p.available?"available":"absent")}</b></div>`).join("");
-  }catch(e){ alertMsg(e.message); }
-}
-function fillForm(){
-  ["wled_ip","monitor_index","led_count","pin","http_port"].forEach(k=>{
-    if(document.activeElement!==$(k)) $(k).value=cfg[k]??"";
+function loadMonitors() {
+  return load("/api/monitors", body => {
+    const list = Array.isArray(body) ? body : body.monitors || [];
+    const options = list.map(m => new Option(`Display ${m.index} — ${m.width}×${m.height}${m.primary ? " (main)" : ""}`, m.index));
+    if (state && !list.some(m => m.index === state.monitor_index))
+      options.push(new Option(`Display ${state.monitor_index} (not connected)`, state.monitor_index));
+    $("monitor_index").replaceChildren(...options);
+    if (state) $("monitor_index").value = String(state.monitor_index);
   });
 }
-(async()=>{
-  await refresh(); fillForm(); loadMeta(); loadPorts(); loadEffects();
-  setInterval(async()=>{ if(!polling) return;
-    await refresh();
-    if(!document.querySelector('section[data-page=diag]').classList.contains("hide")) refreshDiag();
-  },1100);
-  setInterval(loadMeta,15000);
-})();
-document.addEventListener("visibilitychange",()=>{ polling=!document.hidden; });
+
+function loadPorts() {
+  return load("/api/serial/ports", info => {
+    const ports = info.ports || [], name = p => p.replace("/dev/cu.", "");
+    const options = !info.pyserial ? [new Option("USB support missing (pip install pyserial)", "")]
+      : ports.length ? ports.map(p => new Option(name(p), p)) : [new Option("No USB controller found", "")];
+    if (info.current && !ports.includes(info.current)) options.push(new Option(`${name(info.current)} (not connected)`, info.current));
+    $("serial_port").replaceChildren(...options);
+    if (info.current) $("serial_port").value = info.current;
+    const bauds = BAUDS.includes(info.baud) ? BAUDS : [...BAUDS, info.baud].sort((a, b) => a - b);
+    $("serial_baud").replaceChildren(...bauds.map(b => new Option(b.toLocaleString(), b)));
+    $("serial_baud").value = String(info.baud);
+    setText($("baud-hint"), info.baud < info.recommended_baud
+      ? `Too slow for this many LEDs — use at least ${info.recommended_baud.toLocaleString()}, and set the same in WLED.`
+      : "Must match the speed set in WLED › Config › Sync Interfaces.");
+  });
+}
+
+function loadHealth() {
+  return load("/api/diagnostics", d => {
+    const rows = [
+      ["Screen sync", d.running ? "Running" : "Stopped"],
+      ["Capture rate", d.running && d.fps != null ? `${Number(d.fps).toFixed(1)} fps` : "—"],
+      ["Controller", d.wled_reachable ? "Answering" : "Not answering", d.wled_reachable ? "ok" : "bad"],
+      ["LEDs on controller", d.wled_led_count ?? "Unknown"],
+      ["Capture size", [].concat(d.capture_size || "—").join("×")],
+      ["Last issue", d.last_error ? friendly(d.last_error) : "None", d.last_error ? "bad" : "ok"],
+    ];
+    $("health").replaceChildren(...rows.flatMap(([name, value, tone]) => {
+      const dd = make("dd", {textContent: String(value)});
+      if (tone) dd.dataset.tone = tone;
+      return [make("dt", {textContent: name}), dd];
+    }));
+  });
+}
+
+async function resetColours() {
+  if (!confirm("Reset warmth, contrast, colour, strip balance and the other colour settings to their defaults? " +
+    "Brightness, layout and zones stay as they are.")) return;
+  await load("/api/defaults", defaults => {
+    const values = {};
+    for (const key of COLOUR_KEYS.filter(k => k in defaults)) {
+      values[key] = typeof defaults[key] === "boolean" ? Number(defaults[key]) : defaults[key];
+      delete editedAt[key];
+    }
+    act("/api/set", values, "Colour settings are back to their defaults.");
+  });
+}
+
+async function setPin() {
+  const value = $("new-pin").value.trim();
+  if (value.length < 4) return toast("Use at least 4 digits.", "error");
+  const body = await act("/api/set", {new_pin: value}, "PIN set. Other devices will be asked for it.");
+  if (body) { storePin(value); $("new-pin").value = ""; }
+  return body;
+}
+
+async function removePin() {
+  if (confirm("Remove the PIN? Anyone on your Wi-Fi will be able to control the lights.")
+    && await act("/api/set", {new_pin: ""}, "PIN removed.")) storePin("");
+}
+
+/* ---------- navigation and wiring ---------- */
+function showTab(name) {
+  if (!TABS.includes(name)) name = "home";
+  if (name === currentTab) return;
+  const leaving = currentTab;
+  currentTab = name;
+  TABS.forEach(t => { $(`tab-${t}`).hidden = t !== name; });
+  $$("[data-action=tab]").forEach(b => b.setAttribute("aria-current", b.dataset.value === name ? "page" : "false"));
+  history.replaceState(null, "", `#${name}`);
+  window.scrollTo(0, 0);
+  if (leaving === "setup" && wizardLive) stopWizard({offer: true});
+  if (name === "home") { previewKey = ""; renderPreview(); }
+  if (name === "effects") { if (!effects.length) loadEffects(); loadMeta(); }
+  if (name === "advanced") { loadMonitors(); loadPorts(); loadHealth(); }
+}
+
+const ACTIONS = {
+  "tab": b => showTab(b.dataset.value),
+  "power": () => act(state && modeOf(state) === "sync" ? "/api/sync/off" : "/api/sync/on"),
+  "sync-on": () => act("/api/sync/on"),
+  "lights-off": async () => { if (await act("/api/wled/power", {on: 0})) refresh(); },
+  "profile": b => act(`/api/profile/${b.dataset.value}`),
+  "layout": b => setKey("layout", b.dataset.value),
+  "count-start": () => countStep("/api/wizard/count/start"),
+  "count-yes": () => countStep("/api/wizard/count/answer", {lit: 1}),
+  "count-no": () => countStep("/api/wizard/count/answer", {lit: 0}),
+  "wizard-stop": () => stopWizard(),
+  "marker-start": () => showMarker(state ? state.left_led : 0),
+  "nudge": b => showMarker((markerAt ?? 0) + Number(b.dataset.value)),
+  "set-edge": b => setKey(b.dataset.value, markerAt, b.dataset.value === "left_led" ? "Left edge saved." : "Right edge saved."),
+  "test-start": async () => { if (await act("/api/wizard/gradient")) wizardLive = true; },
+  "open-calibrate": () => window.open(`/calibrate${pin ? `?pin=${encodeURIComponent(pin)}` : ""}`, "_blank", "noopener"),
+  "finish": () => stopWizard({force: true, offer: true}),
+  "flash-ports": flashCheck,
+  "flash-networks": loadNetworks,
+  "flash-close": () => { $("flash-run").hidden = true; $("flash-form").hidden = false; flashCheck(); },
+  "zone-add": addZone,
+  "output": async b => { if (await setKey("output", b.dataset.value)) loadPorts(); },
+  "ports": loadPorts,
+  "reset-colours": resetColours,
+  "pin-remove": removePin,
+  "health": loadHealth,
+  "unlock": () => { pinDismissed = false; askPin(); },
+  "unlock-cancel": () => { pinDismissed = true; $("unlock").close(); },
+};
+
+function onSwitch(btn) {
+  const key = btn.dataset.switch, on = btn.getAttribute("aria-checked") !== "true";
+  press(btn, on, "aria-checked");
+  editedAt[key] = Date.now();
+  setKey(key, on ? 1 : 0);
+}
+
+function onSubmit(id, handler) {
+  $(id).addEventListener("submit", async event => {
+    event.preventDefault();
+    if (await handler()) $(id).querySelectorAll("input").forEach(i => delete i.dataset.dirty);
+  });
+}
+
+function onChange(id, handler) { $(id).addEventListener("change", () => handler($(id).value)); }
+
+function wire() {
+  document.addEventListener("click", event => {
+    const target = event.target.closest("[data-action],[data-switch]");
+    if (target && target.dataset.switch) onSwitch(target);
+    else if (target) ACTIONS[target.dataset.action](target);
+  });
+  document.addEventListener("input", event => {
+    if (event.target.matches("form input")) event.target.dataset.dirty = "1";
+  });
+  EDGE_KEYS.forEach(k => $(k).addEventListener("input", renderEdgeSum));
+  onSubmit("form-ip", async () => {
+    const body = await setKey("wled_ip", $("wled_ip").value.trim(), "Controller address saved.");
+    if (body) metaLoadedAt = 0;
+    return body;
+  });
+  onSubmit("form-count", () => setKey("led_count", $("led_count").value, "LED count saved."));
+  onSubmit("form-frame", () => act("/api/set", Object.fromEntries(
+    [...EDGE_KEYS, "box_mm_w", "box_mm_h"].map(k => [k, Number($(k).value) || 0])), "Layout saved."));
+  onSubmit("form-port", () => setKey("http_port", $("http_port").value, `Saved. Restart the hub to use port ${$("http_port").value}.`));
+  onSubmit("form-pin", setPin);
+  $("flash-form").addEventListener("submit", startFlash);
+  $("flash").addEventListener("toggle", () => { if ($("flash").open) { flashCheck(); loadNetworks(); } });
+  $("flash-ssid").addEventListener("change", ssidChanged);
+  $("flash-ssid-manual").addEventListener("input", ssidChanged);
+  $("flash-erase").addEventListener("change", () => {
+    $("erase-warn").hidden = !$("flash-erase").checked;
+    $("flash-go").textContent = $("flash-erase").checked ? "Erase and install WLED" : "Connect to Wi-Fi";
+  });
+  $("colour").addEventListener("input", debounce(() => runSolid($("colour").value), 200));
+  onChange("wled-fx", v => runLook($("wled-fx").selectedOptions[0].textContent, "/api/wled/effect", {index: v}));
+  onChange("monitor_index", v => setKey("monitor_index", v));
+  onChange("serial_port", v => setKey("serial_port", v));
+  onChange("serial_baud", async v => { if (await setKey("serial_baud", v)) loadPorts(); });
+  $("unlock-form").addEventListener("submit", event => {
+    event.preventDefault();
+    storePin($("unlock-pin").value.trim());
+    $("unlock").close();
+    pinDismissed = false;
+    poll();
+  });
+  $("unlock").addEventListener("cancel", () => { pinDismissed = true; });
+  window.addEventListener("resize", debounce(() => { previewKey = ""; renderPreview(); }, 150));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+  window.addEventListener("pagehide", () => {
+    if (wizardLive) fetch("/api/wizard/stop", {keepalive: true, cache: "no-store", headers: pinHeaders()});
+  });
+}
+
+$$("[data-fader]").forEach(buildFader);
+["fx_speed", "fx_intensity", "fx_brightness"].forEach(k => setFader(k, 128, true));
+buildSwatches();
+wire();
+showTab(location.hash.slice(1));
+poll();
 </script>
 </body>
 </html>
