@@ -73,8 +73,10 @@ class OutputPlugin(ABC):
 
 # Registries come last: the plugin modules import the base classes above.
 from .capture_mss import MSSCapture  # noqa: E402
+from .capture_quartz import QuartzCapture  # noqa: E402
 from .output_serial import SerialOutput  # noqa: E402
 from .output_wled_udp import WLEDUDPOutput  # noqa: E402
 
-CAPTURES = {"mss": MSSCapture}
+# Order is preference: the engine uses the first one that is available.
+CAPTURES = {"quartz": QuartzCapture, "mss": MSSCapture}
 OUTPUTS = {"udp": WLEDUDPOutput, "serial": SerialOutput}

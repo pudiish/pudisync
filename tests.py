@@ -1227,6 +1227,35 @@ def test_firmware_download():
     check("a release without a digest still checks the size", not refused(dict(good, digest=None)))
 
 
+def test_quartz_capture():
+    print("\n21. Native macOS capture plugin")
+    from ambilight.plugins import CAPTURES
+    from ambilight.plugins.capture_quartz import QuartzCapture
+
+    check("native capture is preferred when available",
+          not QuartzCapture.available() or next(iter(CAPTURES)) == "quartz", list(CAPTURES))
+    check("mss stays registered as the fallback", "mss" in CAPTURES)
+    if not QuartzCapture.available():
+        print("    (skipped: pyobjc Quartz not installed)")
+        return
+    cap = QuartzCapture()
+    try:
+        cap.open(99, 120)
+        check("a missing display is reported like mss does", False)
+    except IndexError as exc:
+        check("a missing display is reported like mss does", "not found" in str(exc), str(exc))
+    width, height = cap.open(1, 120)
+    full = cap.grab_full()
+    check("a full grab matches the opened size", full.shape == (height, width, 3), full.shape)
+    check("it is RGB uint8", full.dtype == np.uint8)
+    band = cap.grab()
+    check("the band is the bottom rows", band.shape == (120, width, 3), band.shape)
+    cap.set_inset(40)
+    check("the inset lifts the band off the edge", cap.grab().shape == (120, width, 3))
+    check("a search strip is taller", cap.grab_search(400).shape == (400, width, 3))
+    cap.close()
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -1329,6 +1358,7 @@ def main():
     test_access()
     test_frame_wizard()
     test_firmware_download()
+    test_quartz_capture()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)
