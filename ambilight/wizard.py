@@ -78,11 +78,37 @@ class Wizard:
         return {"index": index}
 
     # --- test gradient -----------------------------------------------------
+    # Frame test pattern: one colour per side, so a wrong count or start corner
+    # shows up at once (bottom, right, top, left).
+    SIDE_COLOURS = ((255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255))
+    START_MARK = (255, 160, 0)
+
     def gradient(self):
+        """Paint the layout test pattern: per-side colours, or the strip ramp."""
+        cfg = self.cfg.snapshot()
+        if cfg["layout"] == "frame":
+            return self.frame_pattern(cfg)
+        return self.strip_gradient(cfg)
+
+    def frame_pattern(self, cfg):
+        """Each side its own colour, brightening along the strip's direction."""
+        counts = (cfg["edge_bottom"], cfg["edge_right"], cfg["edge_top"], cfg["edge_left"])
+        px = np.zeros((cfg["led_count"], 3), dtype=np.float32)
+        start = 0
+        for count, colour in zip(counts, self.SIDE_COLOURS):
+            stop = min(start + count, len(px))
+            ramp = np.linspace(0.25, 1.0, max(stop - start, 1), dtype=np.float32)[:, None]
+            px[start:stop] = np.array(colour, np.float32) * ramp[:stop - start]
+            start = stop
+        if len(px):
+            px[0] = self.START_MARK
+        self.engine.set_override(np.clip(px * cfg["brightness"], 0, 255).astype(np.uint8))
+        return {"sides": list(counts)}
+
+    def strip_gradient(self, cfg):
         """Red at the left screen edge, blue at the right, faded beyond."""
         from . import processing
 
-        cfg = self.cfg.snapshot()
         n = cfg["led_count"]
         mapping = processing.build_mapping(n, cfg["left_led"], cfg["right_led"], 1024)
         span = mapping["zone_hi"] - mapping["zone_lo"] + 1

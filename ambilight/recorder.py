@@ -11,7 +11,6 @@ from pathlib import Path
 import numpy as np
 
 from . import color
-from .smoothing import Quantizer, Smoother, settle_seconds
 
 RECORDINGS_DIR = Path(__file__).resolve().parent.parent / "recordings"
 
@@ -44,15 +43,18 @@ class Recorder:
 
 def replay(path, cfg):
     """Run a recording through grading and smoothing. Returns (bytes, stats)."""
+    from .engine import OutputStage   # the engine imports this module
+
     data = np.load(path)
     times, frames = data["times"], data["frames"]
-    smoother, quantizer = Smoother(), Quantizer()
-    settle = settle_seconds(cfg["blend"])
+    stage = OutputStage()
+    # The real output path, safety layer included; zones do not apply to a
+    # recording of the sync layer alone.
+    replay_cfg = dict(cfg, zones=[], led_count=frames.shape[1] if frames.ndim == 3 else 0)
     out = []
     for now, linear in zip(times, frames):
-        smoother.set_target(color.grade(linear, cfg), now)
-        shown = smoother.step(now, settle)
-        out.append(quantizer.apply(color.to_led(shown, cfg) * cfg["brightness"]))
+        stage.set_target(color.grade(linear, cfg), now)
+        out.append(stage.frame(now, replay_cfg))
     out = np.array(out)
 
     steps = np.abs(np.diff(out.astype(np.int16), axis=0)) if len(out) > 1 else np.zeros((0,))

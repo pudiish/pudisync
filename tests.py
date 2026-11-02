@@ -192,7 +192,7 @@ def test_engine_parts():
           f"{time.perf_counter() - behind:.3f}s")
 
     cfg = Config(CONFIG_FOR_TESTS)
-    pipe = _Pipeline(cfg)
+    pipe = _Pipeline()
     band = np.zeros((150, 600, 3), np.uint8)
     band[:, :300] = (255, 0, 0)
     band[:, 300:] = (0, 0, 255)
@@ -1012,7 +1012,8 @@ def test_recorder():
 
     cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 1.2, "led_gamma": 1.5,
            "black_level": 0.03, "blend": 0.35, "spread": 0.0, "brightness": 1.0,
-           "colour_match": True, "white_kelvin": 4500, "contrast": 1.5}
+           "colour_match": True, "white_kelvin": 4500, "contrast": 1.5,
+           "power_limit_ma": 3800, "sustained_ma": 3000}
     first, stats = replay(path, cfg)
     second, _ = replay(path, cfg)
     check("replay is deterministic", np.array_equal(first, second))
@@ -1168,6 +1169,64 @@ def test_access():
     check("the lockout expires", gate.check("1234", "1234", "10.0.0.2", now=70) == "ok")
 
 
+def test_frame_wizard():
+    print("\n19. Setup test pattern for a strip round the monitor")
+    from ambilight.wizard import Wizard
+
+    class Painter:
+        running = False
+        frame = None
+
+        def set_override(self, px):
+            Painter.frame = px
+
+        def clear_override(self):
+            pass
+
+    cfg = Config(CONFIG_FOR_TESTS)
+    cfg.update({"layout": "frame", "led_count": 120, "edge_bottom": 35, "edge_right": 14,
+                "edge_top": 35, "edge_left": 13})
+    Wizard(cfg, Painter()).gradient()
+    px = Painter.frame.astype(int)
+    bottom, right, top, left = px[:35], px[35:49], px[49:84], px[84:97]
+    check("the bottom side shows red", bottom[:, 0].mean() > 3 * bottom[:, 1:].mean(), bottom[-1])
+    check("the right side shows green", right[:, 1].mean() > 3 * right[:, [0, 2]].mean(), right[-1])
+    check("the top side shows blue", top[:, 2].mean() > 3 * top[:, :2].mean(), top[-1])
+    check("the left side shows white", np.ptp(left[-1]) < 10 and left[-1].mean() > 100, left[-1])
+    check("each side brightens in the strip's direction",
+          bottom[-1].max() > bottom[1].max() and top[-1].max() > top[1].max())
+    check("the start LED is marked", tuple(px[0]) != tuple(bottom[1]), px[0])
+    check("LEDs past the frame stay dark", px[97:].max() == 0)
+    cfg.update({"layout": "strip"})
+
+
+def test_firmware_download():
+    print("\n20. Firmware download is verified before anything is erased")
+    import hashlib, pathlib
+    from ambilight.provision import download_firmware
+
+    folder = pathlib.Path(tempfile.mkdtemp())
+    image = folder / "WLED_test_ESP8266.bin"
+    image.write_bytes(b"\xe9" + bytes(4095))
+    digest = "sha256:" + hashlib.sha256(image.read_bytes()).hexdigest()
+    good = {"name": image.name, "url": image.as_uri(), "size": 4096, "digest": digest}
+    path = download_firmware(good)
+    check("a matching image is accepted", pathlib.Path(path).read_bytes() == image.read_bytes())
+    check("it lands in a private temp folder, not a fixed /tmp name",
+          not str(path).startswith("/tmp/WLED"), path)
+
+    def refused(binary):
+        try:
+            download_firmware(binary)
+        except RuntimeError:
+            return True
+        return False
+
+    check("a truncated download is refused", refused(dict(good, size=8192)))
+    check("a tampered download is refused", refused(dict(good, digest="sha256:" + "0" * 64)))
+    check("a release without a digest still checks the size", not refused(dict(good, digest=None)))
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -1268,6 +1327,8 @@ def main():
     test_safety()
     test_config()
     test_access()
+    test_frame_wizard()
+    test_firmware_download()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)

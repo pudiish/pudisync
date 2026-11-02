@@ -1,36 +1,32 @@
-"""Standalone colour effects for a single-pixel analogue RGB strip.
+"""A short, curated list of WLED effects for an addressable (WS2812B) strip.
 
-An analogue strip is one light: every LED shows the same colour. Effects that
-vary over SPACE (chase, scan, comet) have nowhere to travel and look dead, so
-only TIME-varying effects are offered here.
-
-Effect ids are from WLED's own FX.h, not guessed:
-https://github.com/wled/WLED/blob/main/wled00/FX.h
+WLED ships well over a hundred effects; the UI offers these as one-tap tiles
+(calm ones first, since this is bias lighting) and keeps the full list behind
+"More effects". Ids were read from this strip's WLED 16.0.1 (/json/effects),
+not guessed; they match WLED's FX.h.
 """
 
 # (id, label, description, default speed, default intensity)
-ANALOG_EFFECTS = [
-    (9,  "Rainbow",   "Smooth cycle through every colour", 100, 128),
-    (2,  "Breathe",   "Gentle fade in and out",             80, 128),
-    (12, "Fade",      "Slow crossfade between two colours", 70, 128),
-    (5,  "Random",    "Jumps to a new colour at random",   110, 128),
-    (7,  "Dynamic",   "Shifting colour, never repeating",  100, 128),
-    (45, "Fire",      "Warm flicker, like a candle",       130, 180),
-    (57, "Lightning", "Occasional bright flashes",         110, 160),
-    (0,  "Solid",     "One steady colour you pick",        128, 128),
+EFFECTS = [
+    (63,  "Pride",      "Slow, rich rainbow that drifts",      128, 128),
+    (67,  "Colorwaves", "Soft waves of shifting colour",       100, 128),
+    (38,  "Aurora",     "Northern-lights ribbons",             90, 128),
+    (101, "Pacifica",   "Calm ocean blues and greens",         100, 128),
+    (75,  "Lake",       "Gentle rippling water",               80, 128),
+    (2,   "Breathe",    "One colour fading in and out",        80, 128),
+    (88,  "Candle",     "Warm, flickering candlelight",        96, 224),
+    (66,  "Fire",       "Flames rising up the strip",          130, 160),
+    (80,  "Twinkle",    "Stars fading in and out",             100, 128),
+    (97,  "Plasma",     "Flowing colour clouds",               100, 128),
+    (9,   "Rainbow",    "Classic rainbow cycle",               100, 128),
+    (76,  "Meteor",     "Bright streaks shooting round",       128, 128),
 ]
-
-EFFECT_IDS = {fx for fx, *_ in ANALOG_EFFECTS}
 
 
 def catalogue():
     """Effects as the UI wants them."""
     return [{"fx": fx, "name": name, "about": about, "speed": sx, "intensity": ix}
-            for fx, name, about, sx, ix in ANALOG_EFFECTS]
-
-
-def is_analog_effect(fx):
-    return fx in EFFECT_IDS
+            for fx, name, about, sx, ix in EFFECTS]
 
 
 def state_for(fx, speed=None, intensity=None, color=None, brightness=None):

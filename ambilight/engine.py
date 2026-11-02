@@ -152,8 +152,7 @@ class OutputStage:
 class _Pipeline:
     """Screen in, per-LED target colours out. Owns the mapping cache."""
 
-    def __init__(self, config, stage=None):
-        self.cfg = config
+    def __init__(self, stage=None):
         self._key = None
         self._mapping = None
         self._fade = None
@@ -425,7 +424,7 @@ class Engine:
             self.output_fps = pacer.tick(cfg["fps"], stop)
 
     def _loop(self, capture, stop):
-        pipeline = _Pipeline(self.cfg, self.stage)
+        pipeline = _Pipeline(self.stage)
         pacer = _Pacer()
         watchdog = _BlackFrameWatchdog()
         opened_with = (self.cfg.get("band_height"), self.cfg.get("monitor_index"))

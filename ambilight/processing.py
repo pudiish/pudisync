@@ -237,13 +237,15 @@ def zone_colors(band, mapping, colour_weight=0.0):
     # Collapse rows first so the per-LED reduction works on a 1-D profile.
     num = (linear * weight[..., None]).sum(axis=0)      # (width, 3)
     den = weight.sum(axis=0)                            # (width,)
-    zero3 = np.zeros((1, 3), dtype=np.float32)
-    cum_num = np.concatenate([zero3, np.cumsum(num, axis=0, dtype=np.float32)])
-    cum_den = np.concatenate([[0.0], np.cumsum(den, dtype=np.float32)]).astype(np.float32)
+    # Running sums in float64: float32 loses ~1% on wide frames, where a dark
+    # LED's total is the difference of two large prefix sums.
+    zero3 = np.zeros((1, 3), dtype=np.float64)
+    cum_num = np.concatenate([zero3, np.cumsum(num, axis=0, dtype=np.float64)])
+    cum_den = np.concatenate([[0.0], np.cumsum(den, dtype=np.float64)])
     starts, stops = mapping["starts"], mapping["stops"]
     totals = cum_num[stops] - cum_num[starts]
     weights = (cum_den[stops] - cum_den[starts])[:, None]
-    return totals / np.maximum(weights, 1e-6)
+    return (totals / np.maximum(weights, 1e-6)).astype(np.float32)
 
 
 def spread(frame, amount, ring=False):

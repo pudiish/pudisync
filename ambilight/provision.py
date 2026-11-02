@@ -20,11 +20,14 @@ ESPHome's reference implementation (improv_serial_component.cpp):
     RPC 0x01 send Wi-Fi settings    0x02 request current state
     state 0x02 ready   0x03 provisioning   0x04 provisioned
 """
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -145,9 +148,9 @@ def _esptool_cmd():
 def detect_chip(port):
     """Ask the ROM bootloader what it is. Returns (chip_id, raw_output).
 
-    flash_id rather than chip_id, so the output also carries the flash size.
+    flash-id rather than chip-id, so the output also carries the flash size.
     """
-    cmd = _esptool_cmd() + ["--port", port, "flash_id"]
+    cmd = _esptool_cmd() + ["--port", port, "flash-id"]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except Exception as exc:
@@ -169,11 +172,38 @@ def list_firmware():
     with urllib.request.urlopen(WLED_RELEASES, timeout=15, context=_SSL) as resp:
         release = json.loads(resp.read())
     builds = [
-        {"name": a["name"], "url": a["browser_download_url"], "size": a["size"]}
+        {"name": a["name"], "url": a["browser_download_url"], "size": a["size"],
+         "digest": a.get("digest")}
         for a in release.get("assets", [])
         if a["name"].endswith(".bin")
     ]
     return {"version": release.get("tag_name"), "builds": builds}
+
+
+def download_firmware(binary):
+    """Fetch a release image into a private temp folder and verify it.
+
+    The board is erased right after this, so a truncated or altered image
+    must be caught here: the size must match the release, and so must the
+    SHA-256 digest whenever GitHub publishes one.
+    """
+    folder = tempfile.mkdtemp(prefix="wled-firmware-")
+    path = os.path.join(folder, os.path.basename(binary["name"]))
+    sha = hashlib.sha256()
+    with urllib.request.urlopen(binary["url"], timeout=120, context=_SSL) as src, \
+            open(path, "wb") as dst:
+        for chunk in iter(lambda: src.read(65536), b""):
+            sha.update(chunk)
+            dst.write(chunk)
+    size = os.path.getsize(path)
+    if size != binary["size"]:
+        raise RuntimeError(f"firmware download is incomplete ({size} of {binary['size']} bytes); "
+                           "nothing was erased -- try again")
+    digest = binary.get("digest") or ""
+    if digest.startswith("sha256:") and sha.hexdigest() != digest.split(":", 1)[1]:
+        raise RuntimeError("firmware download does not match the release checksum; "
+                           "nothing was erased")
+    return path
 
 
 def pick_binary(chip, builds, flash_mb=None):
@@ -267,19 +297,15 @@ class Provisioner:
                     raise RuntimeError(
                         f"No official WLED build matches {chip} "
                         f"with {flash_mb or 'unknown'}MB flash")
-                self._set(f"Downloading {binary['name']}", 30)
-                path = f"/tmp/{binary['name']}"
-                with urllib.request.urlopen(binary["url"], timeout=120,
-                                            context=_SSL) as src:
-                    with open(path, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
+                self._set(f"Downloading and checking {binary['name']}", 30)
+                path = download_firmware(binary)
 
                 self._set("Erasing the board", 42)
-                self._run_esptool(["--port", port, "erase_flash"], timeout=120)
+                self._run_esptool(["--port", port, "erase-flash"], timeout=120)
 
                 self._set(f"Writing WLED {release['version']}", 55)
                 self._run_esptool(
-                    ["--port", port, "--baud", "460800", "write_flash", "0x0", path],
+                    ["--port", port, "--baud", "460800", "write-flash", "0x0", path],
                     timeout=300)
                 self._set("Firmware written, waiting for reboot", 75)
                 time.sleep(5)

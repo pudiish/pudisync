@@ -8,12 +8,9 @@ import time
 
 import numpy as np
 
-MODES = ("sync", "solid", "warm", "off")
-
 # Zones render on top of the screen-sync frame, so a strip with no zones at all
 # behaves exactly as before.
-DEFAULT_ZONE = {"start": 0, "end": -1, "mode": "sync", "color": "#ffb46b",
-                "brightness": 1.0}
+MODES = ("sync", "solid", "warm", "off")
 
 
 def normalize(zones, led_count):
