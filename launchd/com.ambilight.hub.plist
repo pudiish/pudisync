@@ -6,7 +6,10 @@
   <key>Label</key>
   <string>com.ambilight.hub</string>
 
-  <!-- EDIT BOTH PATHS: the python3 you installed the packages into, and this repo. -->
+  <!-- EDIT EVERY PATH: the python3 you installed the packages into, this repo,
+       and your user folder. Keep the repo OUTSIDE Downloads, Documents and
+       Desktop: macOS blocks background agents from reading those folders, and
+       the agent would exit and restart in a loop. -->
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/python3</string>
@@ -27,6 +30,10 @@
   <string>/Users/YOU/Library/Logs/ambilight.log</string>
   <key>StandardErrorPath</key>
   <string>/Users/YOU/Library/Logs/ambilight.log</string>
+
+  <!-- If it does fail at start, wait 10s between attempts instead of spinning. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
 
   <key>ProcessType</key>
   <string>Interactive</string>

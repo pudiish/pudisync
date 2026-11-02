@@ -4,16 +4,21 @@ Screen-synced LED lighting for a WLED strip, driven from your phone's browser.
 Runs as one Python process on a Mac. No app, no cloud, no account — your home
 network only.
 
-![tests](https://img.shields.io/badge/tests-97%20passing-brightgreen)
-![hardware](https://img.shields.io/badge/hardware%20sim-29%20scenarios-blue)
+![tests](https://img.shields.io/badge/tests-320%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
-- Captures a band across the bottom of your screen and streams it to the strip
-- The strip can be **longer than the monitor** — zones give the overhang its own job
-- Drag the screen region and each zone directly on an on-screen strip
+- Follows the screen with a strip **wrapped round the monitor** (or along the bottom
+  only), and hugs the picture when a video has black bars
+- A colour engine modelled on HyperHDR and Philips Ambilight: averaging in linear
+  light, conversion into the WS2812B's own primaries, a warm white point, contrast,
+  and spring-smoothed motion that settles faster on real scene cuts
+- An **LED safety layer**: power budget, heat limit, anti-strobe, and a fade-out
+  when capture freezes or the Mac locks
+- Reachable from every device on your home network by name (`yourmac.local`),
+  with protection against other websites driving it
 - Every control is also a plain URL, so iOS Shortcuts can drive it
-- Talks to WLED over **Wi-Fi (UDP)** or a **USB cable**
-- Flashes and provisions a brand-new ESP board from the UI, over USB
+- Talks to WLED over **Wi-Fi (UDP)** or a **USB cable**; flashes and provisions a
+  brand-new ESP board over USB
 
 ---
 
@@ -24,7 +29,7 @@ network only.
 | Computer | A Mac (tested on Apple Silicon, macOS 26) |
 | Controller | ESP8266 / ESP32 running [WLED](https://kno.wled.ge) |
 | Strip | WS2812B or similar addressable strip |
-| Python | 3.9 or newer |
+| Python | 3.10 or newer (tested on 3.12) |
 | Level shifter | **Recommended** — see below |
 | Power supply | 5V, sized for your strip — see below |
 
@@ -65,9 +70,10 @@ Notes:
 - Over a 4m run the far end will look dim and tinted red as voltage drops along
   the copper. Fix it with **power injection**: run 5V and ground to the far end
   (and ideally the middle) as well as the start
-- The **Brightness** slider is also your power budget. Capping it near 50% roughly
-  halves the current draw. WLED has its own current limiter under
-  **Config ▸ LED Preferences**; set the milliamp figure to match your supply
+- The hub keeps every frame inside a **power budget** (`power_limit_ma`, default
+  3.8A for a 5A supply) and lets a bright scene held for minutes settle to
+  `sustained_ma` (default 3A). Set both for your supply. Keep WLED's own current
+  limiter (**Config ▸ LED Preferences**) set to the supply rating as a backstop
 
 ## 2. Install
 
@@ -78,12 +84,18 @@ python3 -m pip install -r requirements.txt
 python3 ambilight.py
 ```
 
-On start it prints the address to open on your phone:
+On start it prints the addresses to open from any phone, tablet or computer on
+the same network. The `.local` name keeps working when the Mac's IP changes, and
+the hub also advertises itself over Bonjour as **Ambilight Hub**:
 
 ```
-  Phone control page:  http://192.168.1.24:8080
-  WLED target:         192.168.1.50:21324
+  Open the control page from any device on this network:
+    http://yourmac.local:8080
+    http://192.168.1.24:8080
 ```
+
+`--config other.json` and `--port 8790` run a second, independent hub (tests use
+this); `--no-bonjour` skips the advertisement.
 
 ### Grant Screen Recording permission
 
@@ -91,7 +103,8 @@ macOS blocks screen capture until you allow it. If the lights stay dark and the
 page reports it:
 
 1. **System Settings ▸ Privacy & Security ▸ Screen Recording**
-2. Switch on the app running the script (Terminal, iTerm, or VS Code)
+2. Switch on the app running the script (Terminal, iTerm, VS Code — or Python,
+   when it starts at login)
 3. Quit that app **completely** and start it again — a reload is not enough
 
 ### Firewall
@@ -139,10 +152,11 @@ official web installer and works just as well.
 ### Option A — Wi-Fi (recommended)
 
 1. Flash WLED and join it to your home Wi-Fi
-2. Give it a **fixed address** in your router (DHCP reservation), so it does not
-   move after a reboot. Look for "DHCP reservation" or "static lease" in your
-   router's admin page and bind the controller's MAC address
-3. Put that address into **Settings ▸ Controller** in the web page
+2. Use the controller's Bonjour name as its address, e.g. `wled-6b0bc6.local`
+   (WLED shows it under **Config ▸ WiFi Setup ▸ mDNS address**). The hub resolves
+   it and follows the controller if your router hands it a new IP. A DHCP
+   reservation in the router works too
+3. Put that name or address into the controller field on the Setup tab
 
 ### Option B — USB cable
 
@@ -169,19 +183,29 @@ Not every USB bridge chip reaches 921600. If yours does not, use Wi-Fi.
 If the port disappears mid-session, the engine **falls back to Wi-Fi
 automatically** and says so rather than going dark.
 
-## 5. Calibrate the strip
+## 5. Set up the strip and calibrate colours
 
 Open the page on your phone and go to **Setup**:
 
 1. **Strip length** — the page lights part of the strip and narrows down the
    real length from your yes/no answers (about 8 taps for 240 lights)
-2. **Screen corners** — an orange light walks the strip; put it behind each
-   corner of your monitor and assign it
-3. **Spill & check** — the test pattern should show **red at the left corner**
-   easing to **blue at the right**. Swapped? Redo step 2
+2. **Layout** — *Around the monitor*: enter how many LEDs sit on each side. The
+   strip starts at the bottom-left corner and runs bottom → right → top → left.
+   If the strip's rectangle differs from the screen (stuck inside the bezel, or
+   just outside it), enter its measured width and height in mm so each side
+   samples the stretch of screen it really sits beside.
+   *Bottom only*: mark the LEDs behind the screen's left and right corners
+3. **Test pattern** — around the monitor, each side lights its own colour
+   (bottom red, right green, top blue, left white) and brightens along the
+   strip's direction, with the start LED amber. Bottom only: red at the left
+   corner easing to blue at the right
+4. **Calibrate colours** — open `http://yourmac.local:8080/calibrate` **on the
+   synced monitor itself**, full screen. It fills the screen with test patches
+   (white, greys, primaries, skin) so you can compare the wall with the screen and
+   set warmth, contrast, colour intensity and the strip's red/green/blue balance
 
-A strip wired right-to-left needs no special setting: assign the corners and the
-engine works out the direction.
+Every WS2812B batch differs a little; the strip balance is where you correct a
+white that looks green or blue.
 
 ## 6. Zones
 
@@ -206,48 +230,57 @@ Safari ▸ **Share** ▸ **Add to Home Screen**. It then opens full-screen like 
 Every action is a plain URL. In Shortcuts, add **Get Contents of URL**:
 
 ```
-http://<mac-ip>:8080/api/sync/on
-http://<mac-ip>:8080/api/sync/off
-http://<mac-ip>:8080/api/profile/movie
-http://<mac-ip>:8080/api/profile/game
-http://<mac-ip>:8080/api/set?brightness=0.5
+http://yourmac.local:8080/api/sync/on
+http://yourmac.local:8080/api/sync/off
+http://yourmac.local:8080/api/profile/movie
+http://yourmac.local:8080/api/profile/game
+http://yourmac.local:8080/api/set?brightness=0.5
 ```
 
-With a PIN set, append `&pin=1234` (or send the `X-Ambilight-Pin` header).
+With a PIN set, send it as the `X-Ambilight-Pin` header (or append `&pin=1234`).
 
 ## 9. Start automatically at login
 
+Keep the repo **outside** Downloads, Documents and Desktop first: macOS blocks
+background agents from reading those folders.
+
 ```bash
 cp launchd/com.ambilight.hub.plist ~/Library/LaunchAgents/
-# edit the paths inside first, then:
-launchctl load ~/Library/LaunchAgents/com.ambilight.hub.plist
+# edit every path inside first, then:
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ambilight.hub.plist
 ```
 
 To stop it starting:
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.ambilight.hub.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.ambilight.hub.plist
 ```
 
-Logs land in `~/Library/Logs/ambilight.log`.
+Logs (timestamped) land in `~/Library/Logs/ambilight.log`.
 
 **Note.** A launchd agent runs as a background process, which macOS treats as a
-separate app for Screen Recording. Grant permission to the agent as well, or run
-it from Terminal instead.
+separate app for Screen Recording: grant permission to Python as well. While sync
+runs, the hub holds off idle system sleep so phones can still reach it.
 
 ## 10. Testing without hardware
 
 ```bash
-python3 fake_wled.py       # pretends to be a WLED controller
-python3 ambilight.py       # point its config at 127.0.0.1
-python3 tests.py           # 97 acceptance tests
-python3 hardware_sim.py    # 29 hardware failure scenarios
+python3 tests.py           # ~320 checks; starts its own fake WLED and sandbox hub
 ```
 
-`fake_wled.py` prints every packet it receives and flags protocol violations.
+The test run starts a fake WLED and a sandbox hub on ports 8790-8791 with a
+throwaway config, so it never touches the hub driving your lights. Its HTTP part
+captures the real screen, so run it with the display awake and unlocked.
 
-`hardware_sim.py` simulates a real strip and puts the hub through the failures
-you would otherwise only find on your desk:
+`hardware_sim.py` simulates a real strip and puts a hub through the failures you
+would otherwise only find on your desk. It rewrites settings, so point it at a
+sandbox hub (it refuses port 8080):
+
+```bash
+python3 fake_wled.py &
+python3 ambilight.py --config /tmp/sim-config.json --port 8790 --no-bonjour &
+python3 hardware_sim.py --hub http://127.0.0.1:8790
+```
 
 | Scenario | What it proves |
 |---|---|
@@ -263,22 +296,31 @@ See [docs/wiring.md](docs/wiring.md) for diagrams and a pre-power checklist.
 
 ## 11. Performance
 
-Measured on an Apple Silicon Mac, 240 LEDs:
+Measured on an Apple Silicon Mac with a 2560x1440 monitor, strip round all four
+sides:
 
 ```
-capture only (mss.grab)       15.70 ms   ->  63.7 fps ceiling
-processing only                0.05 ms   -> 20842 fps
-FULL frame path               15.25 ms   ->  65.6 fps ceiling
+full-screen capture (mss)     ~23 ms
+sampling + colour grading      ~2.5 ms
+capture rate                  ~36-41 fps
+output rate                    60 fps (separate thread, smoothing in between)
 ```
 
-Live: **58-66 fps sustained**. Screen capture is the whole cost — the colour
-pipeline is ~300x faster than the capture feeding it. Setting the frame rate
-above ~65 only burns CPU. See [NOTES-positioning.md](NOTES-positioning.md).
+Screen capture is nearly the whole cost. The output thread runs at a steady rate
+and the spring smoothing fills in between captures, so motion stays fluid.
 
 ## Security
 
-This is built for a home LAN. It has no encryption and no user accounts; the
-optional PIN only deters casual access by others already on your Wi-Fi.
+This is built for a home LAN. It has no encryption and no user accounts.
+
+- Requests that a browser marks as coming from **another website** are refused,
+  and so are host names other than IPs, `localhost` and `.local` names (DNS
+  rebinding). Shortcuts and curl are unaffected
+- The optional PIN is checked in constant time, and a device that guesses wrong
+  five times is locked out for a minute. The PIN is never returned by the API
+- Flashing only targets a board that is actually plugged in, and firmware is
+  checked against the release's size and SHA-256 before anything is erased
+
 **Do not port-forward it or expose it to the internet.**
 
 ## Licence

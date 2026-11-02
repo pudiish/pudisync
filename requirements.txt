@@ -1,7 +1,11 @@
-mss>=9.0
-numpy>=1.24
+# Python 3.10 or newer (tested on 3.12, macOS 26).
+mss>=9.0,<11
+numpy>=1.24,<3
 
-# Optional. Only needed for USB output and for flashing a board from the UI.
-pyserial>=3.5
-esptool>=4.7
+# Optional: USB serial output, and flashing a board from the Setup tab.
+pyserial>=3.5,<4
+esptool>=5,<6          # the hub uses esptool 5's command names (flash-id, write-flash)
 certifi>=2024.2
+
+# Optional: pause sync while the Mac is locked (macOS only).
+pyobjc-framework-Quartz>=10; sys_platform == "darwin"

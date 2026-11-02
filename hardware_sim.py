@@ -9,20 +9,25 @@ strip shorter than configured, a browned-out power supply.
     python hardware_sim.py --list       # show them
     python hardware_sim.py reboot       # run one
 
-Nothing here needs a strip, a NodeMCU, or a power supply.
+Nothing here needs a strip, a NodeMCU, or a power supply. The scenarios
+rewrite the hub's settings (LED count, zones, corners), so run them against a
+sandbox hub, never the one driving your lights:
+
+    python3 ambilight.py --config /tmp/sim-config.json --port 8790 --no-bonjour
+    python3 hardware_sim.py --hub http://127.0.0.1:8790
 """
 import argparse
 import json
 import random
 import socket
-import struct
 import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 
-HUB = "http://127.0.0.1:8080"
+SANDBOX_HUB = "http://127.0.0.1:8790"   # see the docstring
+HUB = SANDBOX_HUB
 UDP_PORT = 21324
 HTTP_PORT = 8081
 
@@ -38,6 +43,24 @@ def check(name, ok, detail=""):
 def hub(path, timeout=4):
     with urllib.request.urlopen(HUB + path, timeout=timeout) as r:
         return json.loads(r.read())
+
+
+def use_hub(url):
+    """Point every scenario at `url`. Refuses the live hub; checks it answers."""
+    global HUB
+    HUB = url.rstrip("/")
+    if HUB.endswith(":8080"):
+        print("Refusing to run against port 8080: that is the live hub, and these")
+        print("scenarios rewrite its settings. Start a sandbox hub (see --help).")
+        return False
+    try:
+        hub("/api/status", timeout=2)
+    except (OSError, ValueError) as exc:
+        print(f"Cannot reach the hub at {HUB}: {exc}")
+        print("Start a sandbox hub first:  python3 ambilight.py --config /tmp/sim-config.json"
+              " --port 8790 --no-bonjour")
+        return False
+    return True
 
 
 class Strip:
@@ -85,7 +108,7 @@ class Strip:
         if len(data) < 4:
             self.protocol_errors.append(f"runt packet ({len(data)}B)")
             return
-        proto, _timeout, hi, lo = data[0], data[1], data[2], data[3]
+        proto, hi, lo = data[0], data[2], data[3]   # data[1] is the hold time
         if proto != 4:
             self.protocol_errors.append(f"not DNRGB (proto {proto})")
             return
@@ -288,18 +311,14 @@ def main():
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--leds", type=int, default=240)
     ap.add_argument("--amps", type=float, default=10.0)
+    ap.add_argument("--hub", default=SANDBOX_HUB, help="sandbox hub to test (default %(default)s)")
     args = ap.parse_args()
 
     if args.list:
         for key, (desc, _) in SCENARIOS.items():
             print(f"  {key:10} {desc}")
         return 0
-
-    try:
-        hub("/api/status", timeout=2)
-    except Exception as exc:
-        print(f"Cannot reach the hub at {HUB}: {exc}")
-        print("Start it first:  python3 ambilight.py")
+    if not use_hub(args.hub):
         return 2
 
     strip = Strip(args.leds, args.amps)
