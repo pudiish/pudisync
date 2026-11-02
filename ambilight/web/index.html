@@ -1229,8 +1229,9 @@ function renderAdvanced(s) {
 function loadMonitors() {
   return load("/api/monitors", body => {
     const list = Array.isArray(body) ? body : body.monitors || [];
-    const options = list.map(m => new Option(`Display ${m.index} — ${m.width}×${m.height}${m.primary ? " (main)" : ""}`, m.index));
-    if (state && !list.some(m => m.index === state.monitor_index))
+    const options = [new Option("Automatic: the external monitor when connected", 0)];
+    list.forEach(m => options.push(new Option(`Display ${m.index} — ${m.width}×${m.height}${m.primary ? " (main)" : ""}`, m.index)));
+    if (state && state.monitor_index !== 0 && !list.some(m => m.index === state.monitor_index))
       options.push(new Option(`Display ${state.monitor_index} (not connected)`, state.monitor_index));
     $("monitor_index").replaceChildren(...options);
     if (state) $("monitor_index").value = String(state.monitor_index);

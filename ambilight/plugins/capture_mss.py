@@ -15,6 +15,13 @@ class MSSCapture(CapturePlugin):
             return False
         return True
 
+    @staticmethod
+    def display_count():
+        import mss
+
+        with mss.mss() as sct:
+            return len(sct.monitors) - 1
+
     def __init__(self):
         self._sct = None
         self._region = None

@@ -17,6 +17,11 @@ class CapturePlugin(ABC):
         """True when this plugin's dependencies and permissions are present."""
         return False
 
+    @staticmethod
+    @abstractmethod
+    def display_count():
+        """How many displays are attached right now (numbered 1..n)."""
+
     @abstractmethod
     def open(self, monitor_index, band_height):
         """Prepare for capture. Returns (width, height) of the capture region."""

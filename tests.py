@@ -226,6 +226,10 @@ def test_engine_parts():
         def available():
             return True
 
+        @staticmethod
+        def display_count():
+            return 1
+
         def open(self, monitor_index, band_height):
             if not FakeCapture.alive:
                 raise IndexError("monitor 1 not found; 0 attached")
@@ -1124,6 +1128,15 @@ def test_config():
     check("moods change response only, not colour tuning",
           recovered.get("saturation") == before and recovered.get("blend") == PROFILES["game"]["blend"])
 
+    # Zones in the same request as a new LED count are checked against the new
+    # count, not the old one (an old count of 97 squeezed the "off" zone onto LED 96).
+    recovered.update({"led_count": 97, "zones": "[]"})
+    both = recovered.update({"led_count": 180, "zones": json.dumps(
+        [{"start": 0, "end": 96, "mode": "sync"}, {"start": 97, "end": 179, "mode": "off"}])})
+    kept = [(z["start"], z["end"], z["mode"]) for z in recovered.get("zones")]
+    check("zones sent with a new LED count use the new count",
+          kept == [(0, 96, "sync"), (97, 179, "off")], kept)
+
     errors = []
     def hammer(i):
         try:
@@ -1536,6 +1549,73 @@ def test_fake_wled_presets():
         server.shutdown()
 
 
+def test_display_follow():
+    print("\n27. The hub follows the display in use")
+    import ambilight.engine as eng
+    from ambilight.engine import resolve_display
+
+    check("auto picks the built-in screen when it is the only one", resolve_display(0, 1) == 1)
+    check("auto picks the external monitor when one is connected", resolve_display(0, 2) == 2)
+    check("auto picks the last display with several attached", resolve_display(0, 3) == 3)
+    check("a fixed number is respected", resolve_display(1, 2) == 1)
+    check("a fixed number that is gone falls back to the last display", resolve_display(5, 2) == 2)
+    check("no displays at all resolves to 1 so the open reports it", resolve_display(0, 0) == 1)
+
+    from ambilight.config import DEFAULTS
+    check("automatic is the default", DEFAULTS["monitor_index"] == 0)
+
+    class Plugged:
+        name = "plugged"
+        count = 1
+        opened = []
+
+        @staticmethod
+        def available():
+            return True
+
+        @staticmethod
+        def display_count():
+            return Plugged.count
+
+        def open(self, monitor_index, band_height):
+            Plugged.opened.append(monitor_index)
+            return 600, 150
+
+        def grab(self):
+            return np.zeros((150, 600, 3), np.uint8)
+
+        def grab_full(self):
+            return self.grab()
+
+        def grab_search(self, rows):
+            return self.grab()
+
+        def set_inset(self, rows):
+            pass
+
+        def close(self):
+            pass
+
+    real = (eng.CAPTURES, eng.DISPLAY_CHECK_S, eng.screen_locked)
+    eng.CAPTURES, eng.DISPLAY_CHECK_S, eng.screen_locked = {"plugged": Plugged}, 0.2, lambda: False
+    try:
+        cfg = Config(CONFIG_FOR_TESTS)
+        cfg.update({"monitor_index": 0, "wled_ip": "127.0.0.1", "led_count": 30, "layout": "strip"})
+        engine = eng.Engine(cfg)
+        engine.start()
+        time.sleep(0.8)
+        check("with one display it opens display 1", Plugged.opened[:1] == [1], Plugged.opened)
+        Plugged.count = 2
+        time.sleep(1.2)
+        check("plugging in a monitor moves capture to it without a restart", Plugged.opened[-1] == 2, Plugged.opened)
+        Plugged.count = 1
+        time.sleep(1.2)
+        check("unplugging it moves capture back", Plugged.opened[-1] == 1, Plugged.opened)
+        engine.stop()
+    finally:
+        eng.CAPTURES, eng.DISPLAY_CHECK_S, eng.screen_locked = real
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -1644,6 +1724,7 @@ def main():
     test_board_deploy()
     test_board_ui()
     test_fake_wled_presets()
+    test_display_follow()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)

@@ -27,7 +27,9 @@ DEFAULTS = {
     "wled_http_port": 80,
     "http_port": 8080,
     "pin": "",
-    "monitor_index": 1,
+    # Which display to mirror: 0 = automatic (the external monitor when one is
+    # connected, else the built-in screen); 1, 2... = that display.
+    "monitor_index": 0,
     "led_count": 240,
     # Blind default: span the whole strip until the setup wizard calibrates.
     "left_led": 0,
@@ -140,7 +142,7 @@ class Config:
                     os.unlink(tmp)
                 raise
 
-    def validate(self, key, raw):
+    def validate(self, key, raw, led_count=None):
         if key == "zones":
             from .zones import normalize
 
@@ -149,7 +151,7 @@ class Config:
                     raw = json.loads(raw)
                 except ValueError as exc:
                     raise ValueError(f"zones is not valid JSON: {exc}") from None
-            return normalize(raw, self._data["led_count"])
+            return normalize(raw, led_count or self._data["led_count"])
         return _coerce(key, raw)
 
     def snapshot(self):
@@ -162,7 +164,12 @@ class Config:
 
     def update(self, changes):
         """Apply validated changes and persist. Returns the keys that changed."""
-        clean = {key: self.validate(key, raw) for key, raw in changes.items() if key in DEFAULTS}
+        clean = {key: self.validate(key, raw) for key, raw in changes.items()
+                 if key in DEFAULTS and key != "zones"}
+        # Zones are checked against the LED count they will live with, which may
+        # be arriving in this same request.
+        if "zones" in changes:
+            clean["zones"] = self.validate("zones", changes["zones"], clean.get("led_count"))
         with self._lock:
             changed = [k for k, v in clean.items() if self._data.get(k) != v]
             self._data.update(clean)

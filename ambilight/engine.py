@@ -20,6 +20,7 @@ from .smoothing import Quantizer, Smoother, settle_seconds
 FRAME_TIMEOUT_S = 2
 
 RETRY_DISPLAY_S = 2.0   # how often to look for a display that went to sleep
+DISPLAY_CHECK_S = 2.0   # how often to notice a monitor being plugged in or removed
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +32,16 @@ SEARCH_EVERY_S = 0.25
 
 class CaptureLost(Exception):
     """The screen we were capturing disappeared -- sleep, lid close, unplug."""
+
+
+def resolve_display(configured, count):
+    """The display number to capture. 0 means automatic: the last attached
+    display, which is the external monitor when there is one and the built-in
+    screen when there is not. A fixed number that is no longer attached falls
+    back to the same choice rather than failing."""
+    if count < 1:
+        return 1
+    return count if configured == 0 or configured > count else configured
 
 
 def capture_hint(exc):
@@ -396,9 +407,11 @@ class Engine:
     def _open_capture(self):
         """Start the capture plugin. Returns None and records why on failure."""
         try:
-            capture = capture_plugin()()
+            plugin = capture_plugin()
+            capture = plugin()
             width, height = capture.open(
-                self.cfg.get("monitor_index"), self.cfg.get("band_height"))
+                resolve_display(self.cfg.get("monitor_index"), plugin.display_count()),
+                self.cfg.get("band_height"))
         except Exception as exc:
             self.errors["capture"] = capture_hint(exc)
             return None
@@ -427,7 +440,10 @@ class Engine:
         pipeline = _Pipeline(self.stage)
         pacer = _Pacer()
         watchdog = _BlackFrameWatchdog()
-        opened_with = (self.cfg.get("band_height"), self.cfg.get("monitor_index"))
+        plugin = type(capture)
+        opened_with = (self.cfg.get("band_height"), self.cfg.get("monitor_index"),
+                       resolve_display(self.cfg.get("monitor_index"), plugin.display_count()))
+        next_display_check = time.perf_counter() + DISPLAY_CHECK_S
         tracker = _PictureTracker()
         next_search = 0.0
         frame_source = _FrameSource()
@@ -435,8 +451,13 @@ class Engine:
         while not stop.is_set():
             cfg = self.cfg.snapshot()
 
-            if (cfg["band_height"], cfg["monitor_index"]) != opened_with:
-                return      # _run reopens the capture with the new settings
+            if time.perf_counter() >= next_display_check:
+                next_display_check = time.perf_counter() + DISPLAY_CHECK_S
+                now_display = resolve_display(cfg["monitor_index"], plugin.display_count())
+                if (cfg["band_height"], cfg["monitor_index"], now_display) != opened_with:
+                    return      # _run reopens the capture on the display now in use
+            elif (cfg["band_height"], cfg["monitor_index"]) != opened_with[:2]:
+                return      # a setting changed: reopen with the new one
 
             # A locked Mac shows the lock screen, not anything worth mirroring;
             # without fresh targets the output stage fades the strip out.

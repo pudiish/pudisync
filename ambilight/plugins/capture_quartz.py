@@ -21,6 +21,12 @@ class QuartzCapture(CapturePlugin):
             return False
         return True
 
+    @staticmethod
+    def display_count():
+        import Quartz
+
+        return len(Quartz.CGGetActiveDisplayList(16, None, None)[1] or ())
+
     def __init__(self):
         self.display = None
         self.band = 0
