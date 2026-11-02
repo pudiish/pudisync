@@ -1,12 +1,16 @@
-"""The sync engine: one thread, time-paced, restartable, never fatal."""
+"""The sync engine: a capture thread and an output thread, restartable, never fatal."""
+import logging
+import os
+import shutil
+import subprocess
 import threading
 import time
 
 import numpy as np
 
 from . import color, processing, zones as zonelib
-from .plugins.capture_mss import MSSCapture
-from .plugins.output_wled_udp import WLEDUDPOutput
+from .plugins import CAPTURES, OUTPUTS
+from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
 from .safety import Guard
 from .smoothing import Quantizer, Smoother, settle_seconds
@@ -16,6 +20,8 @@ from .smoothing import Quantizer, Smoother, settle_seconds
 FRAME_TIMEOUT_S = 2
 
 RETRY_DISPLAY_S = 2.0   # how often to look for a display that went to sleep
+
+log = logging.getLogger(__name__)
 
 # Letterbox search: a taller strip is grabbed only a few times a second, so the
 # per-frame capture stays as thin (and as fast) as before.
@@ -240,8 +246,9 @@ class _BlackFrameWatchdog:
 
     LIMIT = 30
     MESSAGE = ("captured frames are all black -- grant Screen Recording "
-               "permission to your terminal in System Settings > Privacy & "
-               "Security > Screen Recording, then restart.")
+               "permission to the app that runs the hub (Terminal, or Python "
+               "when it starts at login) in System Settings > Privacy & "
+               "Security > Screen Recording, then restart it.")
 
     def __init__(self):
         self._dark = 0
@@ -271,14 +278,18 @@ class Engine:
     def __init__(self, config):
         self.cfg = config
         self._thread = None
-        self._stop = threading.Event()
-        self._lock = threading.Lock()
+        self.lifecycle = threading.Lock()
+        self.output_lock = threading.Lock()
+        self.stop_event = threading.Event()
         self.running = False
-        self.last_error = None
+        # One slot per source, so an output hiccup cannot hide (or clear) a
+        # capture problem and vice versa.
+        self.errors = {"capture": None, "output": None}
         self.fps = 0.0
         self.capture_name = "none"
         self.output_name = "none"
         self.capture_size = ""
+        self.paused = None
         # Set by the setup wizard to paint a fixed pattern instead of the screen.
         self._override = None
         # Last frame actually sent, downsampled for the UI's live preview.
@@ -288,119 +299,152 @@ class Engine:
         self.stage = OutputStage()
         self.emitter = None
         self.output_fps = 0.0
+        self.out = None
+        self.out_key = None
         self.recorder = None
         self.last_recording = None
+        self.awake = None
+
+    @property
+    def last_error(self):
+        return self.errors["capture"] or self.errors["output"]
 
     # --- lifecycle ---------------------------------------------------------
     def start(self):
-        with self._lock:
+        with self.lifecycle:
             if self.running:
                 return True
-            self._stop.clear()
-            self.last_error = None
-            self._thread = threading.Thread(target=self._run, daemon=True, name="sync")
-            self.emitter = threading.Thread(target=self.emit_loop, daemon=True, name="emit")
+            # A fresh event per run: a thread from an earlier run that missed
+            # its join can never be revived by clearing a shared flag.
+            stop = self.stop_event = threading.Event()
+            self.errors = {"capture": None, "output": None}
+            self._thread = threading.Thread(target=self._run, args=(stop,), daemon=True, name="sync")
+            self.emitter = threading.Thread(target=self.emit_loop, args=(stop,), daemon=True, name="emit")
             self.running = True
             self._thread.start()
             self.emitter.start()
+            self.awake = KeepAwake.start()
             return True
 
     def stop(self):
-        with self._lock:
-            threads, self.running = (self._thread, self.emitter), False
-        self._stop.set()
-        for thread in threads:
-            if thread is not None:
-                thread.join(timeout=2.0)
-        self._release()
-        self.fps = self.output_fps = 0.0
+        with self.lifecycle:
+            self.stop_event.set()
+            for thread in (self._thread, self.emitter):
+                if thread is not None:
+                    thread.join(timeout=2.0)
+            self.running = False
+            if self.awake is not None:
+                self.awake.stop()
+                self.awake = None
+            self._release()
+            self.fps = self.output_fps = 0.0
 
     def start_recording(self, seconds):
         """Keep the next `seconds` of per-LED averages for replay and tuning."""
+        if not self.running:
+            raise RuntimeError("turn screen sync on before recording")
         self.recorder = Recorder(new_path(), seconds, time.perf_counter())
-        return str(self.recorder.path)
+        return self.recorder.path.name
 
     def record(self, now, linear):
         recorder = self.recorder
         if recorder is not None and not recorder.add(now, linear):
-            self.last_recording = str(recorder.save())
             self.recorder = None
+            # Compressing to disk takes a moment; never on the capture thread.
+            threading.Thread(target=self.save_recording, args=(recorder,), daemon=True).start()
+
+    def save_recording(self, recorder):
+        try:
+            self.last_recording = recorder.save().name
+        except OSError as exc:
+            log.error("could not save recording %s: %s", recorder.path, exc)
 
     def set_override(self, pixels):
         """Paint a literal frame (wizard markers, gradients) and pause screen sync."""
         self._override = pixels
         if pixels is not None:
-            self._push(pixels)
+            # Held until the wizard moves on: no capture is refreshing it.
+            self._push(pixels, HOLD_FOREVER)
 
     def clear_override(self):
         self._override = None
 
     # --- the frame path ----------------------------------------------------
-    def _run(self):
-        """Keep sync alive across display sleep, lid close and monitor changes.
+    def _run(self, stop):
+        """Keep sync alive across display sleep, lid close, monitor changes and bugs.
 
         A sleeping display makes the monitor disappear entirely, so opening the
         capture fails. That is temporary, not fatal: wait and retry rather than
         ending the thread, or sync would never come back without a restart.
+        An unexpected error is logged and retried the same way, so the lights
+        are never left frozen on a dead thread.
         """
-        try:
-            while not self._stop.is_set():
+        while not stop.is_set():
+            try:
                 capture = self._open_capture()
                 if capture is None:
-                    if self._stop.wait(RETRY_DISPLAY_S):
-                        return
+                    stop.wait(RETRY_DISPLAY_S)
                     continue
                 try:
-                    self._loop(capture)
+                    self._loop(capture, stop)
                 finally:
                     capture.close()
-        finally:
-            self.running = False
+            except Exception as exc:
+                log.exception("sync loop failed")
+                self.errors["capture"] = f"sync hit an error and is retrying: {exc}"
+                stop.wait(RETRY_DISPLAY_S)
 
     def _open_capture(self):
         """Start the capture plugin. Returns None and records why on failure."""
         try:
-            capture = MSSCapture()
+            capture = capture_plugin()()
             width, height = capture.open(
                 self.cfg.get("monitor_index"), self.cfg.get("band_height"))
         except Exception as exc:
-            self.last_error = capture_hint(exc)
+            self.errors["capture"] = capture_hint(exc)
             return None
         self.capture_name = capture.name
         self.capture_size = f"{width}x{height}"
-        if self.last_error and "display" in self.last_error:
-            self.last_error = None
+        self.errors["capture"] = None
         return capture
 
-    def emit_loop(self):
+    def emit_loop(self, stop):
         """Send smoothed frames at a steady rate, independent of capture speed."""
         pacer = _Pacer()
-        while not self._stop.is_set():
+        while not stop.is_set():
             cfg = self.cfg.snapshot()
-            if self._override is None:
-                pixels = self.stage.frame(time.perf_counter(), cfg)
-                if pixels is not None:
-                    self._push(pixels)
-            self.output_fps = pacer.tick(cfg["fps"], self._stop)
+            try:
+                if self._override is None:
+                    pixels = self.stage.frame(time.perf_counter(), cfg)
+                    if pixels is not None:
+                        self._push(pixels)
+            except Exception as exc:
+                log.exception("output loop failed")
+                self.errors["output"] = f"output hit an error and is retrying: {exc}"
+                stop.wait(0.5)
+            self.output_fps = pacer.tick(cfg["fps"], stop)
 
-    def _loop(self, capture):
+    def _loop(self, capture, stop):
         pipeline = _Pipeline(self.cfg, self.stage)
         pacer = _Pacer()
         watchdog = _BlackFrameWatchdog()
-        band_height = self.cfg.get("band_height")
+        opened_with = (self.cfg.get("band_height"), self.cfg.get("monitor_index"))
         tracker = _PictureTracker()
         next_search = 0.0
         frame_source = _FrameSource()
 
-        while not self._stop.is_set():
+        while not stop.is_set():
             cfg = self.cfg.snapshot()
 
-            if cfg["band_height"] != band_height:
-                capture = self._reopen(capture, cfg)
-                if capture is None:
-                    return
-                band_height = cfg["band_height"]
-                pipeline.invalidate()
+            if (cfg["band_height"], cfg["monitor_index"]) != opened_with:
+                return      # _run reopens the capture with the new settings
+
+            # A locked Mac shows the lock screen, not anything worth mirroring;
+            # without fresh targets the output stage fades the strip out.
+            self.paused = "screen locked" if screen_locked() else None
+            if self.paused:
+                stop.wait(0.5)
+                continue
 
             crop = (0, None)
             wrapped = cfg["layout"] == "frame"
@@ -409,7 +453,7 @@ class Engine:
                     next_search = time.perf_counter() + SEARCH_EVERY_S
                     try:
                         strip = capture.grab_search(SEARCH_ROWS)
-                    except Exception:
+                    except OSError:
                         strip = None        # the band grab below reports a lost display
                     if strip is not None:
                         capture.set_inset(tracker.update(strip)[0])
@@ -420,9 +464,9 @@ class Engine:
 
             try:
                 band = self._grab(
-                    capture, (lambda: frame_source.grab(capture, cfg)) if wrapped else None)
+                    capture, stop, (lambda: frame_source.grab(capture, cfg)) if wrapped else None)
             except CaptureLost as lost:
-                self.last_error = str(lost)
+                self.errors["capture"] = str(lost)
                 return      # _run reopens the capture once a display is back
             if band is None:
                 continue
@@ -434,30 +478,17 @@ class Engine:
 
             message = watchdog.check(band)
             if message is not None:
-                self.last_error = message or None
+                self.errors["capture"] = message or None
 
-            if self._override is None:
-                linear, target = (pipeline.measure_edges(edges, cfg) if wrapped
-                                  else pipeline.measure(band, cfg))
-                now = time.perf_counter()
-                self.stage.set_target(target, now)
-                self.record(now, linear)
+            linear, target = (pipeline.measure_edges(edges, cfg) if wrapped
+                              else pipeline.measure(band, cfg))
+            now = time.perf_counter()
+            self.stage.set_target(target, now)
+            self.record(now, linear)
 
-            self.fps = pacer.tick(cfg["fps"], self._stop)
+            self.fps = pacer.tick(cfg["fps"], stop)
 
-    def _reopen(self, capture, cfg):
-        """Rebuild the capture after a band-height change."""
-        try:
-            capture.close()
-            fresh = MSSCapture()
-            width, height = fresh.open(cfg["monitor_index"], cfg["band_height"])
-        except Exception as exc:
-            self.last_error = f"recapture failed: {exc}"
-            return None
-        self.capture_size = f"{width}x{height}"
-        return fresh
-
-    def _grab(self, capture, grab=None):
+    def _grab(self, capture, stop, grab=None):
         """One frame, or None. Raises CaptureLost when the display went away."""
         try:
             band = (grab or capture.grab)()
@@ -466,44 +497,36 @@ class Engine:
             # capture must be rebuilt rather than retried on a dead handle.
             raise CaptureLost(capture_hint(exc)) from None
         if band is None:
-            self.last_error = "capture returned no data"
-            self._stop.wait(0.5)
+            self.errors["capture"] = "capture returned no data"
+            stop.wait(0.5)
         return band
 
     # --- output ------------------------------------------------------------
     def _output(self):
-        """Return the configured output, rebuilding it when the target changes."""
+        """Return the configured output, rebuilding it when the target changes.
+
+        Called from the output thread and from HTTP threads (wizard, release),
+        so building and swapping happens under a lock.
+        """
         cfg = self.cfg.snapshot()
-        want = cfg["output"]
-        key = ((want, cfg["serial_port"], cfg["serial_baud"]) if want == "serial"
-               else (want, cfg["wled_ip"], cfg["wled_port"]))
-        out = getattr(self, "_out", None)
-        if out is not None and getattr(self, "_out_key", None) == key:
-            return out
-        if out is not None:
-            out.close()
-
-        if want == "serial" and cfg["serial_port"]:
+        plugin = OUTPUTS.get(cfg["output"], OUTPUTS["udp"])
+        key = plugin.key(cfg)
+        with self.output_lock:
+            if self.out is not None and self.out_key == key:
+                return self.out
+            if self.out is not None:
+                self.out.close()
             try:
-                from .plugins.output_serial import SerialOutput
-
-                out = SerialOutput(cfg["serial_port"], cfg["serial_baud"])
-            except Exception as exc:
+                self.out = plugin.from_config(cfg)
+                self.errors["output"] = None
+            except OSError as exc:
                 # A missing cable must not stop the lights; fall back and say so.
-                self.last_error = (
-                    f"serial port {cfg['serial_port']} unavailable ({exc}) "
-                    "-- falling back to Wi-Fi")
-                out = WLEDUDPOutput(cfg["wled_ip"], cfg["wled_port"])
-        else:
-            out = WLEDUDPOutput(cfg["wled_ip"], cfg["wled_port"])
-
-        self._out = out
-        self._out_key = key
-        self.output_name = out.name
-        # A previous transport's complaint does not apply to the new one.
-        if self.last_error and "serial port" in self.last_error and want != "serial":
-            self.last_error = None
-        return out
+                self.out = OUTPUTS["udp"].from_config(cfg)
+                self.errors["output"] = (
+                    f"{plugin.name} unavailable ({exc}) -- falling back to Wi-Fi")
+            self.out_key = key
+            self.output_name = self.out.name
+            return self.out
 
     PREVIEW_SWATCHES = 40
 
@@ -520,26 +543,27 @@ class Engine:
     def preview(self):
         return list(self._preview)
 
-    def _push(self, pixels):
+    def _push(self, pixels, hold_s=FRAME_TIMEOUT_S):
         self._set_preview(pixels)
         out = self._output()
-        if not out.send(pixels, FRAME_TIMEOUT_S):
-            self.last_error = f"UDP send failed: {out.last_error}"
-        elif self.last_error and "UDP send failed" in self.last_error:
-            self.last_error = None
+        if not out.send(pixels, hold_s):
+            self.errors["output"] = f"could not reach the lights: {out.last_error}"
+        elif self.errors["output"] and "could not reach" in self.errors["output"]:
+            self.errors["output"] = None
 
     def _release(self):
         """Let WLED fall back to its own mode: one black frame, short timeout."""
         try:
             self._output().release()
-        except Exception as exc:
-            self.last_error = f"release failed: {exc}"
+        except OSError as exc:
+            self.errors["output"] = f"release failed: {exc}"
 
     def status(self):
         return {
             "running": self.running,
             "measured_fps": round(self.fps, 1),
             "output_fps": round(self.output_fps, 1),
+            "paused": self.paused,
             "recording": self.recorder is not None,
             "safety": self.stage.safety(),
             "last_recording": self.last_recording,
@@ -547,3 +571,47 @@ class Engine:
             "capture_plugin": self.capture_name,
             "output_plugin": self.output_name,
         }
+
+
+def capture_plugin():
+    """The first capture source whose dependencies are present."""
+    for plugin in CAPTURES.values():
+        if plugin.available():
+            return plugin
+    raise RuntimeError("no capture source available (is mss installed?)")
+
+
+def screen_locked():
+    """True while the Mac shows its lock screen. False when it cannot tell."""
+    try:
+        import Quartz
+    except ImportError:
+        return False
+    session = Quartz.CGSessionCopyCurrentDictionary() or {}
+    return bool(session.get("CGSSessionScreenIsLocked", False))
+
+
+class KeepAwake:
+    """Holds off idle system sleep while sync runs, using macOS's caffeinate.
+
+    The display may still sleep (capture then pauses and the strip fades);
+    this only keeps the hub itself reachable from phones.
+    """
+
+    def __init__(self, process):
+        self.process = process
+
+    @classmethod
+    def start(cls):
+        tool = shutil.which("caffeinate")
+        if tool is None:
+            return None
+        return cls(subprocess.Popen([tool, "-i", "-w", str(os.getpid())],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+
+    def stop(self):
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            self.process.kill()

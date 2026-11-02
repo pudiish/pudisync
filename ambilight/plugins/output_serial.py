@@ -55,6 +55,16 @@ class SerialOutput(OutputPlugin):
             return False
         return bool(list_ports())
 
+    @classmethod
+    def from_config(cls, cfg):
+        if not cfg["serial_port"]:
+            raise OSError("no serial port chosen")
+        return cls(cfg["serial_port"], cfg["serial_baud"])
+
+    @staticmethod
+    def key(cfg):
+        return ("serial", cfg["serial_port"], cfg["serial_baud"])
+
     def __init__(self, port, baud=921600):
         import serial
 
@@ -73,7 +83,7 @@ class SerialOutput(OutputPlugin):
             self._ser.write(frame)
             self.last_error = None
             return True
-        except Exception as exc:
+        except (OSError, serial_error()) as exc:
             self.last_error = f"{self.port}: {exc}"
             return False
 
@@ -86,5 +96,12 @@ class SerialOutput(OutputPlugin):
     def close(self):
         try:
             self._ser.close()
-        except Exception:
-            pass
+        except (OSError, serial_error()) as exc:
+            # The cable may already be gone; closing is best effort, but say so.
+            self.last_error = f"{self.port}: close failed: {exc}"
+
+
+def serial_error():
+    from serial import SerialException
+
+    return SerialException

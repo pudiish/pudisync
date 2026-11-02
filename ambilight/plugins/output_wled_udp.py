@@ -9,12 +9,14 @@ Protocol per https://kno.wled.ge/interfaces/udp-realtime/ :
 Docs cap DNRGB at 489 LEDs per packet; we chunk at 400 for headroom.
 """
 import socket
+import time
 
 from . import OutputPlugin
 
 DNRGB = 4
 MAX_LEDS_PER_PACKET = 400
 HOLD_FOREVER = 255
+RESOLVE_EVERY_S = 30.0   # a .local name follows the controller across DHCP changes
 
 
 class WLEDUDPOutput(OutputPlugin):
@@ -24,12 +26,35 @@ class WLEDUDPOutput(OutputPlugin):
     def available():
         return True  # stdlib sockets only
 
+    @classmethod
+    def from_config(cls, cfg):
+        return cls(cfg["wled_ip"], cfg["wled_port"])
+
+    @staticmethod
+    def key(cfg):
+        return ("udp", cfg["wled_ip"], cfg["wled_port"])
+
     def __init__(self, host, port=21324):
         self.host = host
         self.port = port
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setblocking(False)
         self.last_error = None
+        self.address = None
+        self.resolved_at = 0.0
+
+    def target(self):
+        """The controller's address, resolved once and refreshed periodically.
+
+        Resolving a host name per packet would stall the output thread
+        whenever mDNS is slow; an IP literal resolves instantly.
+        """
+        now = time.monotonic()
+        if self.address is None or now - self.resolved_at > RESOLVE_EVERY_S:
+            info = socket.getaddrinfo(self.host, self.port, socket.AF_INET, socket.SOCK_DGRAM)
+            self.address = info[0][4]
+            self.resolved_at = now
+        return self.address
 
     def send(self, pixels, timeout_s=2):
         """Send pixels as one or more DNRGB packets. Returns True on success."""
@@ -53,11 +78,13 @@ class WLEDUDPOutput(OutputPlugin):
 
     def _sendto(self, packet):
         try:
-            self._sock.sendto(packet, (self.host, self.port))
+            self._sock.sendto(packet, self.target())
             self.last_error = None
             return True
         except OSError as exc:
-            # A dark or rebooting NodeMCU must not kill the frame loop.
+            # A dark or rebooting NodeMCU must not kill the frame loop, and a
+            # stale address must be looked up again on the next packet.
+            self.address = None
             self.last_error = f"{self.host}:{self.port} {exc}"
             return False
 

@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""Acceptance tests. Needs fake_wled.py running; starts its own hub if asked.
+"""Acceptance tests.
 
-    python fake_wled.py &
     python tests.py
+
+Starts its own fake WLED and a sandbox hub on ports 8790-8791 with a throwaway
+config, so it can never touch a live hub on 8080 or real LEDs. The HTTP part
+captures the real screen, so run it with the display awake and unlocked.
 """
 import json
+import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 
 import numpy as np
 
 sys.path.insert(0, ".")
-CONFIG_FOR_TESTS = "/tmp/ambilight-test-config.json"
+CONFIG_FOR_TESTS = os.path.join(tempfile.mkdtemp(prefix="ambilight-tests-"), "config.json")
+SANDBOX_PORT, FAKE_WLED_HTTP, FAKE_WLED_UDP = 8790, 8791, 21391
 from ambilight import processing
 from ambilight.config import Config
 from ambilight.plugins.output_wled_udp import MAX_LEDS_PER_PACKET, WLEDUDPOutput
@@ -214,6 +222,10 @@ def test_engine_parts():
         name = "fake"
         alive = False
 
+        @staticmethod
+        def available():
+            return True
+
         def open(self, monitor_index, band_height):
             if not FakeCapture.alive:
                 raise IndexError("monitor 1 not found; 0 attached")
@@ -226,11 +238,22 @@ def test_engine_parts():
             band[:, :300] = (200, 30, 30)
             return band
 
+        def grab_full(self):
+            return self.grab()
+
+        def grab_search(self, rows):
+            return self.grab()
+
+        def set_inset(self, rows):
+            pass
+
         def close(self):
             pass
 
-    real_capture, real_retry = eng.MSSCapture, eng.RETRY_DISPLAY_S
-    eng.MSSCapture, eng.RETRY_DISPLAY_S = FakeCapture, 0.3
+    # The fake display must not depend on whether this Mac is locked right now.
+    real_capture, real_retry, real_locked = eng.CAPTURES, eng.RETRY_DISPLAY_S, eng.screen_locked
+    eng.CAPTURES, eng.RETRY_DISPLAY_S = {"fake": FakeCapture}, 0.3
+    eng.screen_locked = lambda: False
     try:
         sleep_cfg = Config(CONFIG_FOR_TESTS)
         sleep_cfg.update({"wled_ip": "127.0.0.1", "led_count": 60})
@@ -253,7 +276,7 @@ def test_engine_parts():
         check("it survives the display sleeping again", engine.running is True)
         engine.stop()
     finally:
-        eng.MSSCapture, eng.RETRY_DISPLAY_S = real_capture, real_retry
+        eng.CAPTURES, eng.RETRY_DISPLAY_S, eng.screen_locked = real_capture, real_retry, real_locked
         FakeCapture.alive = False
 
 
@@ -303,7 +326,7 @@ def test_api(base):
           missing("/api/record/replay?file=../config.json"))
 
     d = get("/api/diagnostics")
-    check("diagnostics lists plugins", len(d["plugins"]) >= 4)
+    check("diagnostics lists every registered plugin", len(d["plugins"]) >= 3)
     check("diagnostics reports active capture", any(p["active"] for p in d["plugins"]))
     check("diagnostics reports WLED reachability", "wled_reachable" in d)
 
@@ -562,30 +585,35 @@ def test_provision_api(base):
     except urllib.error.HTTPError as exc:
         check("a flash with no port is rejected", exc.code == 400)
 
-    get("/api/flash/start?port=/dev/cu.not-a-real-board&ssid=TestNet&password=x")
-    deadline = time.time() + 20
-    st = {}
-    while time.time() < deadline:
-        st = get("/api/flash/status")
-        if st["state"] in ("done", "error"):
-            break
-        time.sleep(0.6)
+    # Only a board that is actually plugged in may be flashed over HTTP.
+    try:
+        urllib.request.urlopen(
+            base + "/api/flash/start?port=/dev/cu.not-a-real-board&ssid=TestNet", timeout=3)
+        check("an unplugged port cannot be flashed", False)
+    except urllib.error.HTTPError as exc:
+        check("an unplugged port cannot be flashed", exc.code == 400)
+    check("the hub survives a refused flash", get("/api/status")["running"] in (True, False))
+
+    # The provisioner itself, driven directly (no board needed).
+    from ambilight.provision import Provisioner
+
+    def run(flash, wait=2.5):
+        prov = Provisioner()
+        prov.start("/dev/cu.not-a-real-board", "TestNet", "x", flash=flash)
+        deadline = time.time() + (20 if wait is None else wait)
+        while time.time() < deadline and prov.status()["state"] not in ("done", "error"):
+            time.sleep(0.3)
+        return prov.status()
+
+    st = run(flash=False, wait=None)
     check("a missing board ends in a clean error", st.get("state") == "error")
     check("the error tells the user what to do",
           "BOOT" in (st.get("error") or "") or "board" in (st.get("error") or "").lower())
-    check("the hub survives a failed flash", get("/api/status")["running"] in (True, False))
-
     # Erasing a board is irreversible, so it must never be the default.
-    get("/api/flash/start?port=/dev/cu.not-a-real-board&ssid=TestNet")
-    time.sleep(2.5)
-    log = " ".join(get("/api/flash/status").get("log", []))
-    check("erase is NOT the default", "Erasing" not in log and "Writing WLED" not in log,
-          log[:70])
+    log = " ".join(st.get("log", []))
+    check("erase is NOT the default", "Erasing" not in log and "Writing WLED" not in log, log[:70])
     check("the safe default goes straight to Wi-Fi", "Wi-Fi" in log, log[:70])
-
-    get("/api/flash/start?port=/dev/cu.not-a-real-board&ssid=TestNet&flash=1")
-    time.sleep(2.5)
-    log = " ".join(get("/api/flash/status").get("log", []))
+    log = " ".join(run(flash=True).get("log", []))
     check("flash=1 does take the firmware path", "Looking for the board" in log, log[:70])
 
     nets = get("/api/flash/networks")
@@ -1112,8 +1140,117 @@ def test_config():
         check("and always leave a readable file", isinstance(json.load(fh), dict))
 
 
+def test_access():
+    print("\n17. Access control (cross-site, DNS rebinding, PIN throttling)")
+    from ambilight.access import PinGate, allowed_fetch_site, allowed_host
+
+    check("the hub's IP is a trusted host", allowed_host("192.168.29.53:8080"))
+    check("IPv6 literals are trusted", allowed_host("[fe80::1]:8080"))
+    check("localhost is trusted", allowed_host("localhost:8080"))
+    check("a Bonjour .local name is trusted", allowed_host("ishwars-macbook-air.local:8080"))
+    check("a public name is refused (DNS rebinding)", not allowed_host("attacker.example:8080"))
+    check("a missing Host header is refused", not allowed_host(""))
+    check("same-origin page requests pass", allowed_fetch_site("same-origin"))
+    check("typed URLs and bookmarks pass", allowed_fetch_site("none"))
+    check("Shortcuts and curl send no header and pass", allowed_fetch_site(None))
+    check("another website cannot drive the hub", not allowed_fetch_site("cross-site"))
+    check("neither can a sibling site", not allowed_fetch_site("same-site"))
+
+    gate = PinGate(max_failures=3, window_s=60, lockout_s=60)
+    check("no PIN set lets everyone in", gate.check("", "", "10.0.0.2", now=0) == "ok")
+    check("the right PIN is accepted", gate.check("1234", "1234", "10.0.0.2", now=0) == "ok")
+    check("a wrong PIN is denied", gate.check("0000", "1234", "10.0.0.2", now=1) == "denied")
+    gate.check("0001", "1234", "10.0.0.2", now=2)
+    gate.check("0002", "1234", "10.0.0.2", now=3)
+    check("repeated guessing locks that device out",
+          gate.check("1234", "1234", "10.0.0.2", now=4) == "locked")
+    check("other devices are not locked out", gate.check("1234", "1234", "10.0.0.3", now=4) == "ok")
+    check("the lockout expires", gate.check("1234", "1234", "10.0.0.2", now=70) == "ok")
+
+
+@contextmanager
+def sandbox_hub():
+    """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
+    folder = tempfile.mkdtemp(prefix="ambilight-hub-")
+    config = os.path.join(folder, "config.json")
+    with open(config, "w") as fh:
+        json.dump({"wled_ip": "127.0.0.1", "wled_http_port": FAKE_WLED_HTTP,
+                   "wled_port": FAKE_WLED_UDP, "monitor_index": 1}, fh)
+    log = open(os.path.join(folder, "hub.log"), "w")
+    procs = [
+        subprocess.Popen([sys.executable, "fake_wled.py", "--udp-port", str(FAKE_WLED_UDP),
+                          "--http-port", str(FAKE_WLED_HTTP), "--quiet"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
+        subprocess.Popen([sys.executable, "ambilight.py", "--config", config,
+                          "--port", str(SANDBOX_PORT), "--no-bonjour"],
+                         stdout=log, stderr=subprocess.STDOUT),
+    ]
+    base = f"http://127.0.0.1:{SANDBOX_PORT}"
+    try:
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            try:
+                urllib.request.urlopen(base + "/api/status", timeout=1)
+                break
+            except OSError:
+                time.sleep(0.2)
+        else:
+            raise RuntimeError(f"sandbox hub did not start; see {log.name}")
+        yield base
+    finally:
+        for proc in procs:
+            proc.terminate()
+            proc.wait(timeout=5)
+        log.close()
+
+
+def test_security_api(base):
+    print("\n18. HTTP security and the UI contract")
+
+    def call(path, headers=None, method="GET"):
+        req = urllib.request.Request(base + path, headers=headers or {}, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=3) as r:
+                body = r.read()
+                return r.status, (json.loads(body) if body and method == "GET" and
+                                  path.startswith("/api/") else body)
+        except urllib.error.HTTPError as exc:
+            return exc.code, None
+
+    code, cfg = call("/api/config")
+    check("config never contains the PIN", code == 200 and "pin" not in cfg and "has_pin" in cfg)
+    code, status = call("/api/status")
+    check("status lists addresses for other devices", any(".local:" in u for u in status["urls"]),
+          status.get("urls"))
+    check("status reports the mode", status["mode"] in ("sync", "effect", "off"))
+    check("status reports WLED reachability", "wled_reachable" in status)
+    check("status reports safety", "power_ma" in status["safety"])
+    check("defaults are served without the PIN", call("/api/defaults")[0] == 200
+          and "pin" not in call("/api/defaults")[1])
+    code, mons = call("/api/monitors")
+    check("displays can be listed", code == 200 and len(mons["monitors"]) >= 1)
+    check("a cross-site request is blocked", call("/api/sync/off", {"Sec-Fetch-Site": "cross-site"})[0] == 403)
+    check("a DNS-rebinding Host is blocked", call("/api/status", {"Host": "attacker.example"})[0] == 403)
+    check("the page's own requests pass", call("/api/status", {"Sec-Fetch-Site": "same-origin"})[0] == 200)
+    check("HEAD never runs an action", call("/api/sync/on", method="HEAD")[0] == 405)
+    check("HEAD on a page is fine", call("/", method="HEAD")[0] == 200)
+    check("the manifest is served", call("/manifest.webmanifest")[0] == 200)
+    check("invalid settings are a 400, not a 500", call("/api/set?fps=fast")[0] == 400)
+    check("a flash can only target a connected board",
+          call("/api/flash/start?port=/dev/cu.nothing&ssid=x")[0] == 400)
+    check("recording needs sync on", call("/api/record/start?seconds=2")[0] == 409)
+
+    check("a PIN can be set from the UI", call("/api/set?new_pin=4321")[0] == 200)
+    check("then requests without it are refused", call("/api/status")[0] == 403)
+    check("the header unlocks it", call("/api/status", {"X-Ambilight-Pin": "4321"})[0] == 200)
+    check("the PIN never leaks through config",
+          "pin" not in call("/api/config", {"X-Ambilight-Pin": "4321"})[1])
+    check("and it can be cleared again",
+          call("/api/set?new_pin=", {"X-Ambilight-Pin": "4321"})[0] == 200
+          and call("/api/status")[0] == 200)
+
+
 def main():
-    base = "http://127.0.0.1:8080"
     print("=" * 62)
     print("AMBILIGHT HUB -- ACCEPTANCE TESTS")
     print("=" * 62)
@@ -1130,16 +1267,14 @@ def main():
     test_recorder()
     test_safety()
     test_config()
+    test_access()
     test_engine_parts()
-    try:
-        urllib.request.urlopen(base + "/api/status", timeout=2)
-    except Exception as exc:
-        print(f"\n  (skipping HTTP tests -- hub not running at {base}: {exc})")
-    else:
+    with sandbox_hub() as base:
         test_api(base)
         test_wizard(base)
         test_serial_api(base)
         test_provision_api(base)
+        test_security_api(base)
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")
