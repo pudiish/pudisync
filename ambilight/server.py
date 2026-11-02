@@ -11,6 +11,7 @@ from pathlib import Path
 from . import routes
 from .access import PinGate, allowed_fetch_site, allowed_host
 from .discovery import hub_urls
+from .intent import SyncIntent
 from .plugins import CAPTURES, OUTPUTS
 from .provision import Provisioner
 
@@ -122,6 +123,7 @@ class Hub:
         self.engine = engine
         self.wled = wled
         self.wizard = wizard
+        self.intent = SyncIntent(config, wled, engine)
         self.port = port or config.get("http_port")
         self.provisioner = Provisioner()
         self.wled_lock = threading.Lock()

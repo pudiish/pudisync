@@ -41,20 +41,28 @@ def status(hub, q):
     return hub.status(), OK
 
 
+# The look sync falls back to: a plain warm white. It differs from the sync
+# preset's colour, which matters: WLED only clears the active preset on a real
+# change, and the watcher in intent.py treats an active preset as "sync on".
+FALLBACK_LOOK = {"seg": [{"id": 0, "fx": 0, "col": [[255, 170, 80]]}]}
+
+
 def sync_on(hub, q):
     hub.wizard.stop()
+    hub.intent.resume()
+    hub.wled.set_preset(hub.cfg.get("sync_preset"))
     hub.engine.start()
     return hub.status(), OK
 
 
 def sync_off(hub, q):
     hub.engine.stop()
+    hub.wled.apply(FALLBACK_LOOK)
     return hub.status(), OK
 
 
 def sync_toggle(hub, q):
-    (hub.engine.stop if hub.engine.running else hub.engine.start)()
-    return hub.status(), OK
+    return (sync_off if hub.engine.running else sync_on)(hub, q)
 
 
 def profile(hub, q, name):
@@ -136,6 +144,12 @@ def hand_to_controller(hub):
     hub.wizard.stop()
 
 
+def take_over_strip(hub):
+    """Setup tools paint the strip themselves; keep the watcher from restarting sync."""
+    hub.intent.pause()
+    hub.engine.stop()
+
+
 def wled_preset(hub, q):
     hand_to_controller(hub)
     return {"ok": hub.wled.set_preset(q.one("id", "1")), **hub.status()}, OK
@@ -175,7 +189,7 @@ def hex_colour(text):
 
 # --- setup wizard ----------------------------------------------------------------
 def count_start(hub, q):
-    hub.engine.stop()
+    take_over_strip(hub)
     reported = hub.wled.led_count() or hub.cfg.get("led_count")
     return hub.wizard.count_start(reported), OK
 
@@ -185,16 +199,17 @@ def count_answer(hub, q):
 
 
 def marker(hub, q):
-    hub.engine.stop()
+    take_over_strip(hub)
     return hub.wizard.marker(q.one("index", "0")), OK
 
 
 def gradient(hub, q):
-    hub.engine.stop()
+    take_over_strip(hub)
     return hub.wizard.gradient(), OK
 
 
 def wizard_stop(hub, q):
+    hub.intent.resume()
     return hub.wizard.stop(), OK
 
 
@@ -227,7 +242,7 @@ def flash_start(hub, q):
     if port not in list_ports():
         return {"error": "that port is not a connected board"}, 400
     try:
-        hub.engine.stop()   # the cable cannot carry pixels and a flash at once
+        take_over_strip(hub)    # the cable cannot carry pixels and a flash at once
         hub.provisioner.start(port, ssid, q.one("password", ""), flash=q.one("flash", "0") == "1")
     except RuntimeError as exc:
         return {"error": str(exc)}, 409

@@ -114,6 +114,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         print(f"[http] POST {self.path} {json.dumps(patch)}")
+        # Like the real board: any change that is not itself loading a preset
+        # clears the active preset ("ps" goes back to -1).
+        if "ps" not in patch:
+            STATE["ps"] = -1
         for key, value in patch.items():
             if key == "seg" and isinstance(value, list):
                 for seg in value:
