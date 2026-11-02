@@ -8,14 +8,11 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import routes
 from .access import PinGate, allowed_fetch_site, allowed_host
-from .config import DEFAULTS, PROFILES
 from .discovery import hub_urls
-from .effects import catalogue as effect_catalogue, state_for
 from .plugins import CAPTURES, OUTPUTS
-from .plugins.output_serial import list_ports, required_baud
-from .provision import Provisioner, esptool_available, known_networks
-from .recorder import RECORDINGS_DIR, replay
+from .provision import Provisioner
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -97,7 +94,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            self._route(path, query)
+            payload, code = routes.handle(self.hub, path, query)
+            self._json(payload, code)
         except ValueError as exc:
             self._json({"error": str(exc)}, 400)
         except Exception:
@@ -111,179 +109,6 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             log.exception("page %s is missing", name)
             self._json({"error": "this page is missing from the install"}, 500)
-
-    # --- routes ------------------------------------------------------------
-    def record_route(self, path, one):
-        """Recordings: capture real scenes, replay them while tuning."""
-        if path == "/api/record/start":
-            seconds = max(1.0, min(120.0, float(one("seconds", "20"))))
-            try:
-                name = self.hub.engine.start_recording(seconds)
-            except RuntimeError as exc:
-                self._json({"error": str(exc)}, 409)
-                return
-            self._json({"recording": name, "seconds": seconds})
-        elif path == "/api/record/replay":
-            # Only a bare file name inside the recordings folder: no path tricks.
-            name = Path(one("file", "")).name
-            target = RECORDINGS_DIR / name
-            if not name or not target.is_file():
-                self._json({"error": f"no recording named {name!r}"}, 404)
-                return
-            self._json({"file": name, **replay(target, self.hub.cfg.snapshot())[1]})
-        else:
-            self._json({"error": "not found"}, 404)
-
-    def _route(self, path, query):
-        hub = self.hub
-        one = lambda key, default=None: query.get(key, [default])[0]
-
-        if path == "/api/status":
-            self._json(hub.status())
-
-        elif path == "/api/sync/on":
-            hub.wizard.stop()
-            hub.engine.start()
-            self._json(hub.status())
-        elif path == "/api/sync/off":
-            hub.engine.stop()
-            self._json(hub.status())
-        elif path == "/api/sync/toggle":
-            (hub.engine.stop if hub.engine.running else hub.engine.start)()
-            self._json(hub.status())
-
-        elif path.startswith("/api/profile/"):
-            name = path.rsplit("/", 1)[-1]
-            if name not in PROFILES:
-                self._json({"error": f"unknown profile {name}"}, 400)
-                return
-            hub.cfg.apply_profile(name)
-            self._json(hub.status())
-
-        elif path == "/api/set":
-            # "pin" in a query authenticates (Shortcuts); changing it is "new_pin".
-            changes = {k: v[0] for k, v in query.items() if k not in ("pin", "new_pin")}
-            if "new_pin" in query:
-                changes["pin"] = query["new_pin"][0]
-            changed = hub.cfg.update(changes)
-            self._json({"changed": changed, **hub.status()})
-
-        elif path == "/api/config":
-            self._json(hub.public_config())
-        elif path == "/api/defaults":
-            self._json({k: v for k, v in DEFAULTS.items() if k != "pin"})
-        elif path == "/api/monitors":
-            self._json({"monitors": monitors()})
-
-        elif path.startswith("/api/record/"):
-            self.record_route(path, one)
-
-        # --- WLED passthrough
-        elif path == "/api/wled/meta":
-            self._json(hub.wled.meta())
-        elif path == "/api/wled/power":
-            self._json({"ok": hub.wled.set_power(one("on", "1") in ("1", "true", "on"))})
-        elif path == "/api/wled/brightness":
-            self._json({"ok": hub.wled.set_brightness(one("value", "128"))})
-        elif path in ("/api/wled/preset", "/api/wled/effect", "/api/wled/palette"):
-            # Realtime UDP overrides WLED's own rendering, so stop sync first.
-            hub.engine.stop()
-            hub.wizard.stop()
-            if path.endswith("preset"):
-                ok = hub.wled.set_preset(one("id", "1"))
-            elif path.endswith("effect"):
-                ok = hub.wled.set_effect(one("index", "0"))
-            else:
-                ok = hub.wled.set_palette(one("index", "0"))
-            self._json({"ok": ok, **hub.status()})
-
-        # --- wizard
-        elif path == "/api/wizard/count/start":
-            hub.engine.stop()
-            reported = hub.wled.led_count() or hub.cfg.get("led_count")
-            self._json(hub.wizard.count_start(reported))
-        elif path == "/api/wizard/count/answer":
-            self._json(hub.wizard.count_answer(one("lit", "0") in ("1", "true", "yes")))
-        elif path == "/api/wizard/marker":
-            hub.engine.stop()
-            self._json(hub.wizard.marker(one("index", "0")))
-        elif path == "/api/wizard/gradient":
-            hub.engine.stop()
-            self._json(hub.wizard.gradient())
-        elif path == "/api/wizard/stop":
-            self._json(hub.wizard.stop())
-
-        elif path == "/api/serial/ports":
-            cfg = hub.cfg.snapshot()
-            self._json({
-                "ports": list_ports(),
-                "current": cfg["serial_port"],
-                "output": cfg["output"],
-                "baud": cfg["serial_baud"],
-                "recommended_baud": required_baud(cfg["led_count"], cfg["fps"]),
-                "pyserial": _pyserial_available(),
-            })
-
-        elif path == "/api/flash/check":
-            self._json({
-                "esptool": esptool_available(),
-                "pyserial": _pyserial_available(),
-                "ports": list_ports(),
-            })
-        elif path == "/api/flash/networks":
-            self._json(known_networks())
-        elif path == "/api/flash/start":
-            port = one("port", "")
-            ssid = one("ssid", "")
-            if not port or not ssid:
-                self._json({"error": "a port and a Wi-Fi name are required"}, 400)
-                return
-            if port not in list_ports():
-                self._json({"error": "that port is not a connected board"}, 400)
-                return
-            try:
-                hub.engine.stop()   # the cable cannot carry pixels and a flash at once
-                hub.provisioner.start(port, ssid, one("password", ""),
-                                      flash=one("flash", "0") == "1")
-            except RuntimeError as exc:
-                self._json({"error": str(exc)}, 409)
-                return
-            self._json(hub.provisioner.status())
-        elif path == "/api/flash/status":
-            self._json(hub.provisioner.status())
-        elif path == "/api/flash/adopt":
-            # Point the hub at the board that was just provisioned.
-            st = hub.provisioner.status()
-            if not st.get("ip"):
-                self._json({"error": "no address to adopt yet"}, 409)
-                return
-            hub.cfg.update({"wled_ip": st["ip"], "output": "udp"})
-            self._json(hub.status())
-
-        elif path == "/api/effects":
-            self._json({"effects": effect_catalogue()})
-        elif path == "/api/effect/run":
-            # An effect is rendered by the controller, so realtime data must stop
-            # or it would overwrite every frame the effect draws.
-            hub.engine.stop()
-            hub.wizard.stop()
-            colour = one("color")
-            rgb = None
-            if colour:
-                text = colour.lstrip("#")
-                if len(text) == 6:
-                    try:
-                        rgb = [int(text[i:i + 2], 16) for i in (0, 2, 4)]
-                    except ValueError:
-                        rgb = None
-            payload = state_for(one("fx", "9"), one("speed"), one("intensity"),
-                                rgb, one("brightness"))
-            self._json({"ok": hub.wled.apply(payload), **hub.status()})
-
-        elif path == "/api/diagnostics":
-            self._json(hub.diagnostics())
-        else:
-            self._json({"error": "not found"}, 404)
 
 
 class Hub:
@@ -353,23 +178,6 @@ class Hub:
             "safety": engine.stage.safety(),
             "plugins": plugins,
         }
-
-
-def monitors():
-    """Displays that can be captured, numbered as monitor_index expects."""
-    import mss
-
-    with mss.mss() as shots:
-        return [{"index": i, "width": m["width"], "height": m["height"], "primary": i == 1}
-                for i, m in enumerate(shots.monitors) if i > 0]
-
-
-def _pyserial_available():
-    try:
-        import serial  # noqa: F401
-    except ImportError:
-        return False
-    return True
 
 
 class HubServer(ThreadingHTTPServer):
