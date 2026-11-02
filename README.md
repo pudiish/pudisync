@@ -4,9 +4,11 @@ Screen-synced LED lighting for a WLED strip, driven from your phone's browser.
 Runs as one Python process on a Mac. No app, no cloud, no account — your home
 network only.
 
-![tests](https://img.shields.io/badge/tests-320%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-360%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
+- A phone page stored **on the WLED board**: monitor sync, effects and a colour
+  picker, working even when the Mac is off
 - Follows the screen with a strip **wrapped round the monitor** (or along the bottom
   only), and hugs the picture when a video has black bars
 - A colour engine modelled on HyperHDR and Philips Ambilight: averaging in linear
@@ -221,9 +223,38 @@ The strip is usually longer than the monitor. Zones give each stretch its own jo
 Drag a zone's handles on the strip to resize it, or drag the dashed **screen
 region** itself. With no zones at all, the whole strip follows the screen.
 
-## 7. Add to your iPhone home screen
+## 7. The phone page lives on the board
 
-Safari ▸ **Share** ▸ **Add to Home Screen**. It then opens full-screen like an app.
+The page you use day to day is stored **on the WLED board itself**, so it loads
+whenever the strip has power, with the Mac switched off. Open the board's address
+on your phone (`http://wled-6b0bc6.local`, or its IP):
+
+- **Monitor**: one button for screen sync
+- **Effects**: twelve one-tap effects, with speed and intensity
+- **Colour**: a colour wheel and quick swatches
+- a power switch and a brightness bar
+
+On an iPhone: Safari ▸ **Share** ▸ **Add to Home Screen**.
+
+**How monitor sync works without the page knowing the Mac.** Monitor sync is a WLED
+preset ("Monitor sync", id `sync_preset`). The hub on the Mac watches the board:
+while that preset is active it streams your screen, and the moment you pick an
+effect or colour on the page it stops. If the Mac is off, the page says "Waiting
+for your Mac" and the strip glows a soft warm white until the hub is running.
+
+Install or update the page (turn screen sync off first; it writes to the board's
+flash):
+
+```bash
+python3 ambilight.py --deploy-board
+```
+
+The source is `board/index.htm`; it is uploaded compressed (~6 KB). WLED's own
+interface stays at `/settings`. To go back to WLED's page entirely, delete
+`index.htm.gz` in WLED's file editor at `/edit`.
+
+The hub's own page at `http://yourmac.local:8080` is now the **setup and tuning**
+page: flashing, strip layout and test pattern, zones, and colour calibration.
 
 ## 8. iOS Shortcuts
 
@@ -265,7 +296,7 @@ runs, the hub holds off idle system sleep so phones can still reach it.
 ## 10. Testing without hardware
 
 ```bash
-python3 tests.py           # ~320 checks; starts its own fake WLED and sandbox hub
+python3 tests.py           # ~360 checks; starts its own fake WLED and sandbox hub
 ```
 
 The test run starts a fake WLED and a sandbox hub on ports 8790-8791 with a

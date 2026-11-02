@@ -1256,6 +1256,286 @@ def test_quartz_capture():
     cap.close()
 
 
+def test_sync_intent():
+    print("\n22. The Mac follows the board: stream while WLED is in the sync preset")
+    from ambilight.intent import SyncIntent
+
+    class Board:
+        def __init__(self):
+            self.ps, self.up = -1, True
+
+        def state(self):
+            return {"ps": self.ps} if self.up else None
+
+    class Engine:
+        running = False
+
+        def start(self):
+            self.running = True
+
+        def stop(self):
+            self.running = False
+
+    board, engine, now = Board(), Engine(), [0.0]
+    cfg = Config(CONFIG_FOR_TESTS)
+    cfg.update({"sync_preset": 1})
+    intent = SyncIntent(cfg, board, engine, clock=lambda: now[0])
+
+    check("nothing streams while the board shows something else", intent.tick() is None and not engine.running)
+    board.ps = 1
+    check("choosing monitor sync on the board starts the stream", intent.tick() == "started" and engine.running)
+    check("it keeps running while the board stays in sync", intent.tick() is None and engine.running)
+    board.ps = -1
+    check("picking an effect or colour stops it", intent.tick() == "stopped" and not engine.running)
+    board.ps = 1
+    intent.tick()
+    board.up = False
+    check("an unreachable board never changes anything", intent.tick() is None and engine.running)
+    board.up = True
+
+    engine.stop()
+    intent.pause(60)
+    board.ps = 1
+    check("while paused (setup wizard, flashing) it does not restart", intent.tick() is None and not engine.running)
+    now[0] += 61
+    check("the pause expires by itself", intent.tick() == "started" and engine.running)
+    intent.pause(600)
+    intent.resume()
+    engine.stop()
+    check("resume ends a pause at once", intent.tick() == "started")
+
+
+def test_sync_routes():
+    print("\n23. Hub routes keep the board and the stream in step")
+    from urllib.parse import parse_qs
+    from ambilight import routes
+    from ambilight.intent import SyncIntent
+
+    class Wled:
+        def __init__(self):
+            self.sent = []
+
+        def set_preset(self, pid):
+            self.sent.append(("preset", int(pid)))
+            return True
+
+        def apply(self, payload):
+            self.sent.append(("apply", payload))
+            return True
+
+        def state(self):
+            return {"ps": 1}
+
+    class Engine:
+        running = False
+
+        def start(self):
+            Engine.running = True
+
+        def stop(self):
+            Engine.running = False
+
+        def status(self):
+            return {"running": Engine.running}
+
+    class Wizard:
+        def stop(self):
+            return {}
+
+        def gradient(self):
+            return {}
+
+    class Hub:
+        wled, engine, wizard = Wled(), Engine(), Wizard()
+        cfg = Config(CONFIG_FOR_TESTS)
+
+        def status(self):
+            return {"running": Engine.running}
+
+    hub = Hub()
+    hub.intent = SyncIntent(hub.cfg, hub.wled, hub.engine)
+    hub.intent.pause(300)
+    routes.handle(hub, "/api/sync/on", parse_qs(""))
+    check("sync on asks the board for the sync preset", ("preset", 1) in hub.wled.sent, hub.wled.sent)
+    check("and lifts any setup pause", hub.intent.paused_until == 0.0)
+    check("and starts the stream", Engine.running)
+
+    hub.wled.sent.clear()
+    routes.handle(hub, "/api/sync/off", parse_qs(""))
+    kind, payload = hub.wled.sent[-1]
+    seg = payload["seg"][0]
+    check("sync off stops the stream", not Engine.running)
+    check("and really changes the board's look, so the preset clears",
+          kind == "apply" and seg["fx"] == 0 and seg["col"][0] != [40, 26, 10], payload)
+
+    routes.handle(hub, "/api/wizard/gradient", parse_qs(""))
+    check("a test pattern pauses the watcher so it cannot restart sync", hub.intent.paused_until > 0)
+    routes.handle(hub, "/api/wizard/stop", parse_qs(""))
+    check("finishing the wizard lets it follow the board again", hub.intent.paused_until == 0.0)
+
+
+def test_board_deploy():
+    print("\n24. Installing the control page and sync preset on the board")
+    import gzip, http.server, pathlib, threading as th
+    from ambilight import board
+
+    seen = {"uploads": [], "states": [], "deleted": [], "live": False, "page": b"", "presets": {}}
+
+    class FakeBoard(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def reply(self, body, ctype="application/json", extra=None):
+            data = body if isinstance(body, bytes) else json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            for key, value in (extra or {}).items():
+                self.send_header(key, value)
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            if self.path == "/json/info":
+                self.reply({"ver": "16.0.1", "live": seen["live"], "fs": {"u": 65, "t": 1024}})
+            elif self.path == "/presets.json":
+                self.reply(seen["presets"])
+            elif self.path.startswith("/edit?func=delete"):
+                seen["deleted"].append(urllib.parse.unquote(self.path.split("path=")[1]))
+                self.reply(b"File deleted", "text/plain")
+            elif self.path == "/":
+                self.reply(seen["page"], "text/html", {"Content-Encoding": "gzip"})
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers["Content-Length"]))
+            if self.path == "/upload":
+                seen["uploads"].append((self.headers["Content-Type"], body))
+                seen["page"] = body.split(b"\r\n\r\n", 1)[1].rsplit(b"\r\n--", 1)[0]
+                self.reply(b"File Uploaded!", "text/plain")
+            else:
+                state = json.loads(body)
+                seen["states"].append(state)
+                if "psave" in state:
+                    seen["presets"][str(state["psave"])] = {"n": state["n"], "bri": 255}
+                self.reply({"success": True})
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeBoard)
+    th.Thread(target=server.serve_forever, daemon=True).start()
+    host = f"127.0.0.1:{server.server_address[1]}"
+    page = pathlib.Path(tempfile.mkdtemp()) / "index.htm"
+    html = "<!doctype html><title>Ambilight</title><p>hello</p>" * 40
+    page.write_text(html)
+
+    try:
+        result = board.deploy(host, 1, page)
+        content_type, body = seen["uploads"][0]
+        check("the page is uploaded as a multipart file named /index.htm.gz",
+              content_type.startswith("multipart/form-data") and b'filename="/index.htm.gz"' in body, content_type)
+        check("it is compressed, which makes loading about three times faster",
+              len(seen["page"]) < len(html) / 3, (len(seen["page"]), len(html)))
+        check("the plain copy is removed, because the board prefers it over the .gz",
+              seen["deleted"] == ["/index.htm"], seen["deleted"])
+        check("the board serves back exactly the page", gzip.decompress(seen["page"]).decode() == html
+              and result["page_ok"])
+        saved = [s for s in seen["states"] if "psave" in s][0]
+        check("the sync preset is saved under its id and name", saved["psave"] == 1 and saved["n"] == "Monitor sync", saved)
+        check("it is a plain lamp, so the strip is never dark or glaring while the Mac is off",
+              saved["seg"][0]["fx"] == 0 and max(saved["seg"][0]["col"][0]) < 80)
+        check("the preset carries no brightness, so choosing it never changes yours", saved["ib"] is False, saved)
+        check("the saved preset is confirmed", result["preset_ok"])
+        seen["live"] = True
+        try:
+            board.deploy(host, 1, page)
+            check("a board that is receiving a stream is refused", False)
+        except RuntimeError as exc:
+            check("a board that is receiving a stream is refused", "sync" in str(exc), str(exc))
+    finally:
+        server.shutdown()
+
+def test_board_ui():
+    print("\n25. The control page on the board")
+    import pathlib, re, shutil
+    from ambilight.config import DEFAULTS
+
+    html = pathlib.Path("board/index.htm").read_text()
+    script = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
+
+    check("it is small enough for the board's flash and slow Wi-Fi", len(html) < 30000, f"{len(html)} bytes")
+    check("it fetches only WLED's own state endpoints",
+          set(re.findall(r'fetch\("([^"]+)"', script)) == {"/json/state", "/json/si"})
+    check("it loads nothing from outside the board", not re.search(r"(src|href)=\"https?://|url\(https?://", html))
+    check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
+    check("its sync preset matches the hub's", f"SYNC_PRESET = {DEFAULTS['sync_preset']};" in script)
+    check("the three things asked for are all there",
+          all(f'id="panel-{name}"' in html for name in ("monitor", "effects", "colour")))
+    check("controls have accessible names", html.count("aria-label") >= 4 and 'for="bri"' in html)
+    effects_block = script[script.index("const EFFECTS"):script.index("const SWATCHES")]
+    fx_ids = [int(x) for x in re.findall(r"\{fx: (\d+),", effects_block)]
+    check("twelve effects, no duplicates", len(fx_ids) == 12 == len(set(fx_ids)), fx_ids)
+
+    # The wheel's maths measures hue clockwise from 3 o'clock (atan2, y down), so
+    # the painted gradient must start there too, or the marker lands off its colour.
+    check("the wheel's red sits at 3 o'clock, where the maths puts hue 0",
+          "conic-gradient(from 90deg,#f00" in html)
+    check("the wait for the Mac is timed from the tap and the state refreshes at once",
+          "waitingSince = Date.now();" in script and "post({on: true, ps: SYNC_PRESET}); poll();" in script)
+    check("choosing monitor sync sends only the preset, so brightness is untouched",
+          'post({on: true, ps: SYNC_PRESET})' in script and "queue({bri})" not in script)
+
+    node = shutil.which("node")
+    if not node:
+        print("    (skipped: node not installed, so the page's script was not run)")
+        return
+    folder = pathlib.Path(tempfile.mkdtemp())
+    (folder / "page.js").write_text(script)
+    syntax = subprocess.run([node, "--check", str(folder / "page.js")], capture_output=True, text=True)
+    check("the script parses", syntax.returncode == 0, syntax.stderr[:200])
+
+    pure = "\n".join(re.search(rf"function {name}\(.*?\n}}", script, re.S).group(0)
+                     for name in ("hsvToRgb", "rgbToHs"))
+    probe = pure + r"""
+const same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 1);
+const out = [];
+out.push(same(hsvToRgb(0, 1), [255, 0, 0]), same(hsvToRgb(120, 1), [0, 255, 0]), same(hsvToRgb(240, 1), [0, 0, 255]));
+out.push(same(hsvToRgb(200, 0), [255, 255, 255]));
+// the wheel always shows full brightness, so round-trip colours with a 255 channel
+for (const rgb of [[255, 40, 30], [30, 255, 90], [170, 60, 255], [255, 120, 0]]) {
+  const [h, s] = rgbToHs(rgb); out.push(same(hsvToRgb(h, s), rgb));
+}
+console.log(JSON.stringify(out));
+"""
+    (folder / "wheel.js").write_text(probe)
+    run = subprocess.run([node, str(folder / "wheel.js")], capture_output=True, text=True)
+    results = json.loads(run.stdout) if run.returncode == 0 else []
+    check("the colour wheel maps angle and distance to the right colours", results and all(results), run.stderr[:200] or results)
+
+
+def test_fake_wled_presets():
+    print("\n26. The fake WLED clears the active preset on a manual change, like the real board")
+    import http.server, threading as th
+    import fake_wled
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), fake_wled.Handler)
+    th.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def post(patch):
+        req = urllib.request.Request(base + "/json/state", json.dumps(patch).encode(),
+                                     {"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=3).read()
+        return json.loads(urllib.request.urlopen(base + "/json/state", timeout=3).read())
+
+    try:
+        check("loading a preset sets the flag", post({"ps": 1})["ps"] == 1)
+        check("a manual change clears it", post({"seg": [{"id": 0, "fx": 2}]})["ps"] == -1)
+        check("so does a brightness change", post({"ps": 1}) and post({"bri": 90})["ps"] == -1)
+    finally:
+        server.shutdown()
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -1359,6 +1639,11 @@ def main():
     test_frame_wizard()
     test_firmware_download()
     test_quartz_capture()
+    test_sync_intent()
+    test_sync_routes()
+    test_board_deploy()
+    test_board_ui()
+    test_fake_wled_presets()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)
