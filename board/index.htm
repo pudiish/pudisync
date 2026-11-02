@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0c10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ambilight">
+<title>Ambilight</title>
+<style>
+:root{--bg:#0b0c10;--surface:#14161c;--raise:#1d2028;--line:#2b303a;--text:#f3f4f6;--muted:#a3a9b5;
+  --accent:#ffb347;--ink:#1b1204;--radius:18px;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif}
+body{min-height:100dvh;max-width:520px;margin:0 auto;padding:env(safe-area-inset-top) 18px 0;
+  display:flex;flex-direction:column}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+header{display:flex;align-items:center;justify-content:space-between;padding:18px 2px 14px}
+h1{margin:0;font-size:22px;font-weight:650;letter-spacing:.2px}
+.switch{width:56px;height:34px;border-radius:17px;border:0;background:var(--raise);position:relative;
+  box-shadow:inset 0 0 0 1px var(--line);transition:background .2s}
+.switch::after{content:"";position:absolute;top:4px;left:4px;width:26px;height:26px;border-radius:50%;
+  background:var(--muted);transition:transform .2s,background .2s}
+.switch[aria-checked=true]{background:var(--accent)}
+.switch[aria-checked=true]::after{transform:translateX(22px);background:var(--ink)}
+
+#banner{margin:0 0 12px;padding:12px 14px;border-radius:12px;background:#3a1717;color:#ffd5d5;font-size:15px}
+
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:14px;background:var(--surface);
+  box-shadow:inset 0 0 0 1px var(--line)}
+.tabs button{min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--muted);font-weight:600}
+.tabs button[aria-selected=true]{background:var(--accent);color:var(--ink)}
+
+main{flex:1;padding:26px 0 24px}
+section[hidden]{display:none}
+
+/* Monitor */
+.hero{display:grid;justify-items:center;gap:22px;text-align:center}
+.orb{width:min(64vw,240px);aspect-ratio:1;border-radius:50%;border:2px solid var(--line);
+  background:radial-gradient(circle at 50% 35%,var(--raise),var(--surface));display:grid;place-content:center;
+  justify-items:center;gap:8px;transition:border-color .25s,box-shadow .25s}
+.orb svg{width:54px;height:54px;stroke:var(--muted);fill:none;stroke-width:1.6;transition:stroke .25s}
+.orb b{font-size:20px}
+.orb small{color:var(--muted);font-size:14px}
+.orb[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 7px rgba(255,179,71,.1),0 0 56px rgba(255,179,71,.3)}
+.orb[aria-pressed=true] svg{stroke:var(--accent)}
+.note{margin:0;color:var(--muted);font-size:15px;max-width:34ch}
+
+/* Effects */
+.tiles{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.tile{width:100%;padding:0;border:2px solid transparent;border-radius:var(--radius);background:var(--surface);
+  overflow:hidden;text-align:left;box-shadow:inset 0 0 0 1px var(--line)}
+.tile i{display:block;height:58px}
+.tile span{display:block;padding:10px 12px;font-weight:600}
+.tile[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 24px rgba(255,179,71,.22)}
+.sliders{display:grid;gap:4px;margin-top:22px}
+
+/* Colour */
+.wheel{position:relative;width:min(78vw,300px);aspect-ratio:1;margin:0 auto;border-radius:50%;touch-action:none;
+  background:radial-gradient(circle,#fff 0,rgba(255,255,255,0) 68%),
+  conic-gradient(from 90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);box-shadow:0 0 0 1px var(--line)}
+.thumb{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;border:3px solid #fff;
+  box-shadow:0 0 0 1.5px rgba(0,0,0,.55),0 4px 12px rgba(0,0,0,.5);pointer-events:none}
+.swatches{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:26px}
+.swatches button{aspect-ratio:1;border-radius:50%;border:2px solid var(--line);min-height:44px}
+.swatches button[aria-pressed=true]{border-color:#fff;box-shadow:0 0 0 3px var(--accent)}
+
+/* Sliders */
+.field{display:grid;grid-template-columns:1fr auto;align-items:center;gap:2px 12px;padding:6px 0}
+.field label{font-weight:600}
+.field output{color:var(--muted);font-variant-numeric:tabular-nums}
+.field input{grid-column:1/-1}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:36px;background:transparent;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:8px;border-radius:4px;background:var(--raise);box-shadow:inset 0 0 0 1px var(--line)}
+input[type=range]::-moz-range-track{height:8px;border-radius:4px;background:var(--raise);box-shadow:inset 0 0 0 1px var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;margin-top:-10px;border-radius:50%;
+  background:var(--accent);border:0;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+input[type=range]::-moz-range-thumb{width:28px;height:28px;border-radius:50%;background:var(--accent);border:0}
+
+.bar{position:sticky;bottom:0;margin:0 -18px;padding:10px 18px calc(10px + env(safe-area-inset-bottom));
+  background:rgba(11,12,16,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--line)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ambilight</h1>
+  <button id="power" class="switch" role="switch" aria-checked="true" aria-label="Lights"></button>
+</header>
+
+<p id="banner" role="status" hidden></p>
+
+<div class="tabs" role="tablist" aria-label="What the lights show">
+  <button role="tab" id="tab-monitor" aria-controls="panel-monitor" aria-selected="true">Monitor</button>
+  <button role="tab" id="tab-effects" aria-controls="panel-effects" aria-selected="false" tabindex="-1">Effects</button>
+  <button role="tab" id="tab-colour" aria-controls="panel-colour" aria-selected="false" tabindex="-1">Colour</button>
+</div>
+
+<main>
+  <section id="panel-monitor" role="tabpanel" aria-labelledby="tab-monitor">
+    <div class="hero">
+      <button id="sync" class="orb" aria-pressed="false" aria-describedby="sync-note">
+        <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="5" y="9" width="38" height="24" rx="3"/><path d="M17 41h14M24 33v8"/></svg>
+        <b>Monitor sync</b>
+        <small id="sync-state" role="status">Off</small>
+      </button>
+      <p id="sync-note" class="note">The lights follow what is on your monitor.</p>
+    </div>
+  </section>
+
+  <section id="panel-effects" role="tabpanel" aria-labelledby="tab-effects" hidden>
+    <ul id="tiles" class="tiles"></ul>
+    <div class="sliders">
+      <div class="field"><label for="speed">Speed</label><output id="speed-out" for="speed"></output>
+        <input id="speed" type="range" min="0" max="255"></div>
+      <div class="field"><label for="intensity">Intensity</label><output id="intensity-out" for="intensity"></output>
+        <input id="intensity" type="range" min="0" max="255"></div>
+    </div>
+  </section>
+
+  <section id="panel-colour" role="tabpanel" aria-labelledby="tab-colour" hidden>
+    <div id="wheel" class="wheel" role="slider" tabindex="0" aria-label="Colour: hue and softness"
+         aria-valuetext="Warm white"><div id="thumb" class="thumb"></div></div>
+    <div id="swatches" class="swatches" role="group" aria-label="Quick colours"></div>
+  </section>
+</main>
+
+<footer class="bar">
+  <div class="field"><label for="bri">Brightness</label><output id="bri-out" for="bri"></output>
+    <input id="bri" type="range" min="5" max="255"></div>
+</footer>
+
+<script>
+"use strict";
+const SYNC_PRESET = 1;      // WLED preset "Monitor sync"; the Mac streams while it is active
+const POLL_MS = 2000, WAIT_MS = 5000, TOUCH_MS = 2500;
+const WARM = [255, 170, 80];
+
+const EFFECTS = [
+  {fx: 63,  name: "Pride",      sx: 128, ix: 128, look: "linear-gradient(90deg,#ff6b6b,#ffd166,#6bff9e,#6bc8ff,#b46bff)"},
+  {fx: 67,  name: "Colorwaves", sx: 100, ix: 128, look: "linear-gradient(90deg,#ff7a59,#ffb36b,#7aa2ff,#b07aff)"},
+  {fx: 38,  name: "Aurora",     sx: 90,  ix: 128, look: "linear-gradient(90deg,#2dd4a3,#3b82f6,#a855f7)"},
+  {fx: 101, name: "Pacifica",   sx: 100, ix: 128, look: "linear-gradient(90deg,#0ea5e9,#14b8a6,#1e3a8a)"},
+  {fx: 75,  name: "Lake",       sx: 80,  ix: 128, look: "linear-gradient(90deg,#1d4ed8,#22d3ee,#0f766e)"},
+  {fx: 2,   name: "Breathe",    sx: 80,  ix: 128, look: "radial-gradient(circle,#ffd9a0,#3a2a12)"},
+  {fx: 88,  name: "Candle",     sx: 96,  ix: 224, look: "linear-gradient(0deg,#ffd27a,#ff7a1a,#5a1d00)"},
+  {fx: 66,  name: "Fire",       sx: 130, ix: 160, look: "linear-gradient(0deg,#fff2a0,#ff8a1a,#d1300a,#3b0a05)"},
+  {fx: 80,  name: "Twinkle",    sx: 100, ix: 128, look: "radial-gradient(circle at 20% 30%,#fff 0 2px,transparent 3px),radial-gradient(circle at 70% 60%,#fff 0 2px,transparent 3px),radial-gradient(circle at 45% 80%,#9cf 0 2px,transparent 3px),#101a3a"},
+  {fx: 97,  name: "Plasma",     sx: 100, ix: 128, look: "linear-gradient(135deg,#ff3cac,#784ba0,#2b86c5)"},
+  {fx: 9,   name: "Rainbow",    sx: 100, ix: 128, look: "linear-gradient(90deg,#f00,#ffa500,#ff0,#0f0,#0ff,#00f,#f0f)"},
+  {fx: 76,  name: "Meteor",     sx: 128, ix: 128, look: "linear-gradient(90deg,#0b0c10,#fff 82%,#7fe)"},
+];
+const SWATCHES = [
+  ["Warm white", WARM], ["Soft white", [255, 214, 170]], ["White", [255, 255, 255]], ["Red", [255, 40, 30]],
+  ["Orange", [255, 120, 0]], ["Yellow", [255, 220, 0]], ["Green", [30, 230, 90]], ["Cyan", [0, 200, 255]],
+  ["Blue", [40, 80, 255]], ["Purple", [170, 60, 255]],
+];
+
+const $ = id => document.getElementById(id);
+let state = null, info = null, tab = null, waitingSince = null, touchedAt = 0;
+let last = load();
+
+/* ---------- talking to the board ---------- */
+let inflight = false, pending = null;
+
+function queue(top, seg) {
+  pending = pending || {top: {}, seg: {}};
+  Object.assign(pending.top, top);
+  Object.assign(pending.seg, seg || {});
+  flush();
+}
+
+async function post(payload) {
+  const res = await fetch("/json/state", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)});
+  if (!res.ok) throw new Error(String(res.status));
+}
+
+async function flush() {
+  if (inflight || !pending) return;
+  const {top, seg} = pending;
+  pending = null;
+  const payload = Object.assign({}, top);
+  if (Object.keys(seg).length) payload.seg = [Object.assign({id: 0}, seg)];
+  inflight = true;
+  try { await post(payload); showBanner(false); }
+  catch (err) { showBanner(true); }
+  finally { inflight = false; if (pending) setTimeout(flush, 70); }
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/json/si", {cache: "no-store"});
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    state = data.state; info = data.info;
+    showBanner(false);
+    render();
+  } catch (err) { showBanner(true); }
+  clearTimeout(poll.timer);
+  if (!document.hidden) poll.timer = setTimeout(poll, POLL_MS);
+}
+
+function showBanner(down) {
+  const el = $("banner");
+  el.hidden = !down;
+  if (down) el.textContent = "Can't reach the strip. Check that it has power and your phone is on the home Wi-Fi.";
+}
+
+/* ---------- remembered look, used when monitor sync is switched off ---------- */
+function load() {
+  try { return Object.assign({fx: 0, sx: 128, ix: 128, rgb: WARM}, JSON.parse(localStorage.getItem("ambilight") || "{}")); }
+  catch (err) { return {fx: 0, sx: 128, ix: 128, rgb: WARM}; }
+}
+function remember(change) {
+  last = Object.assign(last, change);
+  try { localStorage.setItem("ambilight", JSON.stringify(last)); } catch (err) { /* private mode: fine */ }
+}
+function touch() { touchedAt = Date.now(); }
+const recentlyTouched = () => Date.now() - touchedAt < TOUCH_MS;
+
+/* ---------- actions ---------- */
+function runEffect(e) {
+  touch();
+  remember({fx: e.fx, sx: e.sx, ix: e.ix});
+  queue({on: true, lor: 1}, {fx: e.fx, sx: e.sx, ix: e.ix, pal: 0});
+  $("speed").value = e.sx; $("intensity").value = e.ix;
+  outputs();
+}
+
+function runColour(rgb) {
+  touch();
+  remember({fx: 0, rgb});
+  queue({on: true, lor: 1}, {fx: 0, col: [rgb]});
+}
+
+async function toggleSync() {
+  touch();
+  if (state && state.ps === SYNC_PRESET) {
+    queue({on: true, lor: 1}, {fx: last.fx, sx: last.sx, ix: last.ix, pal: 0, col: [last.rgb]});
+    return;
+  }
+  waitingSince = Date.now();      // the wait for the Mac starts at the tap, not at the next poll
+  try { await post({on: true, ps: SYNC_PRESET}); poll(); }
+  catch (err) { showBanner(true); }
+}
+
+/* ---------- drawing ---------- */
+function render() {
+  const seg = (state.seg && state.seg[0]) || {};
+  const syncing = state.ps === SYNC_PRESET;
+  $("power").setAttribute("aria-checked", String(!!state.on));
+
+  if (tab === null) selectTab(syncing ? "monitor" : seg.fx ? "effects" : "colour");
+  if (!recentlyTouched()) {
+    $("bri").value = state.bri;
+    $("speed").value = seg.sx ?? 128;
+    $("intensity").value = seg.ix ?? 128;
+    if (!syncing && !seg.fx && seg.col && seg.col[0]) placeThumb(seg.col[0]);
+  }
+  outputs();
+
+  $("sync").setAttribute("aria-pressed", String(syncing));
+  syncText(syncing);
+  document.querySelectorAll(".tile").forEach(t =>
+    t.setAttribute("aria-pressed", String(!syncing && Number(t.dataset.fx) === seg.fx)));
+}
+
+function syncText(syncing) {
+  const label = $("sync-state"), note = $("sync-note");
+  if (!syncing) {
+    if (!recentlyTouched()) waitingSince = null;   // a poll just after a tap can still be stale
+    label.textContent = "Off";
+    note.textContent = "The lights follow what is on your monitor.";
+  } else if (info && info.live) {
+    waitingSince = null;
+    label.textContent = "Following your monitor";
+    note.textContent = "Pick an effect or a colour to stop.";
+  } else {
+    waitingSince = waitingSince || Date.now();
+    const late = Date.now() - waitingSince > WAIT_MS;
+    label.textContent = late ? "Waiting for your Mac" : "Connecting…";
+    note.textContent = late ? "Your Mac needs to be on and running Ambilight. Until then the strip glows a soft warm white."
+      : "Starting up…";
+  }
+}
+
+function outputs() {
+  $("bri-out").textContent = Math.round($("bri").value / 2.55) + "%";
+  $("speed-out").textContent = $("speed").value;
+  $("intensity-out").textContent = $("intensity").value;
+}
+
+function selectTab(name) {
+  tab = name;
+  for (const id of ["monitor", "effects", "colour"]) {
+    const on = id === name;
+    $("tab-" + id).setAttribute("aria-selected", String(on));
+    $("tab-" + id).tabIndex = on ? 0 : -1;
+    $("panel-" + id).hidden = !on;
+  }
+}
+
+/* ---------- building the page ---------- */
+function buildTiles() {
+  const list = $("tiles");
+  for (const e of EFFECTS) {
+    const item = document.createElement("li"), btn = document.createElement("button");
+    btn.className = "tile"; btn.dataset.fx = e.fx; btn.setAttribute("aria-pressed", "false");
+    const swatch = document.createElement("i"), name = document.createElement("span");
+    swatch.style.background = e.look; swatch.setAttribute("aria-hidden", "true");
+    name.textContent = e.name;
+    btn.append(swatch, name);
+    btn.addEventListener("click", () => runEffect(e));
+    item.append(btn); list.append(item);
+  }
+}
+
+function buildSwatches() {
+  for (const [name, rgb] of SWATCHES) {
+    const btn = document.createElement("button");
+    btn.style.background = `rgb(${rgb})`; btn.setAttribute("aria-label", name); btn.setAttribute("aria-pressed", "false");
+    btn.addEventListener("click", () => { placeThumb(rgb); runColour(rgb); markSwatch(rgb); });
+    $("swatches").append(btn);
+  }
+}
+
+function markSwatch(rgb) {
+  [...$("swatches").children].forEach((btn, i) =>
+    btn.setAttribute("aria-pressed", String(SWATCHES[i][1].join() === rgb.join())));
+}
+
+/* ---------- colour wheel: angle is hue, distance from the centre is softness ---------- */
+function hsvToRgb(h, s) {
+  const k = n => (n + h / 60) % 6, f = n => 1 - s * Math.max(0, Math.min(k(n), 4 - k(n), 1));
+  return [f(5), f(3), f(1)].map(v => Math.round(v * 255));
+}
+function rgbToHs(rgb) {
+  const [r, g, b] = rgb.map(v => v / 255), max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, max ? d / max : 0];
+}
+function placeThumb(rgb) {
+  const [h, s] = rgbToHs(rgb), angle = h * Math.PI / 180, r = s * 50;
+  $("thumb").style.left = 50 + r * Math.cos(angle) + "%";
+  $("thumb").style.top = 50 + r * Math.sin(angle) + "%";
+  $("thumb").style.background = `rgb(${rgb})`;
+  $("wheel").setAttribute("aria-valuetext", `Red ${rgb[0]}, green ${rgb[1]}, blue ${rgb[2]}`);
+}
+function wheelAt(event) {
+  const box = $("wheel").getBoundingClientRect();
+  const dx = (event.clientX - box.left) / box.width * 2 - 1, dy = (event.clientY - box.top) / box.height * 2 - 1;
+  const hue = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360, soft = Math.min(1, Math.hypot(dx, dy));
+  const rgb = hsvToRgb(hue, soft);
+  placeThumb(rgb); runColour(rgb); markSwatch(rgb);
+}
+function bindWheel() {
+  const wheel = $("wheel");
+  wheel.addEventListener("pointerdown", e => { wheel.setPointerCapture(e.pointerId); wheelAt(e); });
+  wheel.addEventListener("pointermove", e => { if (wheel.hasPointerCapture(e.pointerId)) wheelAt(e); });
+  wheel.addEventListener("keydown", e => {
+    const step = {ArrowLeft: -12, ArrowDown: -12, ArrowRight: 12, ArrowUp: 12}[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const [h, s] = rgbToHs(last.rgb), rgb = hsvToRgb((h + step + 360) % 360, Math.max(s, .6));
+    placeThumb(rgb); runColour(rgb);
+  });
+}
+
+function bindTabs() {
+  const names = ["monitor", "effects", "colour"];
+  names.forEach(name => {
+    $("tab-" + name).addEventListener("click", () => selectTab(name));
+    $("tab-" + name).addEventListener("keydown", e => {
+      const move = {ArrowRight: 1, ArrowLeft: -1}[e.key];
+      if (!move) return;
+      const next = names[(names.indexOf(name) + move + names.length) % names.length];
+      selectTab(next); $("tab-" + next).focus();
+    });
+  });
+}
+
+function bindControls() {
+  $("power").addEventListener("click", () => { touch(); queue({on: !(state && state.on)}); });
+  $("sync").addEventListener("click", toggleSync);
+  $("bri").addEventListener("input", () => { touch(); outputs(); queue({bri: Number($("bri").value)}); });
+  $("speed").addEventListener("input", () => { touch(); remember({sx: Number($("speed").value)}); outputs(); queue({lor: 1}, {sx: Number($("speed").value)}); });
+  $("intensity").addEventListener("input", () => { touch(); remember({ix: Number($("intensity").value)}); outputs(); queue({lor: 1}, {ix: Number($("intensity").value)}); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+}
+
+buildTiles(); buildSwatches(); bindWheel(); bindTabs(); bindControls();
+placeThumb(last.rgb);
+poll();
+</script>
+</body>
+</html>

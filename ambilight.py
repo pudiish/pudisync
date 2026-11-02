@@ -3,6 +3,7 @@
 
     python ambilight.py                       # uses config.json next to this file
     python ambilight.py --config other.json --port 8790 --no-bonjour
+    python ambilight.py --deploy-board        # install the phone page on the WLED board
 
 Home LAN only. Never forward the web port to the internet.
 """
@@ -12,6 +13,7 @@ import signal
 import sys
 import threading
 
+from ambilight import board
 from ambilight.config import CONFIG_PATH, Config
 from ambilight.discovery import Advertiser, hub_urls
 from ambilight.engine import Engine
@@ -27,7 +29,24 @@ def parse_args(argv):
     ap.add_argument("--port", type=int, help="web port for this run (not saved)")
     ap.add_argument("--no-bonjour", action="store_true",
                     help="do not advertise the hub on the LAN (test instances)")
+    ap.add_argument("--deploy-board", action="store_true",
+                    help="install the control page and sync preset on the WLED board, then exit")
     return ap.parse_args(argv)
+
+
+def deploy_board(config):
+    """Put the phone page on the board. Needs the screen stream off."""
+    host = config.get("wled_ip")
+    try:
+        result = board.deploy(host, config.get("sync_preset"))
+    except (OSError, RuntimeError) as exc:
+        print(f"Could not install the page on {host}: {exc}")
+        return 1
+    print(f"Installed on {host}: page {result['bytes']} bytes "
+          f"({result['plain_bytes']} before compression), "
+          f"{'verified' if result['page_ok'] else 'NOT verified'}; "
+          f"sync preset {'saved' if result['preset_ok'] else 'NOT saved'}.")
+    return 0 if result["page_ok"] and result["preset_ok"] else 1
 
 
 def compatibility_check():
@@ -47,6 +66,8 @@ def main():
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = parse_args(sys.argv[1:])
     config = Config(args.config)
+    if args.deploy_board:
+        sys.exit(deploy_board(config))
     compatibility_check()
 
     engine = Engine(config)
@@ -75,6 +96,7 @@ def main():
         engine.start()
 
     stopping = threading.Event()
+    hub.intent.start(stopping)      # follow the board's "Monitor sync" choice
 
     def shutdown(signum, frame):
         if stopping.is_set():
