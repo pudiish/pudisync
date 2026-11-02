@@ -458,7 +458,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
       <div class="field"><label for="monitor_index">Display</label><select id="monitor_index"></select></div>
       <button class="switch" type="button" role="switch" aria-checked="false" data-switch="letterbox"
         aria-describedby="hint-letterbox">Skip black bars<span class="toggle" aria-hidden="true"></span></button>
-      <p class="hint" id="hint-letterbox">Ignores letterbox bars under films (bottom-only layout).</p>
+      <p class="hint" id="hint-letterbox">Follows the picture's edges when a film has black bars, instead of lighting the bars.</p>
       <div class="fader" data-fader="fps"></div>
     </div>
     <div class="panel">
@@ -963,7 +963,7 @@ function renderSetup(s) {
   [...EDGE_KEYS, "box_mm_w", "box_mm_h"].forEach(k => fillInput($(k), s[k]));
   renderEdgeSum();
   setText($("test-hint"), frame
-    ? "Lights a colour ramp along the strip: red at the bottom-left corner, running round to blue."
+    ? "Each side lights its own colour: bottom red, right green, top blue, left white, brightening in the strip's direction. The start LED glows amber. A colour on the wrong side? Fix the counts in step 3."
     : "Lights red at the screen's left edge fading to blue at the right. Backwards? Swap the edges in step 3.");
   const urls = (s.urls || [location.origin]).map(u => `${u.replace(/\/$/, "")}/calibrate`);
   if (urls.join() !== urlsKey) {
