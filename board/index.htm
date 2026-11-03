@@ -138,7 +138,7 @@ input[type=range]::-moz-range-thumb{width:28px;height:28px;border-radius:50%;bac
 <script>
 "use strict";
 const SYNC_PRESET = 1;      // WLED preset "Monitor sync"; the Mac streams while it is active
-const POLL_MS = 2000, WAIT_MS = 5000, TOUCH_MS = 2500;
+const POLL_MS = 2000, WAIT_MS = 5000, TOUCH_MS = 2500, RETRY_MS = 2500, GIVE_UP_MS = 60000;
 const WARM = [255, 170, 80];
 
 const EFFECTS = [
@@ -163,6 +163,7 @@ const SWATCHES = [
 
 const $ = id => document.getElementById(id);
 let state = null, info = null, tab = null, waitingSince = null, touchedAt = 0;
+let wantSync = false, wantSince = 0, lastTry = 0;     // a monitor sync request the board has not confirmed yet
 let last = load();
 
 /* ---------- talking to the board ---------- */
@@ -226,7 +227,7 @@ const recentlyTouched = () => Date.now() - touchedAt < TOUCH_MS;
 
 /* ---------- actions ---------- */
 function runEffect(e) {
-  touch();
+  touch(); wantSync = false;
   remember({fx: e.fx, sx: e.sx, ix: e.ix});
   queue({on: true, lor: 1}, {fx: e.fx, sx: e.sx, ix: e.ix, pal: 0});
   $("speed").value = e.sx; $("intensity").value = e.ix;
@@ -234,7 +235,7 @@ function runEffect(e) {
 }
 
 function runColour(rgb) {
-  touch();
+  touch(); wantSync = false;
   remember({fx: 0, rgb});
   queue({on: true, lor: 1}, {fx: 0, col: [rgb]});
 }
@@ -245,9 +246,27 @@ async function toggleSync() {
     queue({on: true, lor: 1}, {fx: last.fx, sx: last.sx, ix: last.ix, pal: 0, col: [last.rgb]});
     return;
   }
-  waitingSince = Date.now();      // the wait for the Mac starts at the tap, not at the next poll
-  try { await post({on: true, ps: SYNC_PRESET}); poll(); }
-  catch (err) { showBanner(true); }
+  waitingSince = wantSince = Date.now();      // the wait for the Mac starts at the tap
+  wantSync = true;
+  await sendSync();
+}
+
+async function sendSync() {
+  lastTry = Date.now();
+  try { await post({on: true, ps: SYNC_PRESET}); showBanner(false); poll(); }
+  catch (err) { showBanner(true); }     // ensureSync tries again
+}
+
+/* A tap on Monitor sync is a request, not a one-shot command: until the board
+   reports the sync preset, keep asking (a Wi-Fi blip, a busy board). The Mac
+   side needs no retry from here, since it starts streaming by itself whenever
+   the board is in the sync preset. */
+function ensureSync() {
+  if (!wantSync || !state) return;
+  if (state.ps === SYNC_PRESET) { wantSync = false; return; }
+  const waited = Date.now() - wantSince;
+  if (waited > GIVE_UP_MS) { wantSync = false; return; }
+  if (Date.now() - lastTry >= RETRY_MS) sendSync();
 }
 
 /* ---------- drawing ---------- */
@@ -265,8 +284,9 @@ function render() {
   }
   outputs();
 
-  $("sync").setAttribute("aria-pressed", String(syncing));
-  syncText(syncing);
+  ensureSync();
+  $("sync").setAttribute("aria-pressed", String(syncing || wantSync));
+  syncText(syncing || wantSync);
   document.querySelectorAll(".tile").forEach(t =>
     t.setAttribute("aria-pressed", String(!syncing && Number(t.dataset.fx) === seg.fx)));
 }
@@ -285,7 +305,7 @@ function syncText(syncing) {
     waitingSince = waitingSince || Date.now();
     const late = Date.now() - waitingSince > WAIT_MS;
     label.textContent = late ? "Waiting for your Mac" : "Connecting…";
-    note.textContent = late ? "Your Mac needs to be on and running Ambilight. Until then the strip glows a soft warm white."
+    note.textContent = late ? "Your Mac needs to be on and running Ambilight. Sync will start by itself the moment it is ready; until then the strip glows a soft warm white."
       : "Starting up…";
   }
 }

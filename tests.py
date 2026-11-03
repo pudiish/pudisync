@@ -1494,7 +1494,14 @@ def test_board_ui():
     check("the wheel's red sits at 3 o'clock, where the maths puts hue 0",
           "conic-gradient(from 90deg,#f00" in html)
     check("the wait for the Mac is timed from the tap and the state refreshes at once",
-          "waitingSince = Date.now();" in script and "post({on: true, ps: SYNC_PRESET}); poll();" in script)
+          "waitingSince = wantSince = Date.now();" in script
+          and "post({on: true, ps: SYNC_PRESET}); showBanner(false); poll();" in script)
+    check("a monitor sync tap is retried until the board confirms it",
+          "wantSync" in script and "RETRY_MS" in script and "function ensureSync" in script)
+    check("picking an effect or colour cancels the pending sync",
+          script.count("wantSync = false") >= 3)
+    check("the page says it will start by itself when the Mac is ready",
+          "start by itself" in script)
     check("choosing monitor sync sends only the preset, so brightness is untouched",
           'post({on: true, ps: SYNC_PRESET})' in script and "queue({bri})" not in script)
 
