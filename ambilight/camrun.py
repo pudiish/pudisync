@@ -12,10 +12,13 @@ The maths lives in camcal.py; this module only moves pixels and photons:
 5. keep whichever settings matched best, the old ones included
 """
 import json
+import subprocess
+import sys
 import threading
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 import numpy as np
 
@@ -34,6 +37,8 @@ WORK_WIDTH = 640        # camera pictures are analysed at this width
 SETTINGS = ("led_matrix", "wb_r", "wb_g", "wb_b", "saturation")    # what calibration may change
 NOT_SHOWN = ("the test colours did not show on the monitor (another window on top?), "
              "or the camera does not see the whole monitor")
+SCRIPT = Path(__file__).resolve().parent.parent / "ambilight.py"
+JOB_LINES = 60          # progress lines kept for the web page
 VERIFY_COLOURS = [(255, 255, 255), (224, 172, 138), (255, 0, 0), (0, 200, 80),
                   (40, 80, 255), (255, 200, 90), (150, 60, 220), (0, 170, 160)]
 
@@ -78,6 +83,47 @@ def pick_camera(cameras, wanted=None):
         raise RuntimeError("no external webcam is connected (the built-in camera is never used); "
                            f"cameras seen: {', '.join(name for name, _ in cameras) or 'none'}")
     return usable[0]
+
+
+class CameraJob:
+    """Runs the calibration (or a check) for the web page, as its own process.
+
+    The test-colour window needs a main thread of its own, which the hub's web
+    server cannot give it, so the hub starts `ambilight.py --camera-calibrate`
+    and relays its progress lines. Same shape as provision.Provisioner.
+    """
+
+    def __init__(self, port, popen=subprocess.Popen, cameras=None):
+        self.port = port
+        self.popen = popen
+        self.cameras = cameras or list_cameras
+        self.lock = threading.Lock()
+        self.state, self.task, self.camera, self.lines = "idle", None, None, []
+
+    def status(self):
+        with self.lock:
+            return {"state": self.state, "task": self.task, "camera": self.camera, "log": list(self.lines)}
+
+    def start(self, task, wanted=None, seconds=60):
+        """task "calibrate" or "check"; raises RuntimeError when it cannot start."""
+        name = pick_camera(self.cameras(), wanted)[1]       # refuses the built-in camera
+        args = [sys.executable, str(SCRIPT), "--port", str(self.port), "--camera", name]
+        args += ["--camera-calibrate"] if task == "calibrate" else ["--camera-check", str(int(seconds))]
+        with self.lock:
+            if self.state == "working":
+                raise RuntimeError("a webcam calibration is already running")
+            process = self.popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                 cwd=str(SCRIPT.parent))
+            self.state, self.task, self.camera, self.lines = "working", task, name, []
+        threading.Thread(target=self.follow, args=(process,), daemon=True, name="camera-job").start()
+
+    def follow(self, process):
+        for line in process.stdout:
+            with self.lock:
+                self.lines = (self.lines + [line.strip()])[-JOB_LINES:]
+        code = process.wait()
+        with self.lock:
+            self.state = "done" if code == 0 else "error"
 
 
 def open_camera(wanted=None, log=print):

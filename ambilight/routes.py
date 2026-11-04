@@ -286,6 +286,25 @@ def flash_start(hub, q):
     return hub.provisioner.status(), OK
 
 
+def camera_list(hub, q):
+    from .camrun import list_cameras
+
+    cameras = [{"name": name, "builtin": builtin} for name, builtin in list_cameras()]
+    return {"cameras": cameras, **hub.camera.status()}, OK
+
+
+def camera_start(hub, q):
+    try:
+        hub.camera.start(q.one("task", "calibrate"), q.one("camera") or None, int(q.one("seconds", "60")))
+    except RuntimeError as exc:
+        return {"error": str(exc)}, 409
+    return hub.camera.status(), OK
+
+
+def camera_status(hub, q):
+    return hub.camera.status(), OK
+
+
 def flash_status(hub, q):
     return hub.provisioner.status(), OK
 
@@ -329,6 +348,9 @@ ROUTES = {
     "/api/wizard/stop": wizard_stop,
     "/api/calibrate/paint": calibrate_paint,
     "/api/calibrate/done": calibrate_done,
+    "/api/camera/list": camera_list,
+    "/api/camera/start": camera_start,
+    "/api/camera/status": camera_status,
     "/api/serial/ports": serial_ports,
     "/api/flash/check": flash_check,
     "/api/flash/networks": flash_networks,

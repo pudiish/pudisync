@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import routes
 from .access import PinGate, allowed_fetch_site, allowed_host
+from .camrun import CameraJob
 from .discovery import hub_urls
 from .intent import SyncIntent
 from .plugins import CAPTURES, OUTPUTS
@@ -126,6 +127,7 @@ class Hub:
         self.intent = SyncIntent(config, wled, engine)
         self.port = port or config.get("http_port")
         self.provisioner = Provisioner()
+        self.camera = CameraJob(self.port)
         self.wled_lock = threading.Lock()
         self.wled_cached = None
         self.wled_cached_at = -1e9

@@ -318,6 +318,11 @@ def test_api(base):
     s = get("/api/profiles/delete?name=Late%20Night")
     check("and deleted", "Late Night" not in get("/api/profiles")["user"])
 
+    listed = get("/api/camera/list")
+    check("the web page can list webcams, the built-in one marked as never used",
+          all(c["builtin"] == ("FaceTime" in c["name"]) for c in listed["cameras"])
+          and listed["state"] in ("idle", "done", "error"), listed)
+
     s = get("/api/set?saturation=1.8")
     check("/api/set changes a value live", abs(s["saturation"] - 1.8) < 0.01)
     s = get("/api/set?fps=9999")
@@ -2251,6 +2256,65 @@ def test_colour_locks():
     check("after a restart only the kept lock remains", [z["color"] for z in after] == ["#ff0000"], after)
 
 
+class FakeProcess:
+    """A finished child process: its output lines, then an exit code."""
+
+    def __init__(self, args, lines, code, gate):
+        self.args, self.code, self.gate = args, code, gate
+        self.stdout = iter(lines)
+        self.returncode = None
+
+    def wait(self):
+        self.gate.wait(5)
+        self.returncode = self.code
+        return self.code
+
+
+def test_webcam_job():
+    print("\n38. The web page runs the webcam calibration, never the built-in camera")
+    import threading
+    from ambilight import camrun
+
+    cameras = [("Lenovo FHD Webcam", False), ("FaceTime HD Camera", True)]
+    started, gate = [], threading.Event()
+
+    def popen(args, **kwargs):
+        started.append(args)
+        return FakeProcess(args, ["Using Lenovo FHD Webcam\n", "  matched white: mismatch 0.019\n"], 0, gate)
+
+    job = camrun.CameraJob(8080, popen=popen, cameras=lambda: cameras)
+    check("nothing runs at first", job.status()["state"] == "idle")
+    job.start("calibrate", "lenovo")
+    check("the calibration runs as its own process, on the named webcam",
+          "--camera-calibrate" in started[0] and "Lenovo FHD Webcam" in started[0] and "8080" in started[0], started[0])
+    try:
+        job.start("check", "lenovo")
+        refused = ""
+    except RuntimeError as exc:
+        refused = str(exc)
+    check("a second one is refused while the first runs", "already running" in refused, refused)
+    gate.set()
+    for _ in range(50):
+        if job.status()["state"] != "working":
+            break
+        time.sleep(0.02)
+    st = job.status()
+    check("its progress lines are relayed, and it ends done",
+          st["state"] == "done" and st["log"][-1] == "matched white: mismatch 0.019", st)
+    try:
+        job.start("calibrate", "facetime")
+        refused = ""
+    except RuntimeError as exc:
+        refused = str(exc)
+    check("the built-in camera is refused even when asked for", "built-in" in refused, refused)
+    check("and nothing was started for it", len(started) == 1)
+    gate.clear()
+    job.start("check", None, seconds=30)
+    check("a check scores for the asked number of seconds",
+          started[-1][-2:] == ["--camera-check", "30"], started[-1])
+    gate.set()
+
+
 def test_board_address_cache():
     print("\n32. A flaky .local name never stalls or drops the stream")
     from ambilight import hostcache
@@ -2434,6 +2498,7 @@ def main():
     test_immersion()
     test_user_profiles()
     test_colour_locks()
+    test_webcam_job()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)
