@@ -306,6 +306,18 @@ def test_api(base):
     check("/api/profile/game applies", s["profile"] == "game")
     check("game profile reacts faster", s["blend"] >= 0.5, f"blend={s['blend']}")
 
+    s = get("/api/set?immersion=0.7")
+    s = get("/api/profiles/save?name=Late%20Night")
+    check("the current look can be saved as a profile", s["profile"] == "Late Night")
+    get("/api/set?immersion=0")
+    s = get("/api/profile/Late%20Night")
+    check("and switched back to by name", s["profile"] == "Late Night" and abs(s["immersion"] - 0.7) < 1e-6)
+    listed = get("/api/profiles")
+    check("profiles are listed, built-in and your own",
+          listed["builtin"] == ["movie", "game"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
+    s = get("/api/profiles/delete?name=Late%20Night")
+    check("and deleted", "Late Night" not in get("/api/profiles")["user"])
+
     s = get("/api/set?saturation=1.8")
     check("/api/set changes a value live", abs(s["saturation"] - 1.8) < 0.01)
     s = get("/api/set?fps=9999")
@@ -2178,6 +2190,51 @@ def test_immersion():
           Config(os.path.join(tempfile.mkdtemp(), "c.json")).get("immersion") == 0.0)
 
 
+def test_user_profiles():
+    print("\n36. Your own profiles: save the whole look, switch, delete")
+    from ambilight.config import PROFILE_KEYS
+
+    path = os.path.join(tempfile.mkdtemp(prefix="ambilight-profiles-"), "config.json")
+    cfg = Config(path)
+    cfg.update({"immersion": 0.8, "saturation": 1.6, "blend": 0.45, "mouse_sync": True})
+    cfg.save_profile("Immersive")
+    check("saving keeps every part of the look", set(cfg.get("user_profiles")["Immersive"]) == set(PROFILE_KEYS))
+    check("and marks it as the active profile", cfg.get("profile") == "Immersive")
+    cfg.update({"immersion": 0.0, "saturation": 1.2, "blend": 0.3, "mouse_sync": False})
+    cfg.save_profile("Everyday")
+    cfg.apply_profile("Immersive")
+    look = {k: cfg.get(k) for k in ("immersion", "saturation", "blend", "mouse_sync")}
+    check("switching back restores all of it", look == {"immersion": 0.8, "saturation": 1.6, "blend": 0.45,
+                                                        "mouse_sync": True}, look)
+    check("profiles survive a restart", set(Config(path).get("user_profiles")) == {"Immersive", "Everyday"})
+    cfg.apply_profile("game")
+    check("the built-in profiles still work as before", cfg.get("blend") == 0.7 and cfg.get("immersion") == 0.8)
+
+    def refused(action, name):
+        try:
+            action(name)
+        except ValueError as exc:
+            return str(exc)
+        return ""
+
+    check("an unknown profile is refused", "unknown profile" in refused(cfg.apply_profile, "Nope"))
+    check("a built-in name cannot be overwritten", "built-in" in refused(cfg.save_profile, "movie"))
+    check("odd names are refused", refused(cfg.save_profile, "../../etc") != ""
+          and refused(cfg.save_profile, "") != "" and refused(cfg.save_profile, "x" * 40) != "")
+    cfg.delete_profile("Everyday")
+    check("a profile can be deleted", set(cfg.get("user_profiles")) == {"Immersive"})
+    check("deleting one that does not exist is refused", "unknown profile" in refused(cfg.delete_profile, "Everyday"))
+    with open(path) as fh:
+        stored = json.load(fh)
+    stored["user_profiles"]["Bad"] = {"saturation": "lots", "evil": 1}
+    stored["user_profiles"]["Fine"] = {"saturation": 9}
+    with open(path, "w") as fh:
+        json.dump(stored, fh)
+    reloaded = Config(path).get("user_profiles")
+    check("a damaged profile on disk is dropped, a good one is clamped and kept",
+          "Bad" not in reloaded and reloaded["Fine"]["saturation"] == 3.0, reloaded)
+
+
 def test_board_address_cache():
     print("\n32. A flaky .local name never stalls or drops the stream")
     from ambilight import hostcache
@@ -2359,6 +2416,7 @@ def main():
     test_camera_choice()
     test_mouse_sync()
     test_immersion()
+    test_user_profiles()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)

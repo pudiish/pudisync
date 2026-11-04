@@ -4,6 +4,7 @@ Every handler takes the hub and the request's query, and returns
 (payload, status code). Adding an endpoint is one function plus one entry.
 A ValueError raised anywhere becomes a 400 in the server.
 """
+import urllib.parse
 from pathlib import Path
 
 import numpy as np
@@ -68,9 +69,22 @@ def sync_toggle(hub, q):
 
 
 def profile(hub, q, name):
-    if name not in PROFILES:
-        return {"error": f"unknown profile {name}"}, 400
     hub.cfg.apply_profile(name)
+    return hub.status(), OK
+
+
+def profiles(hub, q):
+    return {"builtin": list(PROFILES), "user": hub.cfg.get("user_profiles"),
+            "active": hub.cfg.get("profile")}, OK
+
+
+def profile_save(hub, q):
+    hub.cfg.save_profile(q.one("name", ""))
+    return hub.status(), OK
+
+
+def profile_delete(hub, q):
+    hub.cfg.delete_profile(q.one("name", ""))
     return hub.status(), OK
 
 
@@ -290,6 +304,9 @@ ROUTES = {
     "/api/sync/on": sync_on,
     "/api/sync/off": sync_off,
     "/api/sync/toggle": sync_toggle,
+    "/api/profiles": profiles,
+    "/api/profiles/save": profile_save,
+    "/api/profiles/delete": profile_delete,
     "/api/set": set_values,
     "/api/config": config,
     "/api/defaults": defaults,
@@ -325,7 +342,7 @@ def handle(hub, path, parsed):
     """Run the handler for `path`. Returns (payload, status code)."""
     q = Query(parsed)
     if path.startswith("/api/profile/"):
-        return profile(hub, q, path.rsplit("/", 1)[-1])
+        return profile(hub, q, urllib.parse.unquote(path.rsplit("/", 1)[-1]))
     handler = ROUTES.get(path)
     if handler is None:
         return {"error": "not found"}, 404

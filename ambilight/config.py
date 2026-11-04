@@ -20,6 +20,11 @@ PROFILES = {
     "movie": {"blend": 0.3, "fps": 60},
     "game": {"blend": 0.70, "fps": 60},
 }
+# What a profile of your own saves: the whole look, not the strip's setup.
+PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
+                "colour_weight", "spread", "black_level", "mouse_sync")
+PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
+MAX_PROFILES = 20
 
 DEFAULTS = {
     "wled_ip": "4.3.2.1",
@@ -92,6 +97,8 @@ DEFAULTS = {
     "output": "udp",
     "serial_port": "",
     "serial_baud": 921600,
+    # Profiles of your own: {name: {setting: value}} over PROFILE_KEYS.
+    "user_profiles": {},
     # A Logitech LIGHTSYNC mouse follows the screen while sync runs.
     "mouse_sync": False,
 }
@@ -162,6 +169,8 @@ class Config:
             return normalize(raw, led_count or self._data["led_count"])
         if key == "led_matrix":
             return colour_matrix(raw)
+        if key == "user_profiles":
+            return user_profiles(raw)
         return _coerce(key, raw)
 
     def snapshot(self):
@@ -196,10 +205,36 @@ class Config:
         return changed
 
     def apply_profile(self, name):
-        if name not in PROFILES:
+        saved = self.get("user_profiles")
+        if name in PROFILES:
+            changes = dict(PROFILES[name])
+        elif name in saved:
+            changes = dict(saved[name])
+        else:
             raise ValueError(f"unknown profile {name!r}")
-        changes = dict(PROFILES[name])
         changes["profile"] = name
+        return self.update(changes)
+
+    def save_profile(self, name):
+        """Save the current look under `name` (replacing one of that name) and make it active."""
+        name = profile_name(name)
+        if name in PROFILES:
+            raise ValueError(f"{name} is a built-in profile; pick another name")
+        with self._lock:
+            saved = dict(self._data["user_profiles"])
+            saved[name] = {k: self._data[k] for k in PROFILE_KEYS}
+        if len(saved) > MAX_PROFILES:
+            raise ValueError(f"at most {MAX_PROFILES} profiles; delete one first")
+        return self.update({"user_profiles": saved, "profile": name})
+
+    def delete_profile(self, name):
+        saved = dict(self.get("user_profiles"))
+        if name not in saved:
+            raise ValueError(f"unknown profile {name!r}")
+        del saved[name]
+        changes = {"user_profiles": saved}
+        if self.get("profile") == name:
+            changes["profile"] = ""         # the look stays; it is just no longer saved under a name
         return self.update(changes)
 
 
@@ -248,7 +283,6 @@ _LIMITS = {
 CHOICES = {
     "layout": ("strip", "frame"),
     "output": ("udp", "serial"),
-    "profile": tuple(PROFILES),
 }
 
 # Free-text settings and the shape they must have. The controller address
@@ -257,6 +291,7 @@ HOST_NAME = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,62})(\.[A-Za-z0-9]([A-Za-z0
 PATTERNS = {
     "serial_port": re.compile(r"^(/dev/[A-Za-z0-9._-]+)?$"),
     "pin": re.compile(r"^[A-Za-z0-9]{0,16}$"),
+    "profile": re.compile(r"^([A-Za-z0-9][A-Za-z0-9 _-]{0,23})?$"),
 }
 
 
@@ -293,6 +328,33 @@ def coerce_text(key, text):
     if key in PATTERNS and not PATTERNS[key].match(text):
         raise ValueError(f"{key} has an invalid format")
     return text
+
+
+def profile_name(name):
+    name = str(name).strip()
+    if not PROFILE_NAME.match(name):
+        raise ValueError("a profile name is 1-24 letters, digits, spaces, - or _")
+    return name
+
+
+def user_profiles(raw):
+    """{name: {setting: value}}. A profile that does not validate is dropped, loudly."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError as exc:
+            raise ValueError(f"user_profiles is not valid JSON: {exc}") from None
+    if not isinstance(raw, dict):
+        raise ValueError("user_profiles must be an object")
+    clean = {}
+    for name, look in list(raw.items())[:MAX_PROFILES]:
+        try:
+            if not isinstance(look, dict):
+                raise ValueError("not an object")
+            clean[profile_name(name)] = {k: _coerce(k, v) for k, v in look.items() if k in PROFILE_KEYS}
+        except ValueError as exc:
+            log.warning("dropping profile %r: %s", name, exc)
+    return clean
 
 
 def colour_matrix(raw):
