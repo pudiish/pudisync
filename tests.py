@@ -992,6 +992,26 @@ def test_smoothing():
     check("scene cuts move faster than small drifts", fast_share > slow_share,
           (round(float(fast_share), 2), round(float(slow_share), 2)))
 
+    def progress(start, end, seconds, leds=20, moving=None, settle=settle_seconds(0.35)):
+        """Share of the way LED 0 has moved after `seconds` at 60 fps."""
+        sm = Smoother()
+        first = np.full((leds, 3), start, np.float32)
+        sm.set_target(first, 0.0)
+        sm.step(0.0, settle)
+        second = first.copy()
+        second[:leds if moving is None else moving] = end
+        sm.set_target(second, 0.0)
+        for i in range(1, round(seconds * 60) + 1):
+            out = sm.step(i / 60, settle)
+        return float((out[0, 0] - start) / (end - start))
+
+    check("a scene cut to a bright picture lands within a tenth of a second",
+          progress(0.1, 0.9, 0.1) > 0.8, round(progress(0.1, 0.9, 0.1), 2))
+    check("one LED changing a lot snaps too, without a whole-screen cut",
+          progress(0.1, 0.9, 0.12, moving=1) > 0.8, round(progress(0.1, 0.9, 0.12, moving=1), 2))
+    check("small drifts still glide at the chosen pace",
+          progress(0.5, 0.45, 0.1) < 0.6, round(progress(0.5, 0.45, 0.1), 2))
+
     q = Quantizer()
     held = [q.apply(np.array([[100.5 + 0.4 * (-1) ** i] * 3], np.float32))[0, 0]
             for i in range(10)]
@@ -1074,6 +1094,12 @@ def test_safety():
     cut.apply(black, 0.0, cfg)
     check("a single scene cut is not treated as a strobe",
           np.allclose(cut.apply(bright, 0.05, cfg), bright))
+    fast_cuts = Guard()
+    ramp = [0.0, 0.35, 0.7, 1.0, 1.0, 1.0, 0.65, 0.3, 0.0, 0.0]      # up over 3 frames, later down
+    for i, level in enumerate(ramp):
+        last = fast_cuts.apply(np.full((180, 3), 200.0, np.float32) * level, i / 60, cfg)
+    check("two quick cuts, each spread over a few frames, are not a strobe",
+          not fast_cuts.state()["strobe_damped"] and np.allclose(last, black))
 
     stage = OutputStage()
     live = {"blend": 1.0, "led_gamma": 1.0, "contrast": 1.0, "black_level": 0.0, "colour_match": False,

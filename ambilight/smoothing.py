@@ -4,14 +4,13 @@ A critically damped spring per LED channel (HyperHDR's default is a damped
 spring too), integrated exactly, so the motion is the same whatever the frame
 rate. On top of it:
 
-- scene cuts are detected and settle faster, while small drifts glide slowly;
-- brightness may only climb so fast, so a flash cannot strobe the wall
+- a colour with far to go (or every colour, in a scene cut) snaps most of
+  the way in under a tenth of a second, while small drifts glide slowly;
+- brightness may only climb so fast, so no frame jumps straight to full
   (the idea behind Philips' perceptual rate limit);
 - the 8-bit output only moves when the colour has really moved, so a slow fade
   cannot flicker between two neighbouring levels.
 """
-import math
-
 import numpy as np
 
 from .color import LUMA
@@ -21,9 +20,13 @@ SPRING_SETTLE = 5.8     # a critically damped spring has ~2% left after 5.8/omeg
 # and made the strip jump; 0.3 fires on real cuts only (4) with 40% fewer
 # large output steps.
 CUT_CHANGE = 0.3        # mean per-LED change (0..1) that marks a scene cut
-CUT_HOLD_S = 0.3        # a cut keeps the faster pace this long
-CUT_SPEEDUP = 0.7       # cuts settle in this share of the normal time
-RISE_PER_S = 2.5        # max brightness climb per second (full range in 0.4s)
+CUT_HOLD_S = 0.3        # a cut keeps the snapping pace this long
+# A colour that has far to go snaps there, then glides the last stretch; a
+# small drift glides all the way. Lag shows on big changes, flicker on small.
+SNAP_FROM, SNAP_FULL = 0.15, 0.4    # distance (0..1) where snapping starts / is complete
+SNAP_S = 0.08           # settle time while snapping
+RISE_PER_S = 2.5        # max brightness climb per second while gliding (full range in 0.4s)
+SNAP_RISE_PER_S = 10.0  # ...and while snapping (full in 0.1s; never full in one frame)
 MAX_STEP_S = 0.1        # a stall must not fling the spring forward
 HYSTERESIS = 1.0        # output levels a colour must move before the byte changes
 
@@ -57,6 +60,13 @@ class Smoother:
     def cutting(self, now):
         return now < self.cut_until
 
+    def snap_share(self, offset, now):
+        """Per LED, 0 (glide) to 1 (snap): by how far it still has to go, or 1 in a cut."""
+        if self.cutting(now):
+            return np.ones(len(offset), dtype=np.float32)
+        t = np.clip((np.abs(offset).max(axis=1) - SNAP_FROM) / (SNAP_FULL - SNAP_FROM), 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+
     def step(self, now, settle_s):
         """Advance to `now`. Returns the colours to show, or None before any target."""
         if self.target is None:
@@ -69,21 +79,22 @@ class Smoother:
 
         dt = min(max(now - self.last_step, 0.0), MAX_STEP_S)
         self.last_step = now
-        settle = settle_s * (CUT_SPEEDUP if self.cutting(now) else 1.0)
-        omega = SPRING_SETTLE / max(settle, 1e-3)
-
-        # Exact solution of x'' + 2wx' + w^2 x = 0 over dt: stable at any frame rate.
         offset = self.pos - self.target
+        snap = self.snap_share(offset, now)
+        settle = settle_s * (min(SNAP_S, settle_s) / max(settle_s, 1e-3)) ** snap
+        omega = (SPRING_SETTLE / np.maximum(settle, 1e-3))[:, None]
+
+        # Exact solution of x'' + 2wx' + w^2 x = 0 over dt, per LED: stable at any frame rate.
         drive = self.vel + omega * offset
-        decay = math.exp(-omega * dt)
+        decay = np.exp(-omega * dt)
         new_pos = self.target + (offset + drive * dt) * decay
         new_vel = (self.vel - omega * drive * dt) * decay
 
         climb = (new_pos - self.pos) @ LUMA
-        allowed = RISE_PER_S * dt
+        allowed = (RISE_PER_S + (SNAP_RISE_PER_S - RISE_PER_S) * snap) * dt
         over = climb > allowed
         if over.any():
-            scale = (allowed / climb[over])[:, None]
+            scale = (allowed[over] / climb[over])[:, None]
             new_pos[over] = self.pos[over] + (new_pos[over] - self.pos[over]) * scale
             new_vel[over] *= scale
 

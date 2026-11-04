@@ -9,8 +9,9 @@ Runs on every output frame, after zones and brightness, before quantizing:
 - heat: a bright scene held for minutes (a white page, a paused frame) settles
   to `sustained_ma`, so the strip and a budget adapter do not run hot at their
   peak rating. Short bright scenes are untouched.
-- anti-strobe: WCAG 2.3.1 allows at most three flashes a second. Past that,
-  large whole-strip swings are damped until the flashing stops.
+- anti-strobe: WCAG 2.3.1 allows at most three flashes a second. Past that
+  many reversals of large whole-strip swings, output is damped until the
+  flashing stops.
 """
 import math
 from collections import deque
@@ -40,6 +41,7 @@ class Guard:
         self.heat_ma = 0.0
         self.last_time = None
         self.last_mean = None
+        self.swing_direction = 0
         self.shown = None
         self.flashes = deque()
         self.status = {"power_ma": 0, "power_limited": False,
@@ -82,7 +84,12 @@ class Guard:
     def watch_strobe(self, levels, now):
         mean = float(levels.mean()) / 255.0
         if self.last_mean is not None and abs(mean - self.last_mean) > STROBE_SWING:
-            self.flashes.append(now)
+            # A flash is a change of direction (WCAG counts opposing changes):
+            # a cut spread over a few frames is one change, not several flashes.
+            direction = 1 if mean > self.last_mean else -1
+            if direction != self.swing_direction:
+                self.flashes.append(now)
+                self.swing_direction = direction
         self.last_mean = mean
         while self.flashes and now - self.flashes[0] > STROBE_WINDOW_S:
             self.flashes.popleft()
