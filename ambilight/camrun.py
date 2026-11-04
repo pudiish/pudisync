@@ -330,9 +330,13 @@ def read_test(cam, screen, wall, name):
 
 def candidates(fitted, status):
     """Settings worth scoring: the fitted matrix, and the same with the
-    saturation boost off (once colours match, a boost only pulls them apart)."""
+    saturation boost off (once colours match, a boost only pulls them apart).
+
+    Each one sets every key it is scored on: candidates are tried in turn, so
+    a key left out would keep whatever the previous candidate set.
+    """
     matrix = json.dumps(fitted.round(4).flatten().tolist())
-    tried = [{"led_matrix": matrix, "wb_r": 1, "wb_g": 1, "wb_b": 1}]
+    tried = [{"led_matrix": matrix, "wb_r": 1, "wb_g": 1, "wb_b": 1, "saturation": status["saturation"]}]
     if status["saturation"] != 1.0:
         tried.append({**tried[0], "saturation": 1.0})
     return tried

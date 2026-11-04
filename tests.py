@@ -1939,6 +1939,19 @@ def test_camera_calibration_flow():
               "did not show on the monitor" in stopped, stopped)
         check("and the strip is still handed back to sync", room.calls[-2:] == ["/api/calibrate/done", "/api/sync/on"])
 
+        room = SimulatedRoom()
+        saved_score = camrun.score
+        camrun.score = lambda window, hub, cam, screen, wall: (
+            0.1 if room.settings["led_matrix"] and room.settings["saturation"] == 1.45 else 0.3)
+        try:
+            result = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
+        finally:
+            camrun.score = saved_score
+        check("when the measured colours with the boost win, the boost is what is kept "
+              "(not left at the last candidate tried)",
+              result["chosen"] == "the measured colours" and room.settings["saturation"] == 1.45,
+              (result["chosen"], room.settings["saturation"]))
+
         room = BlownOutPrimaryRoom()
         result = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
         check("a primary that blows out the screen at the usual level still matches, "
