@@ -2235,6 +2235,22 @@ def test_user_profiles():
           "Bad" not in reloaded and reloaded["Fine"]["saturation"] == 3.0, reloaded)
 
 
+def test_colour_locks():
+    print("\n37. Locked colours: kept ones stay, temporary ones end with the hub")
+    from ambilight.zones import normalize
+
+    zones = normalize([{"start": 0, "end": 9, "mode": "solid", "color": "#ff0000"},
+                       {"start": 20, "end": 29, "mode": "solid", "color": "#0000ff", "keep": False}], 97)
+    check("a lock is kept unless asked otherwise", zones[0]["keep"] is True and zones[1]["keep"] is False)
+    check("odd keep values are read safely", normalize([{"start": 0, "end": 1, "keep": "no"}], 97)[0]["keep"] is False)
+    path = os.path.join(tempfile.mkdtemp(prefix="ambilight-locks-"), "config.json")
+    cfg = Config(path)
+    cfg.update({"led_count": 97, "zones": zones})
+    check("while the hub runs, both locks are live", len(cfg.get("zones")) == 2)
+    after = Config(path).get("zones")
+    check("after a restart only the kept lock remains", [z["color"] for z in after] == ["#ff0000"], after)
+
+
 def test_board_address_cache():
     print("\n32. A flaky .local name never stalls or drops the stream")
     from ambilight import hostcache
@@ -2417,6 +2433,7 @@ def main():
     test_mouse_sync()
     test_immersion()
     test_user_profiles()
+    test_colour_locks()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)

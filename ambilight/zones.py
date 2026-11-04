@@ -55,9 +55,17 @@ def normalize(zones, led_count):
             "start": start, "end": end, "mode": mode,
             "color": _hex(z.get("color", "#ffb46b")),
             "brightness": max(0.0, min(1.0, brightness)),
+            # False: a temporary lock, gone when the hub restarts (Config.load).
+            "keep": as_flag(z.get("keep", True)),
         })
 
     return _resolve_overlaps(clean)
+
+
+def as_flag(raw):
+    if isinstance(raw, str):
+        return raw.strip().lower() not in ("0", "false", "no", "off", "")
+    return bool(raw)
 
 
 def _resolve_overlaps(zones):

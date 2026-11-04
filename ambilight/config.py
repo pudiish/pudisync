@@ -137,6 +137,8 @@ class Config:
                 clean[key] = self.validate(key, raw)
             except ValueError as exc:
                 log.warning("ignoring stored %s: %s", key, exc)
+        if "zones" in clean:
+            clean["zones"] = [z for z in clean["zones"] if z["keep"]]
         with self._lock:
             self._data.update(clean)
 
