@@ -4,6 +4,8 @@
     python ambilight.py                       # uses config.json next to this file
     python ambilight.py --config other.json --port 8790 --no-bonjour
     python ambilight.py --deploy-board        # install the phone page on the WLED board
+    python ambilight.py --camera-calibrate    # with the hub running: match the strip via webcam
+    python ambilight.py --camera-check 60     # ...score the match while a video plays
 
 Home LAN only. Never forward the web port to the internet.
 """
@@ -31,7 +33,32 @@ def parse_args(argv):
                     help="do not advertise the hub on the LAN (test instances)")
     ap.add_argument("--deploy-board", action="store_true",
                     help="install the control page and sync preset on the WLED board, then exit")
+    ap.add_argument("--camera-calibrate", action="store_true",
+                    help="with the hub running: fit the strip's colours from webcam pictures, then exit")
+    ap.add_argument("--camera-check", type=int, metavar="SECONDS",
+                    help="with the hub running and a video playing: score how well the wall "
+                         "matches the screen, then exit")
+    ap.add_argument("--camera", type=int, default=0, help="webcam number for the camera options")
     return ap.parse_args(argv)
+
+
+def camera(args, config):
+    """The webcam calibration and check talk to the running hub."""
+    from ambilight import camrun
+
+    port = args.port or config.get("http_port")
+    try:
+        if args.camera_check:
+            camrun.run_check(port, args.camera, args.camera_check)
+            return 0
+        result = camrun.run_calibration(port, args.camera)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"Camera calibration stopped: {exc}")
+        return 1
+    print(f"Mismatch {result['before']:.3f} before, {result['after']:.3f} after: "
+          f"{'kept the new colours' if result['kept'] else 'no better, kept the old colours'}.")
+    print(f"What the camera saw: {result['view']}")
+    return 0
 
 
 def deploy_board(config):
@@ -47,6 +74,15 @@ def deploy_board(config):
           f"{'verified' if result['page_ok'] else 'NOT verified'}; "
           f"sync preset {'saved' if result['preset_ok'] else 'NOT saved'}.")
     return 0 if result["page_ok"] and result["preset_ok"] else 1
+
+
+def one_shot(args, config):
+    """Run a task that exits instead of starting the hub; None when there is none."""
+    if args.deploy_board:
+        return deploy_board(config)
+    if args.camera_calibrate or args.camera_check:
+        return camera(args, config)
+    return None
 
 
 def compatibility_check():
@@ -66,8 +102,9 @@ def main():
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = parse_args(sys.argv[1:])
     config = Config(args.config)
-    if args.deploy_board:
-        sys.exit(deploy_board(config))
+    exit_code = one_shot(args, config)
+    if exit_code is not None:
+        sys.exit(exit_code)
     compatibility_check()
 
     engine = Engine(config)

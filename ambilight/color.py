@@ -81,6 +81,12 @@ def adaptation(kelvin):
 
 
 @lru_cache(maxsize=16)
+def srgb_adaptation(kelvin):
+    """The warmth adaptation expressed on linear sRGB, for a measured matrix."""
+    return (np.linalg.inv(SRGB_TO_XYZ) @ adaptation(kelvin) @ SRGB_TO_XYZ).astype(np.float32)
+
+
+@lru_cache(maxsize=16)
 def led_matrix(kelvin, primaries=WS2812B_PRIMARIES):
     """Linear screen light -> linear LED channel light (Philips' XYZ route).
 
@@ -181,13 +187,18 @@ def to_led(perceptual, cfg):
         return contrast_curve(p ** cfg["led_gamma"], cfg["contrast"]) * balance * 255.0
 
     linear = srgb_to_linear(p)
-    light = linear @ led_matrix(NEUTRAL_KELVIN).T
+    # A webcam-measured matrix (camcal.py) beats the datasheet model when present.
+    fitted = cfg.get("led_matrix") or []
+    neutral = np.array(fitted, np.float32).reshape(3, 3) if len(fitted) == 9 else None
+    light = linear @ (neutral if neutral is not None else led_matrix(NEUTRAL_KELVIN)).T
     kelvin = int(cfg["white_kelvin"])
     if kelvin < NEUTRAL_KELVIN:
         # Warmth is for whites, greys and skin. The eye stays adapted to the
         # screen, so saturated colours keep the screen's own look; warming a
         # sky blue toward the warm white would only make it pale.
-        warm = linear @ led_matrix(kelvin).T
+        warmer = (neutral @ srgb_adaptation(kelvin) if neutral is not None
+                  else led_matrix(kelvin))
+        warm = linear @ warmer.T
         share = 1.0 - smoothstep(0.35, 0.75, rgb_to_hsv(p)[:, 1:2])
         light = light + (warm - light) * share
     light = np.clip(light, 0.0, None) * balance

@@ -1623,6 +1623,240 @@ def test_display_follow():
         eng.CAPTURES, eng.DISPLAY_CHECK_S, eng.screen_locked = real
 
 
+def test_camera_calibration_maths():
+    print("\n28. Webcam calibration: fitting the strip's colour from camera pictures")
+    from ambilight import camcal, color
+
+    rng = np.random.default_rng(7)
+    # The truth the camera cannot see directly: how the screen and the strip look
+    # to the camera, how much screen light spills onto the wall, and offsets.
+    A = np.array([[0.80, 0.15, 0.05], [0.20, 0.75, 0.05], [0.05, 0.10, 0.85]])
+    M = np.array([[0.55, 0.10, 0.02], [0.08, 0.90, 0.05], [0.02, 0.06, 0.40]])
+    Q = 0.04 * np.ones((3, 3))
+    c, b = np.array([0.01, 0.01, 0.012]), np.array([0.005, 0.004, 0.006])
+    pairs = camcal.patch_plan(seed=3)
+    check("the plan pairs screen colours with independent strip drives", len(pairs) >= 30
+          and np.corrcoef([p[0][0] for p in pairs], [p[1][0] for p in pairs])[0, 1] < 0.6, len(pairs))
+
+    samples = []
+    for screen_code, drive in pairs:
+        s = color.srgb_to_linear(np.array(screen_code) / 255.0)
+        d = np.array(drive) / 255.0
+        gain = np.diag(rng.uniform(0.5, 1.6, 3))           # auto exposure + auto white balance
+        screen_cam = gain @ (A @ s + c)
+        wall_cam = gain @ (M @ d + Q @ s + b)
+        encode = lambda v: color.linear_to_srgb(np.clip(v * (1 + rng.normal(0, 0.004, 3)), 0, 1)) * 255
+        samples.append((screen_code, drive, encode(screen_cam), encode(wall_cam)))
+
+    fitted = camcal.fit_matrix(samples)
+    truth = np.linalg.solve(M, A)
+    truth = truth / (truth @ np.ones(3)).max()
+    check("it recovers the screen-to-strip matrix despite the camera's own gains",
+          np.abs(fitted - truth).max() < 0.03, np.abs(fitted - truth).max().round(4))
+    check("the matrix is scaled so white drives the busiest channel at full",
+          abs((fitted @ np.ones(3)).max() - 1) < 1e-6)
+
+    ratios_off = camcal.mismatch([(s[2], s[3]) for s in samples])
+    check("a mismatch score is reported (0 = the wall matches the screen)", ratios_off > 0, ratios_off)
+    matched = [(np.array([200, 120, 60]), np.array([100, 60, 30]) * 1.0)]
+    check("a wall that is a dimmer copy of the screen scores as a match",
+          camcal.mismatch([(color.linear_to_srgb(np.array([.6, .2, .05])) * 255,
+                            color.linear_to_srgb(np.array([.3, .1, .025])) * 255)]) < 0.01)
+
+    h, w = 120, 200
+    base = np.full((h, w, 3), 20, np.uint8)
+    screen_on = base.copy(); screen_on[30:90, 60:140] = 230
+    wall_on = base.copy(); wall_on[10:110, 20:60] = 140; wall_on[10:110, 140:180] = 140
+    screen_mask, wall_mask = camcal.find_regions(base, screen_on, wall_on)
+    check("the screen is found where it lit up", screen_mask[60, 100] and not screen_mask[60, 30])
+    check("the wall glow is found beside it", wall_mask[60, 30] and wall_mask[60, 160])
+    check("the screen is never counted as wall", not (screen_mask & wall_mask).any())
+
+
+def test_fitted_matrix_in_use():
+    print("\n29. A camera-fitted matrix drives the strip's colours")
+    from ambilight import color
+    from ambilight.config import Config
+
+    cfg = Config(CONFIG_FOR_TESTS)
+    F = [0.9, 0.1, 0.0, 0.05, 0.6, 0.05, 0.0, 0.05, 0.35]
+    check("a 3x3 matrix is accepted", cfg.update({"led_matrix": json.dumps(F)}) == ["led_matrix"])
+    check("as numbers", cfg.get("led_matrix") == F)
+    for bad in ("[1, 2]", '[1,2,3,4,5,6,7,8,"x"]', "[1e999,0,0,0,1,0,0,0,1]", "not json"):
+        try:
+            cfg.update({"led_matrix": bad})
+            check(f"a bad matrix is refused: {bad}", False)
+        except ValueError:
+            check(f"a bad matrix is refused: {bad}", True)
+    check("an empty list switches back to the datasheet model", cfg.update({"led_matrix": "[]"}) == ["led_matrix"])
+
+    base = {"black_level": 0.0, "led_gamma": 1.5, "contrast": 1.0, "colour_match": True,
+            "white_kelvin": 6500, "wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0}
+    white = np.ones((1, 3), np.float32)
+    fitted = color.to_led(white, dict(base, led_matrix=F))[0]
+    expected = np.array(F).reshape(3, 3) @ np.ones(3)
+    check("with a fitted matrix, white takes the measured mix",
+          np.allclose(fitted / fitted.max(), expected / expected.max(), atol=0.01), fitted.round())
+    datasheet = color.to_led(white, dict(base, led_matrix=[]))[0]
+    check("without one, the datasheet model is used", not np.allclose(fitted, datasheet), datasheet.round())
+    skin = np.array([[224 / 255, 172 / 255, 138 / 255]], np.float32)
+    cool = color.to_led(skin, dict(base, led_matrix=F))[0]
+    warm = color.to_led(skin, dict(base, led_matrix=F, white_kelvin=4500))[0]
+    check("warmth still works on top of a fitted matrix", warm[2] / warm[0] < cool[2] / cool[0], (cool.round(), warm.round()))
+
+
+def test_calibration_routes():
+    print("\n30. The hub lets the webcam calibration drive the strip")
+    from urllib.parse import parse_qs
+    from ambilight import routes
+    from ambilight.intent import SyncIntent
+
+    class Engine:
+        running = True
+        painted = None
+        cleared = False
+
+        def stop(self):
+            Engine.running = False
+
+        def set_override(self, px):
+            Engine.painted = px
+
+        def status(self):
+            return {"running": Engine.running}
+
+    class Wizard:
+        stopped = False
+
+        def stop(self):
+            Wizard.stopped = True
+            return {}
+
+    class Hub:
+        engine, wizard, wled = Engine(), Wizard(), None
+        cfg = Config(CONFIG_FOR_TESTS)
+
+        def status(self):
+            return {}
+
+    hub = Hub()
+    hub.cfg.update({"layout": "frame", "led_count": 180, "edge_bottom": 35, "edge_right": 14,
+                    "edge_top": 35, "edge_left": 13, "brightness": 1.0})
+    hub.intent = SyncIntent(hub.cfg, None, hub.engine)
+    body, code = routes.handle(hub, "/api/calibrate/paint", parse_qs("rgb=ff8000"))
+    px = Engine.painted
+    check("painting stops sync and pauses the watcher", not Engine.running and hub.intent.paused_until > 0)
+    check("the LEDs round the monitor take exactly that colour", code == 200 and px[:97].tolist() == [[255, 128, 0]] * 97)
+    check("LEDs past the frame stay dark, so only the monitor's glow is measured", px[97:].max() == 0)
+    body, code = routes.handle(hub, "/api/calibrate/paint", parse_qs("rgb=zzzzzz"))
+    check("a bad colour is refused", code == 400)
+    routes.handle(hub, "/api/calibrate/done", parse_qs(""))
+    check("finishing hands the strip back and lets sync follow the board again",
+          Wizard.stopped and hub.intent.paused_until == 0.0)
+
+
+class SimulatedRoom:
+    """A monitor, the wall glow round it and a webcam with its own changing gains.
+
+    Stands in for the window, the hub and the camera in camrun's flow: the
+    window sets the screen colour, the hub paints or syncs the strip, and the
+    camera photographs both.
+    """
+    A = np.array([[0.80, 0.15, 0.05], [0.20, 0.75, 0.05], [0.05, 0.10, 0.85]])   # screen -> camera
+    M = np.array([[0.55, 0.10, 0.02], [0.08, 0.90, 0.05], [0.02, 0.06, 0.40]])   # strip -> wall
+    SPILL, AMBIENT = 0.04, 0.005
+
+    def __init__(self):
+        self.rng = np.random.default_rng(11)
+        self.screen_code, self.drive = (0, 0, 0), np.zeros(3)
+        self.syncing, self.calls = False, []
+        self.settings = {"led_matrix": [], "wb_r": 1.0, "wb_g": 0.88, "wb_b": 1.0}
+        self.picture = np.zeros((60, 100), int)            # 0 room, 1 screen, 2 wall
+        self.picture[20:40, 35:65] = 1
+        self.picture[10:50, 10:28] = 2
+        self.picture[10:50, 72:90] = 2
+
+    # the window
+    def show(self, rgb):
+        self.screen_code = tuple(rgb)
+        if self.syncing:
+            self.drive = self.sync_drive()
+
+    def wait(self, seconds):
+        pass
+
+    # the hub
+    def paint(self, rgb):
+        self.syncing, self.drive = False, np.array(rgb) / 255.0
+
+    def get(self, path, **params):
+        self.calls.append(path)
+        if path == "/api/sync/on":
+            self.syncing, self.drive = True, self.sync_drive()
+        elif path == "/api/set":
+            self.settings.update({k: json.loads(v) if k == "led_matrix" else float(v)
+                                  for k, v in params.items()})
+        return {}
+
+    def sync_drive(self):
+        from ambilight import camcal
+
+        fitted = self.settings["led_matrix"]
+        F = np.array(fitted).reshape(3, 3) if fitted else np.eye(3)   # 1:1 before calibration
+        d = F @ camcal.linear(self.screen_code)
+        return np.clip(d / max(d.max(), 1e-9) * camcal.linear(self.screen_code).max(), 0, 1)
+
+    # the camera
+    def snapshot(self, frames=5):
+        from ambilight import camcal, color
+
+        s = camcal.linear(self.screen_code)
+        looks = [np.full(3, self.AMBIENT), self.A @ s + 0.01,
+                 self.M @ self.drive + self.SPILL * s.sum() + self.AMBIENT]
+        gain = self.rng.uniform(0.6, 1.4, 3)                 # auto exposure and white balance
+        image = np.array(looks)[self.picture] * gain
+        return color.linear_to_srgb(np.clip(image, 0, 1)) * 255.0
+
+
+def test_camera_calibration_flow():
+    print("\n31. The webcam calibration runs end to end in a simulated room")
+    from ambilight import camcal, camrun
+
+    room = SimulatedRoom()
+    folder = tempfile.mkdtemp(prefix="ambilight-cam-")
+    saved_dir, saved_fit = camrun.RECORDINGS_DIR, camcal.fit_matrix
+    camrun.RECORDINGS_DIR = __import__("pathlib").Path(folder)
+    try:
+        result = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
+        truth = np.linalg.solve(room.M, room.A)
+        truth = truth / (truth @ np.ones(3)).max()
+        fitted = np.array(result["matrix"])
+        check("the screen and the wall glow are found in the camera picture",
+              os.path.exists(os.path.join(folder, "calibration-view.jpg")))
+        check("the strip's colour matrix is recovered", np.abs(fitted - truth).max() < 0.03,
+              np.abs(fitted - truth).max().round(4))
+        check("the wall matches the screen better afterwards, so the result is kept",
+              result["kept"] and result["after"] < result["before"],
+              (round(result["before"], 3), round(result["after"], 3)))
+        check("the hub now uses it, with the old strip balance folded in",
+              len(room.settings["led_matrix"]) == 9 and room.settings["wb_g"] == 1.0)
+        check("the strip is handed back to sync at the end", room.calls[-2:] == ["/api/calibrate/done", "/api/sync/on"])
+
+        regions = np.load(os.path.join(folder, "calibration-regions.npz"))
+        score = camrun.watch(room, regions["screen"], regions["wall"], 0.05)
+        check("watching a video scores the match without changing anything",
+              abs(score - result["after"]) < 0.1 and room.calls[-1] == "/api/sync/on", round(score, 3))
+
+        room = SimulatedRoom()
+        before = dict(room.settings)
+        camcal.fit_matrix = lambda samples: np.array([[0, 0, 1.0], [1.0, 0, 0], [0, 1.0, 0]])
+        result = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
+        check("a fit that makes the match worse is thrown away and the old settings restored",
+              not result["kept"] and room.settings == before, room.settings)
+    finally:
+        camrun.RECORDINGS_DIR, camcal.fit_matrix = saved_dir, saved_fit
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -1732,6 +1966,10 @@ def main():
     test_board_ui()
     test_fake_wled_presets()
     test_display_follow()
+    test_camera_calibration_maths()
+    test_fitted_matrix_in_use()
+    test_calibration_routes()
+    test_camera_calibration_flow()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)

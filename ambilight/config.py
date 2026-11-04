@@ -45,6 +45,9 @@ DEFAULTS = {
     # primaries (colour.LED_MATRIX), which already corrects its cold white; the
     # white-balance gains are left neutral for fine-tuning on /calibrate.
     "colour_match": True,
+    # Screen-to-strip colour matrix measured by the webcam calibration
+    # (camcal.py), row-major 3x3; empty = the WS2812B datasheet model.
+    "led_matrix": [],
     # The strip's white point. 6500 keeps the screen's own D65; lower is warmer.
     "white_kelvin": 4500,
     "wb_r": 1.0,
@@ -152,6 +155,8 @@ class Config:
                 except ValueError as exc:
                     raise ValueError(f"zones is not valid JSON: {exc}") from None
             return normalize(raw, led_count or self._data["led_count"])
+        if key == "led_matrix":
+            return colour_matrix(raw)
         return _coerce(key, raw)
 
     def snapshot(self):
@@ -282,6 +287,26 @@ def coerce_text(key, text):
     if key in PATTERNS and not PATTERNS[key].match(text):
         raise ValueError(f"{key} has an invalid format")
     return text
+
+
+def colour_matrix(raw):
+    """[] or nine finite numbers (a 3x3 matrix, row by row)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raise ValueError("led_matrix must be a JSON list of nine numbers") from None
+    if raw == []:
+        return []
+    if not isinstance(raw, list) or len(raw) != 9:
+        raise ValueError("led_matrix must be empty or have nine numbers")
+    try:
+        values = [float(v) for v in raw]
+    except (TypeError, ValueError):
+        raise ValueError("led_matrix must contain only numbers") from None
+    if not all(math.isfinite(v) and abs(v) <= 10 for v in values):
+        raise ValueError("led_matrix values must be finite and modest (|v| <= 10)")
+    return values
 
 
 def controller_address(text):

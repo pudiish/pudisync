@@ -209,6 +209,31 @@ Open the page on your phone and go to **Setup**:
 Every WS2812B batch differs a little; the strip balance is where you correct a
 white that looks green or blue.
 
+### Calibrate with a webcam
+
+Instead of judging by eye, a webcam can measure the match. Set it up so it sees
+the monitor **and** the wall glow around it, lock its position, and, with the
+hub running:
+
+```bash
+python3 -m pip install opencv-python
+python3 ambilight.py --camera-calibrate    # --camera 1 for a second webcam
+```
+
+The Mac asks for Camera permission the first time (allow it for the app that
+runs the command, e.g. Terminal, then restart that app). For about two minutes
+the monitor shows test colours while the strip shows other colours chosen
+independently. Each picture shows the screen and the wall together, so the
+camera's own auto-exposure and white balance cancel out. From these pictures
+the hub fits how this strip, on this wall, reproduces each screen colour. It
+then scores the match with sync on, before and after, and keeps the new
+colours only if the wall got closer to the screen. Warmth, contrast and colour
+intensity still apply on top. `recordings/calibration-view.jpg` shows what was
+measured: the screen is tinted blue and the wall orange.
+
+Later, with a video playing, `python3 ambilight.py --camera-check 60` scores
+the match for a minute without changing anything (0 is a perfect match).
+
 ## 6. Zones
 
 The strip is usually longer than the monitor. Zones give each stretch its own job:

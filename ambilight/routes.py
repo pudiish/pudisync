@@ -6,6 +6,8 @@ A ValueError raised anywhere becomes a 400 in the server.
 """
 from pathlib import Path
 
+import numpy as np
+
 from .config import DEFAULTS, PROFILES
 from .effects import catalogue as effect_catalogue, state_for
 from .plugins.output_serial import list_ports, required_baud
@@ -213,6 +215,27 @@ def wizard_stop(hub, q):
     return hub.wizard.stop(), OK
 
 
+# --- webcam calibration (camrun.py drives these) ------------------------------
+def calibrate_paint(hub, q):
+    """Light the LEDs round the monitor in one raw colour, for the camera."""
+    rgb = hex_colour(q.one("rgb"))
+    if rgb is None:
+        return {"error": "rgb must be six hex digits, e.g. ff8000"}, 400
+    take_over_strip(hub)
+    cfg = hub.cfg.snapshot()
+    lit = (sum(cfg[k] for k in ("edge_bottom", "edge_right", "edge_top", "edge_left"))
+           if cfg["layout"] == "frame" else cfg["led_count"])
+    pixels = np.zeros((cfg["led_count"], 3), dtype=np.uint8)
+    pixels[:min(lit, cfg["led_count"])] = rgb
+    hub.engine.set_override(pixels)
+    return {"painted": rgb, "leds": int(min(lit, cfg["led_count"]))}, OK
+
+
+def calibrate_done(hub, q):
+    hub.intent.resume()
+    return hub.wizard.stop(), OK
+
+
 # --- USB: serial output and flashing -----------------------------------------------
 def serial_ports(hub, q):
     cfg = hub.cfg.snapshot()
@@ -287,6 +310,8 @@ ROUTES = {
     "/api/wizard/marker": marker,
     "/api/wizard/gradient": gradient,
     "/api/wizard/stop": wizard_stop,
+    "/api/calibrate/paint": calibrate_paint,
+    "/api/calibrate/done": calibrate_done,
     "/api/serial/ports": serial_ports,
     "/api/flash/check": flash_check,
     "/api/flash/networks": flash_networks,
