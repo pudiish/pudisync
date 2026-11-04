@@ -612,21 +612,24 @@ def screen_locked():
 
 
 class KeepAwake:
-    """Holds off idle system sleep while sync runs, using macOS's caffeinate.
+    """Holds off idle sleep while sync (or calibration) runs, using macOS's caffeinate.
 
-    The display may still sleep (capture then pauses and the strip fades);
-    this only keeps the hub itself reachable from phones.
+    By default the display may still sleep (capture then pauses and the
+    strip fades); this only keeps the hub itself reachable from phones.
+    Calibration instead needs the screen lit for its whole run, so it asks
+    for `display=True` as well.
     """
 
     def __init__(self, process):
         self.process = process
 
     @classmethod
-    def start(cls):
+    def start(cls, display=False):
         tool = shutil.which("caffeinate")
         if tool is None:
             return None
-        return cls(subprocess.Popen([tool, "-i", "-w", str(os.getpid())],
+        flags = ["-d", "-i"] if display else ["-i"]
+        return cls(subprocess.Popen([tool, *flags, "-w", str(os.getpid())],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
 
     def stop(self):

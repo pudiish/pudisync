@@ -1874,6 +1874,16 @@ class HiddenWindowRoom(SimulatedRoom):
         return image
 
 
+class BlownOutPrimaryRoom(SimulatedRoom):
+    """A panel whose blue subpixel runs far brighter than red or green.
+
+    At the usual SCREEN_LEVEL the screen patch clips almost solid white on
+    blue, same as the real BenQ + Lenovo webcam; only a dimmer test colour
+    reads cleanly.
+    """
+    A = np.array([[0.80, 0.15, 0.05], [0.20, 0.75, 0.05], [0.05, 0.10, 4.0]])
+
+
 def test_camera_calibration_flow():
     print("\n31. The webcam calibration runs end to end in a simulated room")
     from ambilight import camcal, camrun
@@ -1928,6 +1938,12 @@ def test_camera_calibration_flow():
         check("test colours hidden behind a full-screen video stop the calibration",
               "did not show on the monitor" in stopped, stopped)
         check("and the strip is still handed back to sync", room.calls[-2:] == ["/api/calibrate/done", "/api/sync/on"])
+
+        room = BlownOutPrimaryRoom()
+        result = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
+        check("a primary that blows out the screen at the usual level still matches, "
+              "by retrying dimmer instead of aborting",
+              result["kept"] and result["after"] < 0.2, round(result["after"], 3))
     finally:
         camrun.RECORDINGS_DIR, camcal.matrix_from_primaries = saved_dir, saved_fit
 

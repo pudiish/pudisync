@@ -29,9 +29,9 @@ def linear(code_values):
     return color.srgb_to_linear(np.asarray(code_values, dtype=np.float64) / 255.0).astype(np.float64)
 
 
-def dimmed(colour):
+def dimmed(colour, level=SCREEN_LEVEL):
     """A test colour at the level the webcam photographs without blowing out."""
-    return tuple(round(v * SCREEN_LEVEL) for v in colour)
+    return tuple(round(v * level) for v in colour)
 
 
 def proportions(image, mask):

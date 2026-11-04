@@ -20,7 +20,7 @@ import urllib.request
 import numpy as np
 
 from . import camcal
-from .engine import resolve_display
+from .engine import KeepAwake, resolve_display
 from .plugins.capture_quartz import QuartzCapture
 from .recorder import RECORDINGS_DIR
 
@@ -29,6 +29,7 @@ STEP_S = 0.7            # one matching step: only proportions are read, so expos
 VERIFY_SETTLE_S = 1.2   # sync smoothing on top of that
 MAX_STEPS = 10          # matching steps per colour
 MATCHED = 0.03          # mismatch at which a colour counts as matched
+SCREEN_LEVEL_RETRIES = 3   # halve the test level this many times if the screen patch blows out
 WORK_WIDTH = 640        # camera pictures are analysed at this width
 SETTINGS = ("led_matrix", "wb_r", "wb_g", "wb_b", "saturation")    # what calibration may change
 NOT_SHOWN = ("the test colours did not show on the monitor (another window on top?), "
@@ -284,13 +285,26 @@ def score(window, hub, cam, screen, wall):
 
 
 def match(window, hub, cam, screen, wall, name):
-    """The strip drive (linear) whose glow matches `name` on screen, and how closely."""
+    """The strip drive (linear) whose glow matches `name` on screen, and how closely.
+
+    A saturated primary (e.g. a panel whose blue subpixel runs bright) can
+    blow out the camera's screen patch even at the usual SCREEN_LEVEL; each
+    step halves the level and retries rather than aborting the whole match.
+    """
     colour = camcal.PRIMARIES[name]
     drive = camcal.first_guess(colour)
     closest = (float("inf"), drive)
     for _ in range(MAX_STEPS):
-        light(window, hub, camcal.dimmed(colour), np.round(drive * 255).astype(int), STEP_S)
-        seen_screen, seen_wall = read_test(cam, screen, wall, name)
+        level = camcal.SCREEN_LEVEL
+        for attempt in range(SCREEN_LEVEL_RETRIES):
+            light(window, hub, camcal.dimmed(colour, level), np.round(drive * 255).astype(int), STEP_S)
+            try:
+                seen_screen, seen_wall = read_test(cam, screen, wall, name)
+                break
+            except RuntimeError:
+                if attempt == SCREEN_LEVEL_RETRIES - 1:
+                    raise
+                level /= 2
         off = camcal.mismatch([(seen_screen, seen_wall)])
         if off < closest[0]:
             closest = (off, drive)
@@ -325,11 +339,17 @@ def candidates(fitted, status):
 
 
 def run_calibration(port, camera_name=None, log=print):
-    """Open the camera and a test-colour window on the synced display, then calibrate."""
+    """Open the camera and a test-colour window on the synced display, then calibrate.
+
+    The screen must stay lit and showing the test colours for the whole run;
+    a display that sleeps mid-match leaves the camera reading a dark panel
+    and the strip stuck on the last test colour, so sleep is held off here.
+    """
     hub = HubClient(port)
     status = hub.get("/api/status")
     display = resolve_display(status["monitor_index"], QuartzCapture.display_count())
     cam = open_camera(camera_name, log)
+    awake = KeepAwake.start(display=True)
     try:
         window = PatchWindow(display_id(display))
         try:
@@ -338,6 +358,8 @@ def run_calibration(port, camera_name=None, log=print):
             window.close()
     finally:
         cam.close()
+        if awake is not None:
+            awake.stop()
 
 
 def calibrate(window, hub, cam, status, log):
