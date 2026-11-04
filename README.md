@@ -272,6 +272,29 @@ The strip is usually longer than the monitor. Zones give each stretch its own jo
 Drag a zone's handles on the strip to resize it, or drag the dashed **screen
 region** itself. With no zones at all, the whole strip follows the screen.
 
+### Lock colours (the Override tab)
+
+On the **Override** tab, drag along the LEDs drawn round the screen to pick a
+stretch, choose a colour and brightness, and press **Lock colour**. A lock is
+**Kept** until you unlock it, or lasts **Until restart** of the hub. Locks are
+Colour zones underneath, so they also show under Advanced ▸ Zones.
+
+### Profiles and immersion
+
+**Cinema** and **Gaming** set how quickly the light follows. **Save this look**
+stores the whole look under a name of your own: brightness, colour, immersion,
+contrast, warmth, response, spread and whether the mouse follows. Pick it again
+from Home, the Mac app or `/api/profile/<name>`.
+
+**Immersion** (0 to 100%) is for films that live in one colour. LED gamma and
+contrast crush deep shades: a dark-red scene (sRGB 110,15,15) drove the strip's
+red at only 16%. Immersion lifts colourful LEDs the more the darker they are,
+makes them purer, and pulls dull or dark LEDs toward the scene's strongest
+colour family, so a red scene fills the room with red. Greys, skin tones and
+black are left alone, and a scene without a real colour (or one small light in
+the dark) is not flooded. Measured on the wall with the webcam at 100%: dark red
+×3.5, maroon ×5, grey unchanged.
+
 ## 7. The phone page lives on the board
 
 The page you use day to day is stored **on the WLED board itself**, so it loads
@@ -341,6 +364,23 @@ Logs (timestamped) land in `~/Library/Logs/ambilight.log`.
 **Note.** A launchd agent runs as a background process, which macOS treats as a
 separate app for Screen Recording: grant permission to Python as well. While sync
 runs, the hub holds off idle system sleep so phones can still reach it.
+
+### The Mac app
+
+`macapp/` is a native app for controlling the hub from the Mac, laid out like
+Logitech G HUB: your devices (the LED strip, the mouse) in a sidebar, each with
+its own page, plus Profiles and Calibrate, a **Lighting** menu with shortcuts
+(⇧⌘S sync, ⌘1/⌘2 Cinema/Gaming, ⌘3… your profiles, ⇧⌘M mouse) and quick
+controls in the menu bar. It talks to the hub's API, so the hub must be running
+(it starts at login). Built with the Command Line Tools, no Xcode needed:
+
+```bash
+macapp/build.sh test      # the app's layout and colour logic
+macapp/build.sh install   # build, then copy "Ambilight Hub" to /Applications
+```
+
+It is signed for this Mac only; another Mac would need a Developer ID and
+notarisation. The hub address and PIN are under Ambilight Hub ▸ Settings.
 
 ## 10. Testing without hardware
 
