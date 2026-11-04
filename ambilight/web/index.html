@@ -58,7 +58,7 @@ h2,h3,.label{font-size:11px;letter-spacing:.16em;color:var(--dim)}
   padding:calc(14px + env(safe-area-inset-top)) 16px 12px}
 .brand{margin:0;display:flex;align-items:center;gap:10px;font:700 13px/1 var(--mono);letter-spacing:.24em;color:var(--amber)}
 .brand span{color:var(--dim)}
-.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(4,1fr);
+.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(5,1fr);
   background:var(--panel);border-top:1px solid var(--rule-hi);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
@@ -195,6 +195,15 @@ progress::-moz-progress-bar{background:var(--amber)}
 .log .fail{color:var(--red)}
 .urls{margin:0;padding:0;list-style:none}
 
+/* override */
+.paint{display:block;width:100%;border-radius:var(--r);touch-action:none;cursor:crosshair}
+.locks{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.lock{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 12px;border:1px solid var(--rule);border-radius:var(--r)}
+.lock p{flex:1;font:13px/1.4 var(--mono)}
+.badge{padding:2px 6px;border:1px solid var(--rule-hi);border-radius:2px;
+  font:600 10px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.badge.keep{border-color:var(--green);color:var(--green)}
+
 /* advanced */
 .zone-map{position:relative;height:20px;overflow:hidden}
 .zone-map span{position:absolute;top:3px;bottom:3px}
@@ -236,6 +245,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
   <nav class="tabs" aria-label="Sections">
     <button class="tab" type="button" data-action="tab" data-value="home">Home</button>
     <button class="tab" type="button" data-action="tab" data-value="effects">Effects</button>
+    <button class="tab" type="button" data-action="tab" data-value="override">Override</button>
     <button class="tab" type="button" data-action="tab" data-value="setup">Setup</button>
     <button class="tab" type="button" data-action="tab" data-value="advanced">Advanced</button>
   </nav>
@@ -288,10 +298,29 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
         <button type="button" data-action="profile" data-value="movie" aria-pressed="false">Cinema</button>
         <button type="button" data-action="profile" data-value="game" aria-pressed="false">Gaming</button>
       </div>
-      <p class="hint">Cinema glides gently; Gaming follows the action quickly.</p>
+      <div class="seg" id="my-profiles" role="group" aria-label="Your profiles" hidden></div>
+      <p class="hint">Cinema glides gently; Gaming follows the action quickly. Your own profiles keep the whole look.</p>
+      <div class="row">
+        <button class="btn small" type="button" data-action="profile-save">Save this look</button>
+        <button class="btn small" type="button" data-action="profile-delete" id="profile-delete" hidden>Delete</button>
+      </div>
+      <form class="inline" id="form-profile" hidden>
+        <input type="text" id="profile-name" maxlength="24" autocomplete="off" spellcheck="false"
+          placeholder="Name, e.g. Late night" aria-label="Profile name">
+        <button class="btn primary" type="submit">Save</button>
+      </form>
       <div class="fader" data-fader="brightness"></div>
       <div class="fader" data-fader="saturation"></div>
+      <div class="fader" data-fader="immersion"
+        data-hint="Lifts deep colours and floods the room with the scene's colour. Skin and greys stay true."></div>
       <div class="fader" data-fader="blend" data-hint="How long the light takes to settle on a new colour."></div>
+    </div>
+
+    <div class="panel">
+      <h2>Mouse</h2>
+      <button class="switch" type="button" role="switch" aria-checked="false" data-switch="mouse_sync"
+        aria-describedby="mouse-hint">Follow the screen<span class="toggle" aria-hidden="true"></span></button>
+      <p class="hint" id="mouse-hint"></p>
     </div>
   </section>
 
@@ -317,6 +346,35 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
       <div class="field"><label for="wled-fx">More effects</label><select id="wled-fx" disabled><option>Loading from the controller…</option></select></div>
     </div>
     <button class="btn primary wide" type="button" data-action="sync-on">Back to screen sync</button>
+  </section>
+
+  <section class="screen" id="tab-override" aria-label="Override" hidden>
+    <div class="panel">
+      <h2>Lock colours</h2>
+      <p class="hint">Drag along the LEDs to pick a stretch, choose a colour and lock it. The rest keeps
+        following the screen.</p>
+      <canvas class="paint" id="paint" role="img"
+        aria-label="The LEDs around the screen; drag across them to select"></canvas>
+      <p class="label" id="paint-sel" aria-live="polite">Nothing selected</p>
+      <div class="colour-row"><input type="color" id="lock-colour" value="#ff2010">
+        <label for="lock-colour" class="hint">Colour</label></div>
+      <div class="swatches" id="lock-swatches" role="group" aria-label="Quick colours"></div>
+      <div class="fader" data-fader="lock_brightness"></div>
+      <div class="seg" role="group" aria-label="How long the lock lasts">
+        <button type="button" data-action="lock-keep" data-value="1" aria-pressed="true">Keep</button>
+        <button type="button" data-action="lock-keep" data-value="0" aria-pressed="false">Until restart</button>
+      </div>
+      <div class="row">
+        <button class="btn" type="button" data-action="lock-all">Select all</button>
+        <button class="btn primary" type="button" data-action="lock" id="lock-go" disabled>Lock colour</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Locked</h2>
+      <ol class="locks" id="locks"></ol>
+      <p class="hint" id="locks-empty">Nothing locked: the whole strip follows the screen.</p>
+      <button class="btn" type="button" data-action="locks-clear" id="locks-clear" hidden>Unlock everything</button>
+    </div>
   </section>
 
   <section class="screen" id="tab-setup" aria-label="Setup" hidden>
@@ -439,6 +497,21 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
           sync on. From another device, type this address into the Mac's browser:</p>
         <ul class="urls" id="cal-urls"></ul>
         <button class="btn" type="button" data-action="open-calibrate">Open calibration here</button>
+        <details id="webcam">
+          <summary>Calibrate with a webcam</summary>
+          <div class="stack">
+            <p class="hint">Aim a USB webcam at the monitor and the glow around it. For about a minute the
+              monitor shows test colours while the strip is matched to them. The Mac's built-in camera is
+              never used.</p>
+            <div class="field"><label for="webcam-pick">Webcam</label><select id="webcam-pick"></select></div>
+            <div class="row">
+              <button class="btn primary" type="button" data-action="webcam" data-value="calibrate">Calibrate</button>
+              <button class="btn" type="button" data-action="webcam" data-value="check">Check during a video</button>
+            </div>
+            <p class="label" id="webcam-state" aria-live="polite"></p>
+            <pre class="log" id="webcam-log" hidden></pre>
+          </div>
+        </details>
       </li>
     </ol>
     <button class="btn primary wide" type="button" data-action="finish">Finish setup</button>
@@ -530,7 +603,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 <script>
 "use strict";
 const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, PIN_KEY = "ambilight-pin";
-const TABS = ["home", "effects", "setup", "advanced"];
+const TABS = ["home", "effects", "override", "setup", "advanced"];
 const EDGE_KEYS = ["edge_bottom", "edge_right", "edge_top", "edge_left"];
 const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g", "wb_b",
   "led_gamma", "contrast", "black_level", "colour_weight", "spread"];
@@ -553,6 +626,8 @@ const FADERS = {
   contrast: {label: "Contrast", min: 50, max: 250, step: 5, scale: 100, fmt: v => `${two(v)}×`},
   spread: {label: "Spread", min: 0, max: 80, scale: 100, fmt: pct},
   colour_weight: {label: "Colour weight", min: 0, max: 100, scale: 100, fmt: pct},
+  immersion: {label: "Immersion", min: 0, max: 100, scale: 100, fmt: v => v ? pct(v) : "Off"},
+  lock_brightness: {label: "Brightness", min: 0, max: 100, scale: 100, fmt: pct, apply: () => drawPaint()},
   wb_r: {label: "Red", min: 20, max: 100, scale: 100, fmt: two},
   wb_g: {label: "Green", min: 20, max: 100, scale: 100, fmt: two},
   wb_b: {label: "Blue", min: 20, max: 100, scale: 100, fmt: two},
@@ -570,6 +645,7 @@ const faders = {}, editedAt = {};
 let state = null, pin = readPin(), offline = false, pinDismissed = false, currentTab = "";
 let wizardLive = false, markerAt = null, effects = [], activeFx = null, lookName = "";
 let metaLoadedAt = 0, zones = [], zonesJson = "", previewKey = "", urlsKey = "", flashLogSize = -1;
+let profilesKey = "", selection = null, dragFrom = null, lockKeep = true, webcamTimer = 0;
 
 /* ---------- plumbing ---------- */
 class HubError extends Error {
@@ -729,7 +805,9 @@ function render(s) {
   renderPreview();
   for (const key in faders) if (!FADERS[key].apply) setFader(key, s[key]);
   setFader("fx_brightness", s.wled_bri);
+  renderProfiles(s);
   $$("[data-action=profile]").forEach(b => press(b, b.dataset.value === s.profile));
+  renderMouse(s);
   $$("[data-switch]").forEach(b => { if (!recent(editedAt[b.dataset.switch])) press(b, s[b.dataset.switch], "aria-checked"); });
   $("engine-banner").hidden = !s.last_error;
   if (s.last_error) setText($("engine-error"), friendly(s.last_error));
@@ -737,6 +815,7 @@ function render(s) {
   renderSetup(s);
   renderZonesFromStatus(s);
   renderAdvanced(s);
+  if (currentTab === "override") drawPaint();
 }
 
 function renderHero(s) {
@@ -1113,9 +1192,11 @@ function renderZonesFromStatus(s) {
 function buildZones() {
   $("zone-list").replaceChildren(...zones.map(zoneCard));
   drawZoneMap();
+  buildLocks();
 }
 
 function drawZoneMap() {
+  drawPaint();
   const n = ledTotal();
   $("zone-map").replaceChildren(...zones.map(z => {
     const bar = make("span");
@@ -1299,6 +1380,205 @@ async function removePin() {
     && await act("/api/set", {new_pin: ""}, "PIN removed.")) storePin("");
 }
 
+/* ---------- profiles and mouse ---------- */
+function renderProfiles(s) {
+  const names = Object.keys(s.user_profiles || {}), key = names.join("|");
+  if (key !== profilesKey) {
+    profilesKey = key;
+    $("my-profiles").replaceChildren(...names.map(name => {
+      const b = make("button", {type: "button", textContent: name});
+      b.dataset.action = "profile";
+      b.dataset.value = name;
+      return b;
+    }));
+    $("my-profiles").hidden = !names.length;
+  }
+  const mine = names.includes(s.profile);
+  $("profile-delete").hidden = !mine;
+  setText($("profile-delete"), mine ? `Delete ${s.profile}` : "Delete");
+}
+
+function showProfileForm() {
+  const form = $("form-profile");
+  form.hidden = !form.hidden;
+  if (!form.hidden) { $("profile-name").value = ""; $("profile-name").focus(); }
+}
+
+async function saveProfile() {
+  const name = $("profile-name").value.trim();
+  if (!name) return false;
+  const body = await act("/api/profiles/save", {name}, `Saved as ${name}.`);
+  if (body) { $("form-profile").hidden = true; render(body); }
+  return body;
+}
+
+async function deleteProfile() {
+  const name = state && state.profile;
+  if (!name || !confirm(`Delete the profile ${name}? The current look stays as it is.`)) return;
+  const body = await act("/api/profiles/delete", {name}, `Deleted ${name}.`);
+  if (body) render(body);
+}
+
+function renderMouse(s) {
+  const m = s.mouse || {};
+  setText($("mouse-hint"), !m.connected ? "No Logitech LIGHTSYNC mouse is plugged in."
+    : m.permission && m.permission !== "granted"
+      ? "Allow Input Monitoring for Python: System Settings ▸ Privacy & Security ▸ Input Monitoring."
+      : `${m.name}: its lights take the colours along the bottom of the screen while sync runs.`);
+}
+
+/* ---------- override: locked colours ---------- */
+const locked = () => zones.map((z, i) => ({...z, i})).filter(z => z.mode === "solid");
+
+function paintGeometry() {
+  const canvas = $("paint"), s = state, w = canvas.clientWidth;
+  if (!s || !w) return null;
+  const frame = s.layout === "frame";
+  const h = Math.round(w * (frame ? clamp((s.screen_mm_h || 336) / (s.screen_mm_w || 597), 0.35, 1) : 0.3));
+  return {canvas, w, h, geo: (frame ? frameGeometry : stripGeometry)(s, w, h)};
+}
+
+function drawPaint() {
+  const g = paintGeometry();
+  if (!g) return;
+  const {canvas, w, h, geo} = g, dpr = window.devicePixelRatio || 1, n = ledTotal();
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.height = `${h}px`;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  Object.assign(ctx, {fillStyle: "#0f0f0d", strokeStyle: "#3b3a35", textAlign: "center", textBaseline: "middle",
+    font: "600 10px ui-monospace, Menlo, monospace"});
+  ctx.fillRect(...geo.screen);
+  ctx.strokeRect(...geo.screen);
+  ctx.fillStyle = "#a49d8c";
+  ctx.fillText(selection ? `LEDS ${selection[0]}–${selection[1]}` : "DRAG ACROSS THE LEDS",
+    geo.screen[0] + geo.screen[2] / 2, geo.screen[1] + geo.screen[3] / 2);
+  const owner = new Array(n).fill(null);
+  for (const z of locked()) for (let k = z.start; k <= z.end && k < n; k++) owner[k] = z;
+  for (const led of geo.leds) {
+    const z = owner[led.index], picked = selection && led.index >= selection[0] && led.index <= selection[1];
+    const live = colourAt(led.index, n, state.preview || []);
+    const colour = picked ? $("lock-colour").value : z ? z.color : live && isLit(live) ? live : "#24231f";
+    Object.assign(ctx, {shadowColor: picked || z ? colour : "transparent", shadowBlur: picked || z ? geo.size * 2 : 0,
+      fillStyle: colour});
+    const big = picked ? geo.size * 1.5 : geo.size;
+    ctx.fillRect(led.at[0] - big / 2, led.at[1] - big / 2, big, big);
+  }
+}
+
+function ledAt(event) {
+  const g = paintGeometry();
+  if (!g) return null;
+  const box = g.canvas.getBoundingClientRect(), x = event.clientX - box.left, y = event.clientY - box.top;
+  let best = null, bestD = Infinity;
+  for (const led of g.geo.leds) {
+    const d = Math.hypot(led.at[0] - x, led.at[1] - y);
+    if (d < bestD) { best = led.index; bestD = d; }
+  }
+  return bestD <= Math.max(24, g.geo.size * 4) ? best : null;
+}
+
+function select(a, b) {
+  selection = a == null ? null : [Math.min(a, b), Math.max(a, b)];
+  setText($("paint-sel"), selection ? `LEDs ${selection[0]}–${selection[1]} · ${selection[1] - selection[0] + 1} selected`
+    : "Nothing selected");
+  $("lock-go").disabled = !selection;
+  drawPaint();
+}
+
+function wirePaint() {
+  const canvas = $("paint");
+  canvas.addEventListener("pointerdown", event => {
+    const led = ledAt(event);
+    if (led == null) return;
+    dragFrom = led;
+    canvas.setPointerCapture(event.pointerId);
+    select(led, led);
+  });
+  canvas.addEventListener("pointermove", event => {
+    if (dragFrom == null) return;
+    const led = ledAt(event);
+    if (led != null) select(dragFrom, led);
+  });
+  const end = () => { dragFrom = null; };
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+  $("lock-colour").addEventListener("input", drawPaint);
+  $("lock-swatches").replaceChildren(...SWATCHES.map(([name, hex]) => {
+    const b = button("", "swatch", () => { $("lock-colour").value = hex; drawPaint(); }, name);
+    b.style.background = hex;
+    return b;
+  }));
+}
+
+function lockSelection() {
+  if (!selection) return;
+  zones.push({start: selection[0], end: selection[1], mode: "solid", color: $("lock-colour").value,
+    brightness: faderValue("lock_brightness"), keep: lockKeep});
+  select(null);
+  zonesChanged(true);
+  toast(lockKeep ? "Locked. It stays until you unlock it." : "Locked until the hub restarts.");
+}
+
+function buildLocks() {
+  const list = locked();
+  $("locks").replaceChildren(...list.map(z => {
+    const dot = make("span", {className: "zone-dot"});
+    dot.style.background = z.color;
+    const badge = make("span", {className: `badge${z.keep !== false ? " keep" : ""}`,
+      textContent: z.keep !== false ? "Kept" : "Until restart"});
+    const text = make("p", {textContent: `LEDs ${z.start}–${z.end} · ${pct(z.brightness)}`});
+    return make("li", {className: "lock"}, dot, text, badge,
+      button("Unlock", "btn small", () => { zones.splice(z.i, 1); zonesChanged(true); }, `Unlock LEDs ${z.start} to ${z.end}`));
+  }));
+  $("locks-empty").hidden = list.length > 0;
+  $("locks-clear").hidden = list.length === 0;
+  drawPaint();
+}
+
+function clearLocks() {
+  zones = zones.filter(z => z.mode !== "solid");
+  zonesChanged(true);
+  toast("Unlocked. The whole strip follows the screen.");
+}
+
+/* ---------- webcam calibration ---------- */
+function loadWebcams() { return load("/api/camera/list", showWebcams); }
+
+function showWebcams(body) {
+  const pick = $("webcam-pick"), usable = body.cameras.filter(c => !c.builtin);
+  pick.replaceChildren(...usable.map(c => make("option", {value: c.name, textContent: c.name})),
+    ...body.cameras.filter(c => c.builtin).map(c =>
+      make("option", {value: "", disabled: true, textContent: `${c.name} — built-in, never used`})));
+  if (!usable.length) pick.prepend(make("option", {value: "", disabled: true, selected: true, textContent: "No webcam plugged in"}));
+  $$("[data-action=webcam]").forEach(b => { b.disabled = !usable.length || body.state === "working"; });
+  showWebcam(body);
+}
+
+function showWebcam(st) {
+  const words = {idle: "", working: st.task === "check" ? "Checking — play a video…" : "Calibrating — keep the webcam still…",
+    done: st.task === "check" ? "Check finished." : "Calibration finished.", error: "Stopped."};
+  setText($("webcam-state"), words[st.state] || "");
+  $("webcam-state").dataset.tone = st.state === "done" ? "ok" : st.state === "error" ? "bad" : "";
+  $("webcam-log").hidden = !st.log.length;
+  setText($("webcam-log"), st.log.join("\n"));
+  $("webcam-log").scrollTop = $("webcam-log").scrollHeight;
+  clearTimeout(webcamTimer);
+  if (st.state === "working") webcamTimer = setTimeout(pollWebcam, 1000);
+  else $$("[data-action=webcam]").forEach(b => { b.disabled = !$("webcam-pick").value; });
+}
+
+function pollWebcam() { return load("/api/camera/status", showWebcam); }
+
+async function startWebcam(task) {
+  const camera = $("webcam-pick").value;
+  if (!camera) return;
+  $$("[data-action=webcam]").forEach(b => { b.disabled = true; });
+  const st = await act("/api/camera/start", {task, camera, seconds: 60});
+  if (st) showWebcam(st); else $$("[data-action=webcam]").forEach(b => { b.disabled = false; });
+}
+
 /* ---------- navigation and wiring ---------- */
 function showTab(name) {
   if (!TABS.includes(name)) name = "home";
@@ -1312,6 +1592,7 @@ function showTab(name) {
   if (leaving === "setup" && wizardLive) stopWizard({offer: true});
   if (name === "home") { previewKey = ""; renderPreview(); }
   if (name === "effects") { if (!effects.length) loadEffects(); loadMeta(); }
+  if (name === "override") drawPaint();
   if (name === "advanced") { loadMonitors(); loadPorts(); loadHealth(); }
 }
 
@@ -1320,7 +1601,14 @@ const ACTIONS = {
   "power": () => act(state && modeOf(state) === "sync" ? "/api/sync/off" : "/api/sync/on"),
   "sync-on": () => act("/api/sync/on"),
   "lights-off": async () => { if (await act("/api/wled/power", {on: 0})) refresh(); },
-  "profile": b => act(`/api/profile/${b.dataset.value}`),
+  "profile": b => act(`/api/profile/${encodeURIComponent(b.dataset.value)}`),
+  "profile-save": showProfileForm,
+  "profile-delete": deleteProfile,
+  "lock-keep": b => { lockKeep = b.dataset.value === "1"; $$("[data-action=lock-keep]").forEach(x => press(x, x === b)); },
+  "lock-all": () => select(0, ledTotal() - 1),
+  "lock": lockSelection,
+  "locks-clear": clearLocks,
+  "webcam": b => startWebcam(b.dataset.value),
   "layout": b => setKey("layout", b.dataset.value),
   "count-start": () => countStep("/api/wizard/count/start"),
   "count-yes": () => countStep("/api/wizard/count/answer", {lit: 1}),
@@ -1381,6 +1669,10 @@ function wire() {
     [...EDGE_KEYS, "box_mm_w", "box_mm_h"].map(k => [k, Number($(k).value) || 0])), "Layout saved."));
   onSubmit("form-port", () => setKey("http_port", $("http_port").value, `Saved. Restart the hub to use port ${$("http_port").value}.`));
   onSubmit("form-pin", setPin);
+  onSubmit("form-profile", saveProfile);
+  $("webcam").addEventListener("toggle", () => { if ($("webcam").open) loadWebcams(); });
+  $("webcam-pick").addEventListener("change", () => $$("[data-action=webcam]").forEach(b => { b.disabled = !$("webcam-pick").value; }));
+  wirePaint();
   $("flash-form").addEventListener("submit", startFlash);
   $("flash").addEventListener("toggle", () => { if ($("flash").open) { flashCheck(); loadNetworks(); } });
   $("flash-ssid").addEventListener("change", ssidChanged);
@@ -1402,7 +1694,7 @@ function wire() {
     poll();
   });
   $("unlock").addEventListener("cancel", () => { pinDismissed = true; });
-  window.addEventListener("resize", debounce(() => { previewKey = ""; renderPreview(); }, 150));
+  window.addEventListener("resize", debounce(() => { previewKey = ""; renderPreview(); drawPaint(); }, 150));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   window.addEventListener("pagehide", () => {
     if (wizardLive) fetch("/api/wizard/stop", {keepalive: true, cache: "no-store", headers: pinHeaders()});
@@ -1411,6 +1703,7 @@ function wire() {
 
 $$("[data-fader]").forEach(buildFader);
 ["fx_speed", "fx_intensity", "fx_brightness"].forEach(k => setFader(k, 128, true));
+setFader("lock_brightness", 1, true);
 buildSwatches();
 wire();
 showTab(location.hash.slice(1));
