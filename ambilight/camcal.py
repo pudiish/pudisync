@@ -1,129 +1,97 @@
-"""Webcam calibration: fit the strip's colour from pictures of the screen and wall.
+"""Webcam calibration: match the wall's colour to the screen's, picture by picture.
 
-A webcam sees the monitor and the glow around it. The monitor shows test
-colours while the strip is driven with colours chosen independently, and each
-picture gives two measurements taken through the same sensor at the same
-moment: the screen's colour and the wall's.
+A webcam sees the monitor and the glow around it. Webcams re-expose and
+re-balance all the time and blow out whichever light is brightest, so no
+reading is trusted for brightness. Within one picture, though, the screen and
+the wall pass through the same camera gains, so their colour *proportions*
+compare fairly, and clipped pixels can simply be skipped: leaving pixels out
+changes how bright a region looks, not its colour.
 
-Webcams change exposure and white balance all the time. Within one picture
-those act as the same per-channel gain on both regions, so only the *ratio*
-wall/screen per channel is used, and the gains cancel. Per channel k:
-
-    wall_k / screen_k = (m_k . drive + q_k . screen + b_k) / (a_k . screen + c_k)
-
-where a, c describe how the screen looks to the camera, m how the strip lights
-the wall, q how much screen light spills onto the wall, and b ambient light.
-Cross-multiplied this is linear and homogeneous in (a, c, m, q, b), so each
-channel is one SVD. Each channel is only known up to a scale, but that scale
-is shared by a_k and m_k, so it cancels in the answer we need:
-
-    F = M^-1 A    (screen light -> strip drive that makes the wall match)
-
-F replaces the datasheet matrix in colour.to_led.
+With white, red, green and blue on the screen in turn, the strip's drive is
+nudged until the wall's proportions match the screen's. The matched primaries
+and white fix a 3x3 matrix F (screen linear light -> strip drive), the way
+monitors are calibrated. F replaces the datasheet matrix in colour.to_led.
 """
 import numpy as np
 
 from . import color
 
-SATURATED = 250     # camera code value at which a channel is treated as clipped
-DARK = 3            # ...and below which it is lost in sensor noise
-MIN_EQUATIONS = 14  # 11 unknowns per channel, plus a margin
-# Full white on the monitor or the strip blows out a webcam that has exposed
-# for a dark room. The fit works in linear light, so dimmer tests lose nothing.
-SCREEN_LEVEL = 0.3
-DRIVE_RANGE = (40, 201)
-
-# Screen test colours (sRGB code values): neutrals, primaries, secondaries and
-# the colours people care about most on a wall (skin, warm, teal).
-SCREEN_COLOURS = [
-    (255, 255, 255), (180, 180, 180), (120, 120, 120), (255, 0, 0), (0, 255, 0),
-    (0, 0, 255), (0, 255, 255), (255, 0, 255), (255, 255, 0), (224, 172, 138),
-    (255, 140, 40), (140, 60, 255), (0, 170, 160), (255, 200, 90),
-]
-
-
-def dimmed(colour):
-    """A test colour at the level a webcam can photograph without clipping."""
-    return tuple(round(v * SCREEN_LEVEL) for v in colour)
-
-
-def patch_plan(seed=1, count=36):
-    """(screen colour, strip drive) pairs, with drives independent of the screen.
-
-    Independence is what lets the fit tell the strip's own light apart from
-    screen light spilling onto the wall.
-    """
-    rng = np.random.default_rng(seed)
-    pairs = []
-    for i in range(count):
-        screen = dimmed(SCREEN_COLOURS[i % len(SCREEN_COLOURS)])
-        drive = tuple(int(v) for v in rng.integers(*DRIVE_RANGE, 3))
-        pairs.append((screen, drive))
-    return pairs
+CLIP = 235          # camera code value from which a pixel's colour is unreliable
+FLOOR = 12          # ...and below which it is sensor noise
+MIN_PIXELS = 40     # fewer usable pixels than this and a region is not read
+SCREEN_LEVEL = 0.5  # test colours at half code value: bright enough, rarely blown out
+DRIVE_PEAK = 0.6    # the strip's busiest channel while matching (linear, 0..1)
+PRIMARIES = {"white": (255, 255, 255), "red": (255, 0, 0),
+             "green": (0, 255, 0), "blue": (0, 0, 255)}
 
 
 def linear(code_values):
     return color.srgb_to_linear(np.asarray(code_values, dtype=np.float64) / 255.0).astype(np.float64)
 
 
-def fit_matrix(samples):
-    """samples: (screen code, drive bytes, screen as seen by camera, wall as seen by camera).
-
-    Returns the 3x3 matrix F (screen linear light -> strip linear drive),
-    scaled so white drives the busiest channel at full.
-    """
-    rows_a, rows_m = [], []
-    for k in range(3):
-        equations = channel_equations(samples, k)
-        if len(equations) < MIN_EQUATIONS:
-            raise ValueError("too many camera readings were blown out or too dark; "
-                             "lower the camera's exposure or move it further back")
-        solution = np.linalg.svd(np.array(equations))[2][-1]
-        rows_a.append(solution[0:3])
-        rows_m.append(solution[4:7])
-    A, M = np.array(rows_a), np.array(rows_m)
-    F = np.linalg.solve(M, A)
-    if np.linalg.cond(M) > 1e3 or (F @ np.ones(3)).max() <= 0:
-        raise ValueError("the measurements do not determine the strip's colours; "
-                         "check the camera sees both the screen and the glow")
-    return F / (F @ np.ones(3)).max()
+def dimmed(colour):
+    """A test colour at the level the webcam photographs without blowing out."""
+    return tuple(round(v * SCREEN_LEVEL) for v in colour)
 
 
-def screen_follows_tests(samples, least=0.5):
-    """Whether the camera's screen readings rise and fall with the test colours
-    shown. They do not when the test window is hidden behind a video."""
-    shown = np.array([sample[0] for sample in samples], np.float64)
-    seen = np.array([sample[2] for sample in samples], np.float64)
-    if len(samples) < 3 or shown.std(axis=0).min() == 0 or seen.std(axis=0).min() == 0:
-        return False
-    return np.mean([np.corrcoef(shown[:, k], seen[:, k])[0, 1] for k in range(3)]) >= least
-
-
-def channel_equations(samples, k):
-    """One linear equation per usable picture for channel k (see module docstring)."""
-    equations = []
-    for screen_code, drive, screen_cam, wall_cam in samples:
-        # A clipped channel says only "at least this bright": leave it out.
-        if max(screen_cam[k], wall_cam[k]) >= SATURATED or min(screen_cam[k], wall_cam[k]) <= DARK:
-            continue
-        s, d = linear(screen_code), np.asarray(drive, np.float64) / 255.0
-        seen_s, seen_w = linear(screen_cam)[k], linear(wall_cam)[k]
-        row = np.concatenate([seen_w * s, [seen_w], -seen_s * d, -seen_s * s, [-seen_s]])
-        equations.append(row / max(seen_s + seen_w, 1e-6))   # every picture counts alike
-    return equations
+def proportions(image, mask):
+    """Share of red, green and blue in a region's light, from its usable
+    pixels only; None when too few pixels are neither blown out nor noise."""
+    pixels = np.asarray(image, np.float64)[mask]
+    brightest = pixels.max(axis=1)
+    usable = pixels[(brightest < CLIP) & (brightest > FLOOR)]
+    if len(usable) < MIN_PIXELS:
+        return None
+    light = linear(usable).sum(axis=0)
+    return light / light.sum()
 
 
 def mismatch(pairs):
     """How far the wall's colour is from the screen's, ignoring brightness.
 
-    pairs: (screen as seen by camera, wall as seen by camera), code values.
-    0 means the wall is a (dimmer or brighter) copy of the screen's colour.
+    pairs: (screen proportions, wall proportions); unreadable pairs (None)
+    are skipped. 0 means the wall shows the screen's colour.
     """
     scores = []
-    for screen_cam, wall_cam in pairs:
-        ratio = np.log(np.maximum(linear(wall_cam), 1e-4) / np.maximum(linear(screen_cam), 1e-4))
+    for screen, wall in pairs:
+        if screen is None or wall is None:
+            continue
+        ratio = np.log(np.maximum(wall, 1e-4) / np.maximum(screen, 1e-4))
         scores.append(np.abs(ratio - ratio.mean()).mean())
-    return float(np.mean(scores)) if scores else 0.0
+    if not scores:
+        raise ValueError("no picture showed both the screen and the wall clearly")
+    return float(np.mean(scores))
+
+
+def first_guess(colour):
+    """The datasheet model's drive for a screen colour, as a starting point.
+    No channel starts at zero, or nudging could never bring it in."""
+    drive = color.led_matrix(color.NEUTRAL_KELVIN) @ linear(colour)
+    drive = np.maximum(drive, 0.03 * drive.max())
+    return drive * DRIVE_PEAK / drive.max()
+
+
+def nudge(drive, screen, wall, step=0.8, floor=0.02):
+    """Move the strip's drive so the wall's proportions approach the screen's.
+    `floor` keeps a channel that is nearly dark on both from swinging wildly."""
+    drive = np.asarray(drive, np.float64) * ((screen + floor) / (wall + floor)) ** step
+    return drive * DRIVE_PEAK / drive.max()
+
+
+def matrix_from_primaries(matched):
+    """F from the drives that matched white, red, green and blue.
+
+    Each primary's drive is F's column for it, up to a scale; white, the sum
+    of the primaries, fixes the three scales. Scaled so white drives the
+    busiest channel at full.
+    """
+    columns = np.column_stack([matched[name] for name in ("red", "green", "blue")])
+    scales = np.linalg.solve(columns, matched["white"])
+    if (scales <= 0).any():
+        raise ValueError("the matched colours are inconsistent (white is not a mix of "
+                         "red, green and blue); check the camera sees the wall glow")
+    F = columns * scales
+    return F / (F @ np.ones(3)).max()
 
 
 def grow(mask, radius):
@@ -159,20 +127,6 @@ def find_regions(screen_lit, strip_lit, screen_share=0.1, wall_share=0.25):
     return screen, wall
 
 
-def measurable(mask, picture, keep=0.5):
-    """The dimmer part of `mask` in `picture`, taken with the screen and strip
-    at the brightest levels the tests reach.
-
-    The webcam keeps re-exposing, so a pixel just short of clipping here would
-    clip in the next picture: only the dimmer pixels leave room for that.
-    """
-    level = np.asarray(picture).max(axis=2)
-    usable = mask & (level < SATURATED)
-    if not usable.any():
-        return usable
-    return usable & (level <= np.percentile(level[usable], keep * 100))
-
-
 def screen_edge(screen):
     """The screen's border band: the part the strip beside it follows, and
     away from the hot spot a webcam sees in the middle of a bright screen."""
@@ -187,11 +141,3 @@ def looks_like_screen(screen, fill=0.6):
         return False
     box = (rows[-1] - rows[0] + 1) * (cols[-1] - cols[0] + 1)
     return screen.sum() / box >= fill
-
-
-def region_colour(image, mask, clipped_share=0.02):
-    """Mean camera colour of a region. A channel clipped in more than a few of
-    its pixels has a meaningless mean, so it is reported as clipped (255)."""
-    pixels = np.asarray(image, np.float64)[mask]
-    clipped = (pixels >= SATURATED).mean(axis=0) > clipped_share
-    return np.where(clipped, 255.0, pixels.mean(axis=0))

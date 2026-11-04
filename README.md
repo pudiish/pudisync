@@ -211,25 +211,30 @@ white that looks green or blue.
 
 ### Calibrate with a webcam
 
-Instead of judging by eye, a webcam can measure the match. Set it up so it sees
-the monitor **and** the wall glow around it, lock its position, and, with the
-hub running:
+Instead of judging by eye, a USB webcam can measure the match. Set it up so it
+sees the monitor **and** the wall glow around it, lock its position, and, with
+the hub running:
 
 ```bash
 python3 -m pip install opencv-python
-python3 ambilight.py --camera-calibrate    # --camera 1 for a second webcam
+python3 ambilight.py --camera-calibrate    # --camera Lenovo to name the webcam
 ```
 
-The Mac asks for Camera permission the first time (allow it for the app that
-runs the command, e.g. Terminal, then restart that app). For about two minutes
-the monitor shows test colours while the strip shows other colours chosen
-independently. Each picture shows the screen and the wall together, so the
-camera's own auto-exposure and white balance cancel out. From these pictures
-the hub fits how this strip, on this wall, reproduces each screen colour. It
-then scores the match with sync on, before and after, and keeps the new
-colours only if the wall got closer to the screen. Warmth, contrast and colour
-intensity still apply on top. `recordings/calibration-view.jpg` shows what was
-measured: the screen is tinted blue and the wall orange.
+The Mac's built-in camera is never used: cameras are chosen by name, and with
+no external webcam plugged in the calibration stops instead. The Mac asks for
+Camera permission the first time (allow it for the app that runs the command,
+e.g. Terminal, then restart that app).
+
+For about a minute the monitor shows white, red, green and blue in turn,
+covering even a full-screen video, while the hub adjusts the strip until the
+wall's colour matches the screen's. Screen and wall are compared within the
+same picture and only by their colour proportions, so the webcam's own
+auto-exposure, white balance and blown-out spots do not matter. The four
+matches define how this strip, on this wall, reproduces each screen colour.
+The hub then scores the match with sync on for the old settings, the measured
+colours, and the measured colours without the saturation boost, and keeps the
+best. Warmth and contrast still apply on top. `recordings/calibration-view.jpg`
+shows what was measured: the screen's border is tinted blue and the wall orange.
 
 Later, with a video playing, `python3 ambilight.py --camera-check 60` scores
 the match for a minute without changing anything (0 is a perfect match).

@@ -6,10 +6,10 @@ The maths lives in camcal.py; this module only moves pixels and photons:
 
 1. find the screen and the wall glow in the camera picture
 2. score how well the wall matches the screen with the current settings
-3. show test colours on the monitor while painting the strip with
-   independent colours, and photograph each pair
-4. fit the colour matrix, apply it, and score again
-5. keep it only if the wall now matches the screen better; otherwise restore
+3. for white, red, green and blue on the monitor, nudge the strip until
+   the wall's colour matches the screen's in the same picture
+4. turn the four matches into the colour matrix, and score it
+5. keep whichever settings matched best, the old ones included
 """
 import json
 import threading
@@ -25,17 +25,69 @@ from .plugins.capture_quartz import QuartzCapture
 from .recorder import RECORDINGS_DIR
 
 SETTLE_S = 1.5          # the webcam's auto exposure takes this long to settle
-VERIFY_SETTLE_S = 1.8   # sync smoothing on top of that
+STEP_S = 0.7            # one matching step: only proportions are read, so exposure may still drift
+VERIFY_SETTLE_S = 1.2   # sync smoothing on top of that
+MAX_STEPS = 10          # matching steps per colour
+MATCHED = 0.03          # mismatch at which a colour counts as matched
 WORK_WIDTH = 640        # camera pictures are analysed at this width
-MIN_READING = 20        # camera code value below which a region shows no usable colour
+SETTINGS = ("led_matrix", "wb_r", "wb_g", "wb_b", "saturation")    # what calibration may change
 NOT_SHOWN = ("the test colours did not show on the monitor (another window on top?), "
              "or the camera does not see the whole monitor")
 VERIFY_COLOURS = [(255, 255, 255), (224, 172, 138), (255, 0, 0), (0, 200, 80),
                   (40, 80, 255), (255, 200, 90), (150, 60, 220), (0, 170, 160)]
 
 
+AVFOUNDATION = "/System/Library/Frameworks/AVFoundation.framework"
+
+
+def list_cameras():
+    """(name, built in?) per camera, numbered as OpenCV numbers them. None is opened.
+
+    OpenCV 4.x lists AVFoundation's video and muxed devices sorted by uniqueID
+    (cap_avfoundation_mac.mm), so the same calls and sort give its numbers.
+    Plugging a webcam in or out renumbers them, so numbers are never trusted.
+    """
+    import functools
+
+    import objc
+
+    objc.loadBundle("AVFoundation", {}, bundle_path=AVFOUNDATION)
+    device = objc.lookUpClass("AVCaptureDevice")
+    found = list(device.devicesWithMediaType_("vide")) + list(device.devicesWithMediaType_("muxx"))
+    found.sort(key=functools.cmp_to_key(lambda a, b: a.uniqueID().compare_(b.uniqueID())))
+    return [(str(d.localizedName()), str(d.deviceType()).startswith("AVCaptureDeviceTypeBuiltIn"))
+            for d in found]
+
+
+def pick_camera(cameras, wanted=None):
+    """(OpenCV number, name) of the camera to use. Never a built-in camera.
+
+    `wanted` is part of a camera's name; without it, the first external
+    webcam that is not a phone.
+    """
+    external = [(i, name) for i, (name, built_in) in enumerate(cameras) if not built_in]
+    if wanted:
+        usable = [(i, name) for i, name in external if wanted.lower() in name.lower()]
+        built_in = [name for name, inside in cameras if inside and wanted.lower() in name.lower()]
+        if built_in and not usable:
+            raise RuntimeError(f"{built_in[0]} is a built-in camera, which is never used")
+    else:
+        usable = [(i, name) for i, name in external if "iphone" not in name.lower()]
+    if not usable:
+        raise RuntimeError("no external webcam is connected (the built-in camera is never used); "
+                           f"cameras seen: {', '.join(name for name, _ in cameras) or 'none'}")
+    return usable[0]
+
+
+def open_camera(wanted=None, log=print):
+    index, name = pick_camera(list_cameras(), wanted)
+    log(f"Using {name}")
+    return Camera(index)
+
+
 class Camera:
-    """A webcam read continuously in the background, so pictures are never stale."""
+    """A webcam read continuously in the background, so pictures are never stale.
+    Opened through open_camera(), which never picks a built-in camera."""
 
     def __init__(self, index):
         import cv2
@@ -163,39 +215,31 @@ def display_id(index):
     return (Quartz.CGGetActiveDisplayList(16, None, None)[1] or ())[index - 1]
 
 
-def light(window, hub, screen, strip):
+def light(window, hub, screen, strip, settle=SETTLE_S):
     """Show one test pair and let the camera settle on it."""
     window.show(screen)
     hub.paint(strip)
-    window.wait(SETTLE_S / 2)
+    window.wait(settle / 2)
     hub.paint(strip)        # the paint is one UDP packet over Wi-Fi; a lost one would leave the old colour
-    window.wait(SETTLE_S / 2)
+    window.wait(settle / 2)
 
 
 def locate(window, hub, cam):
     """Find where to read the screen and the wall glow in the camera picture."""
-    brightest = camcal.dimmed((255, 255, 255)), (camcal.DRIVE_RANGE[1] - 1,) * 3
-    light(window, hub, brightest[0], (0, 0, 0))
+    light(window, hub, camcal.dimmed((255, 255, 255)), (0, 0, 0))
     screen_lit = cam.snapshot(8)
-    light(window, hub, (0, 0, 0), brightest[1])
+    light(window, hub, (0, 0, 0), (round(255 * camcal.DRIVE_PEAK),) * 3)
     strip_lit = cam.snapshot(8)
-    # With one light on, the webcam exposes until it blows out; tests always
-    # have both on, so clipping is judged with both at their brightest.
-    light(window, hub, *brightest)
-    both_lit = cam.snapshot(8)
     screen, wall = camcal.find_regions(screen_lit, strip_lit)
     screen = largest_region(screen)     # not a laptop screen or a lamp elsewhere in view
     if not camcal.looks_like_screen(screen):
         save_view(strip_lit, screen, wall)
         raise RuntimeError(NOT_SHOWN)
-    # Read the screen at its border, which the strip follows.
-    screen = camcal.measurable(camcal.screen_edge(screen), both_lit)
-    wall = camcal.measurable(wall, both_lit)
-    save_view(both_lit, screen, wall)
-    if screen.mean() < 0.005 or wall.mean() < 0.005:
-        raise RuntimeError("the camera sees too little of the screen's border or the wall glow "
-                           "without blowing out; move it back so the monitor and the wall "
-                           "around it fill about half the picture")
+    screen = camcal.screen_edge(screen)     # the border, which the strip follows
+    save_view(strip_lit, screen, wall)
+    if screen.sum() < camcal.MIN_PIXELS or wall.sum() < camcal.MIN_PIXELS:
+        raise RuntimeError("the camera cannot see both the monitor and the glow on the wall "
+                           "around it; aim it so both are in view")
     return screen, wall
 
 
@@ -221,40 +265,71 @@ def save_view(picture, screen, wall):
     np.savez_compressed(RECORDINGS_DIR / "calibration-regions.npz", screen=screen, wall=wall)
 
 
+def read(cam, screen, wall):
+    """(screen proportions, wall proportions) from one fresh picture."""
+    picture = cam.snapshot(3)
+    return camcal.proportions(picture, screen), camcal.proportions(picture, wall)
+
+
 def score(window, hub, cam, screen, wall):
     """How far the wall is from the screen with the hub syncing (0 = a match)."""
     hub.get("/api/calibrate/done")
     hub.get("/api/sync/on")
     pairs = []
     for colour in VERIFY_COLOURS:
-        window.show(camcal.dimmed(colour)); window.wait(VERIFY_SETTLE_S)
-        picture = cam.snapshot(5)
-        pairs.append((camcal.region_colour(picture, screen), camcal.region_colour(picture, wall)))
+        window.show(camcal.dimmed(colour))
+        window.wait(VERIFY_SETTLE_S)
+        pairs.append(read(cam, screen, wall))
     return camcal.mismatch(pairs)
 
 
-def measure(window, hub, cam, screen, wall, log):
-    samples = []
-    plan = camcal.patch_plan()
-    for i, (colour, drive) in enumerate(plan, 1):
-        light(window, hub, colour, drive)
-        picture = cam.snapshot(5)
-        samples.append((colour, drive, camcal.region_colour(picture, screen),
-                        camcal.region_colour(picture, wall)))
-        if i % 6 == 0:
-            log(f"  measured {i}/{len(plan)} colours")
-    # Kept so a fit that fails can be studied and redone without re-measuring.
-    with open(RECORDINGS_DIR / "calibration-samples.json", "w") as fh:
-        json.dump([[list(map(float, part)) for part in sample] for sample in samples], fh)
-    return samples
+def match(window, hub, cam, screen, wall, name):
+    """The strip drive (linear) whose glow matches `name` on screen, and how closely."""
+    colour = camcal.PRIMARIES[name]
+    drive = camcal.first_guess(colour)
+    closest = (float("inf"), drive)
+    for _ in range(MAX_STEPS):
+        light(window, hub, camcal.dimmed(colour), np.round(drive * 255).astype(int), STEP_S)
+        seen_screen, seen_wall = read_test(cam, screen, wall, name)
+        off = camcal.mismatch([(seen_screen, seen_wall)])
+        if off < closest[0]:
+            closest = (off, drive)
+        if off < MATCHED:
+            break
+        drive = camcal.nudge(drive, seen_screen, seen_wall)
+    return closest[1], closest[0]
 
 
-def run_calibration(port, camera_index, log=print):
+def read_test(cam, screen, wall, name):
+    """read(), refusing pictures that cannot be trusted while `name` is on screen."""
+    seen_screen, seen_wall = read(cam, screen, wall)
+    if seen_screen is None:
+        raise RuntimeError(NOT_SHOWN + ", or the camera is blown out by it")
+    if seen_wall is None:
+        raise RuntimeError("the camera lost the wall glow (blown out or too dark); "
+                           "move it further back")
+    # A hidden test window shows the video instead: its colour does not follow.
+    if name != "white" and int(np.argmax(seen_screen)) != "rgb".index(name[0]):
+        raise RuntimeError(NOT_SHOWN)
+    return seen_screen, seen_wall
+
+
+def candidates(fitted, status):
+    """Settings worth scoring: the fitted matrix, and the same with the
+    saturation boost off (once colours match, a boost only pulls them apart)."""
+    matrix = json.dumps(fitted.round(4).flatten().tolist())
+    tried = [{"led_matrix": matrix, "wb_r": 1, "wb_g": 1, "wb_b": 1}]
+    if status["saturation"] != 1.0:
+        tried.append({**tried[0], "saturation": 1.0})
+    return tried
+
+
+def run_calibration(port, camera_name=None, log=print):
     """Open the camera and a test-colour window on the synced display, then calibrate."""
     hub = HubClient(port)
     status = hub.get("/api/status")
     display = resolve_display(status["monitor_index"], QuartzCapture.display_count())
-    cam = Camera(camera_index)
+    cam = open_camera(camera_name, log)
     try:
         window = PatchWindow(display_id(display))
         try:
@@ -266,43 +341,49 @@ def run_calibration(port, camera_index, log=print):
 
 
 def calibrate(window, hub, cam, status, log):
-    """Measure, fit, apply and verify. Returns a summary dict."""
-    previous = {k: status[k] for k in ("led_matrix", "wb_r", "wb_g", "wb_b")}
+    """Match, fit, then keep whichever settings make the wall match the screen best."""
+    previous = {k: (json.dumps(status[k]) if k == "led_matrix" else status[k]) for k in SETTINGS}
     try:
         log("Finding the screen and the wall glow…")
         screen, wall = locate(window, hub, cam)
         log("Scoring the current colours…")
-        before = score(window, hub, cam, screen, wall)
-        log(f"  mismatch before: {before:.3f}")
-        log("Measuring test colours…")
-        samples = measure(window, hub, cam, screen, wall, log)
-        if not camcal.screen_follows_tests(samples):
-            raise RuntimeError(NOT_SHOWN)
-        fitted = camcal.fit_matrix(samples)
-        # The fitted matrix already includes this strip's channel balance.
-        hub.get("/api/set", led_matrix=json.dumps(fitted.round(4).flatten().tolist()),
-                wb_r=1, wb_g=1, wb_b=1)
-        log("Scoring the fitted colours…")
-        after = score(window, hub, cam, screen, wall)
-        log(f"  mismatch after: {after:.3f}")
-        kept = after < before
-        if not kept:
-            hub.get("/api/set", led_matrix=json.dumps(previous["led_matrix"]),
-                    wb_r=previous["wb_r"], wb_g=previous["wb_g"], wb_b=previous["wb_b"])
-        return {"before": before, "after": after, "kept": kept,
-                "matrix": fitted.round(4).tolist(), "view": str(RECORDINGS_DIR / "calibration-view.jpg")}
+        scores = [(score(window, hub, cam, screen, wall), previous)]
+        log(f"  mismatch now: {scores[0][0]:.3f}")
+        matched = {}
+        for name in camcal.PRIMARIES:
+            matched[name], off = match(window, hub, cam, screen, wall, name)
+            log(f"  matched {name}: mismatch {off:.3f}")
+        fitted = camcal.matrix_from_primaries(matched)
+        with open(RECORDINGS_DIR / "calibration-result.json", "w") as fh:
+            json.dump({"matched": {k: v.tolist() for k, v in matched.items()},
+                       "matrix": fitted.tolist()}, fh, indent=1)
+        for settings in candidates(fitted, status):
+            hub.get("/api/set", **settings)
+            scores.append((score(window, hub, cam, screen, wall), settings))
+            log(f"  mismatch with {describe(settings)}: {scores[-1][0]:.3f}")
+        best_score, best = min(scores, key=lambda pair: pair[0])
+        hub.get("/api/set", **best)
+        return {"before": scores[0][0], "after": best_score, "kept": best is not previous,
+                "chosen": describe(best), "matrix": fitted.round(4).tolist(),
+                "view": str(RECORDINGS_DIR / "calibration-view.jpg")}
     finally:
         hub.get("/api/calibrate/done")
         hub.get("/api/sync/on")
 
 
-def run_check(port, camera_index, seconds, log=print):
+def describe(settings):
+    if json.loads(settings["led_matrix"]) == []:
+        return "the old colours"
+    return "the measured colours" + (", no saturation boost" if settings.get("saturation") == 1.0 else "")
+
+
+def run_check(port, camera_name, seconds, log=print):
     """Score the match while a video plays, without changing anything."""
     regions = RECORDINGS_DIR / "calibration-regions.npz"
     if not regions.exists():
         raise RuntimeError("run the calibration once first, so the screen and wall are known")
     data = np.load(regions)
-    cam = Camera(camera_index)
+    cam = open_camera(camera_name, log)
     try:
         result = watch(cam, data["screen"], data["wall"], seconds)
     finally:
@@ -312,14 +393,12 @@ def run_check(port, camera_index, seconds, log=print):
 
 
 def watch(cam, screen, wall, seconds):
-    """Mismatch between the screen's border and the wall glow over `seconds`."""
+    """Mismatch between the screen's border and the wall glow over `seconds`.
+    Dark scenes, with no colour to compare, are skipped."""
     pairs, end = [], time.monotonic() + seconds
     while time.monotonic() < end:
-        picture = cam.snapshot(3)
-        seen = camcal.region_colour(picture, screen), camcal.region_colour(picture, wall)
-        # Dark scenes carry no colour to compare, only sensor noise.
-        if min(seen[0].max(), seen[1].max()) >= MIN_READING:
-            pairs.append(seen)
-    if not pairs:
-        raise RuntimeError("the video stayed too dark to compare colours; play something brighter")
-    return camcal.mismatch(pairs)
+        pairs.append(read(cam, screen, wall))
+    try:
+        return camcal.mismatch(pairs)
+    except ValueError:
+        raise RuntimeError("the video stayed too dark to compare colours; play something brighter") from None

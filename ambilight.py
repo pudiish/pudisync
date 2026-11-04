@@ -38,7 +38,9 @@ def parse_args(argv):
     ap.add_argument("--camera-check", type=int, metavar="SECONDS",
                     help="with the hub running and a video playing: score how well the wall "
                          "matches the screen, then exit")
-    ap.add_argument("--camera", type=int, default=0, help="webcam number for the camera options")
+    ap.add_argument("--camera", metavar="NAME",
+                    help="part of the webcam's name, e.g. Lenovo (default: the first external "
+                         "webcam; the built-in camera is never used)")
     return ap.parse_args(argv)
 
 
@@ -56,7 +58,7 @@ def camera(args, config):
         print(f"Camera calibration stopped: {exc}")
         return 1
     print(f"Mismatch {result['before']:.3f} before, {result['after']:.3f} after: "
-          f"{'kept the new colours' if result['kept'] else 'no better, kept the old colours'}.")
+          f"kept {result['chosen']}.")
     print(f"What the camera saw: {result['view']}")
     return 0
 

@@ -1650,44 +1650,60 @@ def test_display_follow():
 
 
 def test_camera_calibration_maths():
-    print("\n28. Webcam calibration: fitting the strip's colour from camera pictures")
+    print("\n28. Webcam calibration: matching the wall's colour to the screen's")
     from ambilight import camcal, color
 
-    rng = np.random.default_rng(7)
-    # The truth the camera cannot see directly: how the screen and the strip look
-    # to the camera, how much screen light spills onto the wall, and offsets.
-    A = np.array([[0.80, 0.15, 0.05], [0.20, 0.75, 0.05], [0.05, 0.10, 0.85]])
-    M = np.array([[0.55, 0.10, 0.02], [0.08, 0.90, 0.05], [0.02, 0.06, 0.40]])
-    Q = 0.04 * np.ones((3, 3))
-    c, b = np.array([0.01, 0.01, 0.012]), np.array([0.005, 0.004, 0.006])
-    pairs = camcal.patch_plan(seed=3)
-    check("the plan pairs screen colours with independent strip drives", len(pairs) >= 30
-          and np.corrcoef([p[0][0] for p in pairs], [p[1][0] for p in pairs])[0, 1] < 0.6, len(pairs))
+    # A region whose bright half is blown out reads as its unclipped half.
+    region = np.zeros((10, 20, 3)); region[:, :10] = (120, 60, 30); region[:, 10:] = (255, 250, 200)
+    seen = camcal.proportions(region, np.ones((10, 20), bool))
+    truth = camcal.linear((120, 60, 30)); truth = truth / truth.sum()
+    check("blown-out pixels are skipped, so a region reads its true colour",
+          np.abs(seen - truth).max() < 1e-9, np.round(seen, 3))
+    lit = camcal.linear((120, 60, 30)) * np.linspace(0.5, 6.0, 200)[:, None]    # one colour, bright to blown out
+    def photo(gain):
+        return (color.linear_to_srgb(np.clip(lit * gain, 0, 1)) * 255.0)[:, None, :]
+    readings = [camcal.proportions(photo(gain), np.ones((200, 1), bool)) for gain in (1.0, 0.4)]
+    check("brightness and blown-out pixels do not change the colour read",
+          all(np.abs(r - truth).max() < 0.01 for r in readings), [np.round(r, 3) for r in readings])
+    check("a region with too few usable pixels is not read",
+          camcal.proportions(np.full((5, 5, 3), 255.0), np.ones((5, 5), bool)) is None)
 
-    samples = []
-    for screen_code, drive in pairs:
-        s = color.srgb_to_linear(np.array(screen_code) / 255.0)
-        d = np.array(drive) / 255.0
-        gain = np.diag(rng.uniform(0.5, 1.6, 3))           # auto exposure + auto white balance
-        screen_cam = gain @ (A @ s + c)
-        wall_cam = gain @ (M @ d + Q @ s + b)
-        encode = lambda v: color.linear_to_srgb(np.clip(v * (1 + rng.normal(0, 0.004, 3)), 0, 1)) * 255
-        samples.append((screen_code, drive, encode(screen_cam), encode(wall_cam)))
-
-    fitted = camcal.fit_matrix(samples)
-    truth = np.linalg.solve(M, A)
-    truth = truth / (truth @ np.ones(3)).max()
-    check("it recovers the screen-to-strip matrix despite the camera's own gains",
-          np.abs(fitted - truth).max() < 0.03, np.abs(fitted - truth).max().round(4))
-    check("the matrix is scaled so white drives the busiest channel at full",
-          abs((fitted @ np.ones(3)).max() - 1) < 1e-6)
-
-    ratios_off = camcal.mismatch([(s[2], s[3]) for s in samples])
-    check("a mismatch score is reported (0 = the wall matches the screen)", ratios_off > 0, ratios_off)
-    matched = [(np.array([200, 120, 60]), np.array([100, 60, 30]) * 1.0)]
     check("a wall that is a dimmer copy of the screen scores as a match",
-          camcal.mismatch([(color.linear_to_srgb(np.array([.6, .2, .05])) * 255,
-                            color.linear_to_srgb(np.array([.3, .1, .025])) * 255)]) < 0.01)
+          camcal.mismatch([(np.array([.7, .2, .1]), np.array([.7, .2, .1]))]) < 1e-9)
+    check("a wall of another colour does not",
+          camcal.mismatch([(np.array([.7, .2, .1]), np.array([.3, .4, .3]))]) > 0.3)
+    try:
+        camcal.mismatch([(None, None)])
+        empty = False
+    except ValueError:
+        empty = True
+    check("no readable picture at all is an error, not a perfect score", empty)
+
+    # Nudging converges whatever the strip and camera do, as long as more drive
+    # in a channel means more of that colour.
+    M = np.array([[0.55, 0.10, 0.02], [0.08, 0.90, 0.05], [0.02, 0.06, 0.40]])
+    target = np.array([0.15, 0.55, 0.30])
+    drive = camcal.first_guess((0, 255, 0))
+    for _ in range(12):
+        wall = M @ drive
+        drive = camcal.nudge(drive, target, wall / wall.sum())
+    wall = M @ drive
+    check("nudging the strip brings the wall to the screen's colour",
+          camcal.mismatch([(target, wall / wall.sum())]) < 0.01,
+          round(camcal.mismatch([(target, wall / wall.sum())]), 4))
+    check("the strip never goes past the matching level", abs(drive.max() - camcal.DRIVE_PEAK) < 1e-9)
+
+    F = np.array([[0.9, 0.1, 0.0], [0.05, 0.6, 0.05], [0.0, 0.05, 0.35]])
+    matched = {"red": F[:, 0] * 2.0, "green": F[:, 1] * 0.7, "blue": F[:, 2] * 3.0, "white": F @ np.ones(3)}
+    found = camcal.matrix_from_primaries(matched)
+    check("matched red, green, blue and white give the colour matrix, whatever each was scaled by",
+          np.abs(found - F / (F @ np.ones(3)).max()).max() < 1e-9)
+    try:
+        camcal.matrix_from_primaries({**matched, "white": -matched["white"]})
+        refused = False
+    except ValueError:
+        refused = True
+    check("matches that contradict each other are refused", refused)
 
     h, w = 120, 200
     base = np.full((h, w, 3), 20, np.uint8)
@@ -1697,18 +1713,6 @@ def test_camera_calibration_maths():
     check("the screen is found where it lit up", screen_mask[60, 100] and not screen_mask[60, 30])
     check("the wall glow is found beside it", wall_mask[60, 30] and wall_mask[60, 160])
     check("the screen is never counted as wall", not (screen_mask & wall_mask).any())
-
-    hot_spot = np.full((10, 10, 3), 120.0); hot_spot[4:6, 4:6, 0] = 255
-    seen = camcal.region_colour(hot_spot, np.ones((10, 10), bool))
-    check("a channel clipped in part of a region counts as clipped, not as its mean",
-          seen[0] == 255 and seen[1] == 120, seen)
-    kept = camcal.measurable(np.ones((10, 10), bool), hot_spot)
-    check("pixels blown out at the brightest test level are not read at all",
-          kept.sum() == 96 and not kept[4:6, 4:6].any())
-    ramp = np.repeat(np.linspace(20, 240, 10)[:, None, None], 3, axis=2).repeat(10, axis=1)
-    kept = camcal.measurable(np.ones((10, 10), bool), ramp)
-    check("only the dimmer half is read, leaving headroom for the webcam re-exposing",
-          kept[:5].all() and not kept[5:].any())
 
 
 def test_fitted_matrix_in_use():
@@ -1798,21 +1802,23 @@ class SimulatedRoom:
 
     Stands in for the window, the hub and the camera in camrun's flow: the
     window sets the screen colour, the hub paints or syncs the strip, and the
-    camera photographs both.
+    camera photographs both. Like the real webcam, it blows out the brightest
+    part of each region, and screen light spills onto the wall in its colour.
     """
     A = np.array([[0.80, 0.15, 0.05], [0.20, 0.75, 0.05], [0.05, 0.10, 0.85]])   # screen -> camera
     M = np.array([[0.55, 0.10, 0.02], [0.08, 0.90, 0.05], [0.02, 0.06, 0.40]])   # strip -> wall
-    SPILL, AMBIENT = 0.04, 0.005
+    SPILL, AMBIENT = 0.03, 0.002
 
     def __init__(self):
         self.rng = np.random.default_rng(11)
         self.screen_code, self.drive = (0, 0, 0), np.zeros(3)
         self.syncing, self.calls = False, []
-        self.settings = {"led_matrix": [], "wb_r": 1.0, "wb_g": 0.88, "wb_b": 1.0}
+        self.settings = {"led_matrix": [], "wb_r": 1.0, "wb_g": 0.88, "wb_b": 1.0, "saturation": 1.45}
         self.picture = np.zeros((60, 100), int)            # 0 room, 1 screen, 2 wall
         self.picture[20:40, 35:65] = 1
         self.picture[10:50, 10:28] = 2
         self.picture[10:50, 72:90] = 2
+        self.shade = np.linspace(0.8, 3.0, 100)[None, :, None]   # one side of each region blows out
 
     # the window
     def show(self, rgb):
@@ -1839,20 +1845,22 @@ class SimulatedRoom:
     def sync_drive(self):
         from ambilight import camcal
 
+        s = camcal.linear(self.screen_code)
+        s = np.clip(s.mean() + (s - s.mean()) * self.settings["saturation"], 0, None)
         fitted = self.settings["led_matrix"]
         F = np.array(fitted).reshape(3, 3) if fitted else np.eye(3)   # 1:1 before calibration
-        d = F @ camcal.linear(self.screen_code)
-        return np.clip(d / max(d.max(), 1e-9) * camcal.linear(self.screen_code).max(), 0, 1)
+        d = F @ s
+        return np.clip(d / max(d.max(), 1e-9) * camcal.DRIVE_PEAK, 0, 1)
 
     # the camera
     def snapshot(self, frames=5):
         from ambilight import camcal, color
 
         s = camcal.linear(self.screen_code)
-        looks = [np.full(3, self.AMBIENT), self.A @ s + 0.01,
-                 self.M @ self.drive + self.SPILL * s.sum() + self.AMBIENT]
-        gain = self.rng.uniform(0.6, 1.4, 3)                 # auto exposure and white balance
-        image = np.array(looks)[self.picture] * gain
+        looks = [np.full(3, self.AMBIENT), self.A @ s + 0.004,
+                 self.M @ self.drive + self.SPILL * (self.A @ s) + self.AMBIENT]
+        gain = self.rng.uniform(0.6, 1.4, 3) * 0.6           # auto exposure and white balance
+        image = np.array(looks)[self.picture] * gain * self.shade
         return color.linear_to_srgb(np.clip(image, 0, 1)) * 255.0
 
 
@@ -1872,21 +1880,24 @@ def test_camera_calibration_flow():
 
     room = SimulatedRoom()
     folder = tempfile.mkdtemp(prefix="ambilight-cam-")
-    saved_dir, saved_fit = camrun.RECORDINGS_DIR, camcal.fit_matrix
+    saved_dir, saved_fit = camrun.RECORDINGS_DIR, camcal.matrix_from_primaries
     camrun.RECORDINGS_DIR = __import__("pathlib").Path(folder)
+    status = {**room.settings}
     try:
-        result = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
+        result = camrun.calibrate(room, room, room, status, lambda line: None)
         truth = np.linalg.solve(room.M, room.A)
         truth = truth / (truth @ np.ones(3)).max()
         fitted = np.array(result["matrix"])
         check("the screen and the wall glow are found in the camera picture",
               os.path.exists(os.path.join(folder, "calibration-view.jpg")))
-        check("the strip's colour matrix is recovered", np.abs(fitted - truth).max() < 0.03,
-              np.abs(fitted - truth).max().round(4))
-        check("the wall matches the screen better afterwards, so the result is kept",
-              result["kept"] and result["after"] < result["before"],
+        check("the strip's colour matrix is recovered, though parts of the picture blow out",
+              np.abs(fitted - truth).max() < 0.05, np.abs(fitted - truth).max().round(4))
+        check("the wall matches the screen far better afterwards",
+              result["kept"] and result["after"] < 0.5 * result["before"],
               (round(result["before"], 3), round(result["after"], 3)))
-        check("the hub now uses it, with the old strip balance folded in",
+        check("with colours matched, the saturation boost is dropped because it measured worse",
+              room.settings["saturation"] == 1.0 and "no saturation boost" in result["chosen"], result["chosen"])
+        check("the hub now uses the matrix, with the old strip balance folded in",
               len(room.settings["led_matrix"]) == 9 and room.settings["wb_g"] == 1.0)
         check("the strip is handed back to sync at the end", room.calls[-2:] == ["/api/calibrate/done", "/api/sync/on"])
 
@@ -1897,11 +1908,11 @@ def test_camera_calibration_flow():
 
         room = SimulatedRoom()
         before = dict(room.settings)
-        camcal.fit_matrix = lambda samples: np.array([[0, 0, 1.0], [1.0, 0, 0], [0, 1.0, 0]])
+        camcal.matrix_from_primaries = lambda matched: np.array([[0, 0, 1.0], [1.0, 0, 0], [0, 1.0, 0]])
         result = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
-        check("a fit that makes the match worse is thrown away and the old settings restored",
+        check("settings that make the match worse are thrown away and the old ones restored",
               not result["kept"] and room.settings == before, room.settings)
-        camcal.fit_matrix = saved_fit
+        camcal.matrix_from_primaries = saved_fit
 
         two_screens = np.zeros((40, 60), bool); two_screens[5:30, 20:55] = True; two_screens[25:35, 2:12] = True
         picked = camrun.largest_region(two_screens)
@@ -1918,7 +1929,31 @@ def test_camera_calibration_flow():
               "did not show on the monitor" in stopped, stopped)
         check("and the strip is still handed back to sync", room.calls[-2:] == ["/api/calibrate/done", "/api/sync/on"])
     finally:
-        camrun.RECORDINGS_DIR, camcal.fit_matrix = saved_dir, saved_fit
+        camrun.RECORDINGS_DIR, camcal.matrix_from_primaries = saved_dir, saved_fit
+
+
+def test_camera_choice():
+    print("\n33. The laptop's built-in camera is never used")
+    from ambilight import camrun
+
+    cameras = [("Lenovo FHD Webcam", False), ("FaceTime HD Camera", True), ("Ishwar's iPhone Camera", False)]
+    check("the external webcam is chosen by default, not the phone or the built-in camera",
+          camrun.pick_camera(cameras) == (0, "Lenovo FHD Webcam"))
+    check("a webcam can be named", camrun.pick_camera(cameras, "lenovo") == (0, "Lenovo FHD Webcam"))
+    check("the phone only when asked for by name", camrun.pick_camera(cameras, "iphone")[0] == 2)
+
+    def refused(cameras, wanted=None):
+        try:
+            camrun.pick_camera(cameras, wanted)
+        except RuntimeError as exc:
+            return str(exc)
+        return ""
+
+    check("asking for the built-in camera is refused", "built-in" in refused(cameras, "facetime"))
+    check("with the webcam unplugged, nothing is opened rather than the built-in camera",
+          "no external webcam" in refused([("FaceTime HD Camera", True), ("Ishwar's iPhone Camera", False)]))
+    check("this Mac's camera list is read without opening any camera",
+          all(isinstance(name, str) for name, _ in camrun.list_cameras()))
 
 
 def test_board_address_cache():
@@ -2099,6 +2134,7 @@ def main():
     test_calibration_routes()
     test_camera_calibration_flow()
     test_board_address_cache()
+    test_camera_choice()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)
