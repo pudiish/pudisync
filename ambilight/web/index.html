@@ -1547,12 +1547,14 @@ function clearLocks() {
 function loadWebcams() { return load("/api/camera/list", showWebcams); }
 
 function showWebcams(body) {
+  // A phone's camera only when picked by hand, as the hub's own default (camrun.pick_camera).
   const pick = $("webcam-pick"), usable = body.cameras.filter(c => !c.builtin);
-  pick.replaceChildren(...usable.map(c => make("option", {value: c.name, textContent: c.name})),
+  const preferred = usable.find(c => !/iphone/i.test(c.name));
+  pick.replaceChildren(...usable.map(c => make("option", {value: c.name, textContent: c.name, selected: c === preferred})),
     ...body.cameras.filter(c => c.builtin).map(c =>
       make("option", {value: "", disabled: true, textContent: `${c.name} — built-in, never used`})));
-  if (!usable.length) pick.prepend(make("option", {value: "", disabled: true, selected: true, textContent: "No webcam plugged in"}));
-  $$("[data-action=webcam]").forEach(b => { b.disabled = !usable.length || body.state === "working"; });
+  if (!preferred) pick.prepend(make("option", {value: "", selected: true, textContent: "No webcam plugged in"}));
+  $$("[data-action=webcam]").forEach(b => { b.disabled = !pick.value || body.state === "working"; });
   showWebcam(body);
 }
 
