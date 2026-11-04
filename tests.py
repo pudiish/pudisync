@@ -2025,6 +2025,16 @@ def test_mouse_sync():
     check("without a frame layout the whole strip is split in thirds",
           len(mouse.zone_colours(pixels, {**cfg, "layout": "band"})) == 3)
 
+    dull = [(60, 10, 10), (20, 40, 60), (128, 128, 128)]
+    bright = mouse.vivid(dull)
+    check("a dim strip colour shows much brighter on the mouse",
+          max(bright[0]) >= 2 * max(dull[0]) and max(bright[1]) >= 1.8 * max(dull[1]), bright)
+    check("and keeps its colour: red stays red, blue stays the strongest of the second",
+          bright[0][0] > 4 * bright[0][1] and bright[1][2] > bright[1][1] > bright[1][0], bright)
+    check("a grey stays grey", len(set(bright[2])) == 1, bright[2])
+    check("a black scene leaves the mouse dark", mouse.vivid([(3, 2, 2)] * 3) == [(0, 0, 0)] * 3)
+    check("full colours are left at full", mouse.vivid([(255, 0, 0)])[0] == (255, 0, 0))
+
     now = [0.0]
     fake = FakeMouseHID()
     device = mouse.LightsyncMouse(fake, clock=lambda: now[0], access=lambda: "granted")
@@ -2095,8 +2105,8 @@ def test_mouse_sync():
     check("mouse sync is off until turned on", fake.sent == [] and cfg.get("mouse_sync") is False)
     cfg.update({"mouse_sync": "1"})
     engine.follow_mouse(pixels)
-    check("turned on, the mouse shows the screen's bottom edge",
-          mouse.zone_report([(200, 0, 0), (0, 200, 0), (0, 0, 200)]) in fake.sent)
+    check("turned on, the mouse shows the screen's bottom edge, brightened for the mouse",
+          mouse.zone_report(mouse.vivid([(200, 0, 0), (0, 200, 0), (0, 0, 200)])) in fake.sent)
     cfg.update({"mouse_sync": "0"})
     engine.follow_mouse(pixels)
     check("turned off again, the mouse gets its own lighting back", fake.sent[-1] == back)

@@ -577,7 +577,7 @@ class Engine:
     def follow_mouse(self, pixels):
         cfg = self.cfg.snapshot()
         if cfg["mouse_sync"]:
-            self.mouse.show(mouse.zone_colours(pixels, cfg))
+            self.mouse.show(mouse.vivid(mouse.zone_colours(pixels, cfg)))
         else:
             self.mouse.release()
 

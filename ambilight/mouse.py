@@ -13,6 +13,8 @@ import time
 
 import numpy as np
 
+from . import color
+
 VENDOR = 0x046D
 PRODUCTS = (0xC092,)
 USAGE_PAGE, LONG_REPORTS = 0xFF00, 2
@@ -25,6 +27,8 @@ RETRY_S = 3.0
 LISTEN_EVENT = 1                # IOKit's kIOHIDRequestTypeListenEvent: "Input Monitoring"
 ACCESS = {0: "granted", 1: "denied", 2: "not asked"}
 IOKIT = "/System/Library/Frameworks/IOKit.framework/IOKit"
+LIFT = 0.45     # mouse level = strip level ** LIFT: 20% shows at 48%, 50% at 73%
+DARK = 0.03     # below this level the scene is black, and the mouse goes dark with it
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +51,18 @@ def zone_colours(pixels, cfg):
     if cfg["layout"] == "frame" and cfg["edge_bottom"] >= 3:
         leds = leds[:cfg["edge_bottom"]]
     return [tuple(int(v) for v in part.mean(axis=0).round()) for part in np.array_split(leds, 3)]
+
+
+def vivid(colours):
+    """Strip drive levels -> mouse levels, same colour, brighter.
+
+    The strip's levels are shaped for a glow on the wall (gamma, contrast,
+    power limit); passed straight to the mouse's small LEDs they look dull.
+    """
+    hsv = color.rgb_to_hsv(np.asarray(colours, np.float32) / 255.0)
+    level = hsv[:, 2]
+    hsv[:, 2] = np.where(level < DARK, 0.0, level ** LIFT)
+    return [tuple(int(v) for v in row) for row in (color.hsv_to_rgb(hsv) * 255.0).round()]
 
 
 def load_hid():
