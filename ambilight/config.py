@@ -89,6 +89,8 @@ DEFAULTS = {
     "output": "udp",
     "serial_port": "",
     "serial_baud": 921600,
+    # A Logitech LIGHTSYNC mouse follows the screen while sync runs.
+    "mouse_sync": False,
 }
 
 

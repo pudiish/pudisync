@@ -239,6 +239,25 @@ shows what was measured: the screen's border is tinted blue and the wall orange.
 Later, with a video playing, `python3 ambilight.py --camera-check 60` scores
 the match for a minute without changing anything (0 is a perfect match).
 
+### A Logitech mouse that follows the screen
+
+A Logitech G102 or G203 LIGHTSYNC mouse plugged into the Mac can follow the
+screen too: its left, middle and right light zones take the colours of the
+left, middle and right of the screen's bottom edge. No Logitech software is
+needed (quit G HUB if it runs, or the two will fight over the mouse).
+
+```bash
+python3 -m pip install hidapi==0.15.0
+curl "http://yourmac.local:8080/api/set?mouse_sync=1"     # 0 turns it off
+```
+
+It follows only while screen sync runs; when sync stops or `mouse_sync` is
+turned off, the mouse goes back to the lighting stored in it. Colours are set
+live, never written to the mouse's memory. macOS asks for **Input Monitoring**
+the first time (the mouse's media keys share the interface the lighting uses):
+allow it for the app running the hub, which is **Python** when it starts at
+login. `/api/status` reports the mouse under `mouse`, including that permission.
+
 ## 6. Zones
 
 The strip is usually longer than the monitor. Zones give each stretch its own job:

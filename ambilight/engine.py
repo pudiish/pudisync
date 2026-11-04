@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-from . import color, processing, zones as zonelib
+from . import color, mouse, processing, zones as zonelib
 from .plugins import CAPTURES, OUTPUTS
 from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
@@ -314,6 +314,7 @@ class Engine:
         self.recorder = None
         self.last_recording = None
         self.awake = None
+        self.mouse = mouse.LightsyncMouse(mouse.load_hid())
 
     @property
     def last_error(self):
@@ -343,6 +344,7 @@ class Engine:
                 if thread is not None:
                     thread.join(timeout=2.0)
             self.running = False
+            self.mouse.release()
             if self.awake is not None:
                 self.awake.stop()
                 self.awake = None
@@ -570,6 +572,14 @@ class Engine:
             self.errors["output"] = f"could not reach the lights: {out.last_error}"
         elif self.errors["output"] and "could not reach" in self.errors["output"]:
             self.errors["output"] = None
+        self.follow_mouse(pixels)
+
+    def follow_mouse(self, pixels):
+        cfg = self.cfg.snapshot()
+        if cfg["mouse_sync"]:
+            self.mouse.show(mouse.zone_colours(pixels, cfg))
+        else:
+            self.mouse.release()
 
     def _release(self):
         """Let WLED fall back to its own mode: one black frame, short timeout."""
@@ -590,6 +600,7 @@ class Engine:
             "last_error": self.last_error,
             "capture_plugin": self.capture_name,
             "output_plugin": self.output_name,
+            "mouse": self.mouse.status(),
         }
 
 

@@ -10,5 +10,8 @@ certifi>=2024.2
 # Optional: webcam colour calibration (--camera-calibrate).
 opencv-python==4.14.0.94
 
+# Optional: a Logitech LIGHTSYNC mouse (G102/G203) follows the screen.
+hidapi==0.15.0
+
 # Optional: pause sync while the Mac is locked (macOS only).
 pyobjc-framework-Quartz>=10; sys_platform == "darwin"

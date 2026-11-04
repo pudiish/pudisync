@@ -1972,6 +1972,137 @@ def test_camera_choice():
           all(isinstance(name, str) for name, _ in camrun.list_cameras()))
 
 
+class FakeMouseHID:
+    """Stands in for the hid module: one G102 that records every report."""
+
+    def __init__(self):
+        self.plugged, self.sent, self.opened = True, [], 0
+        self.fail_writes = False
+        fake = self
+
+        class Device:
+            def open_path(self, path):
+                if not fake.plugged:
+                    raise OSError("open failed")
+                fake.opened += 1
+
+            def write(self, data):
+                if fake.fail_writes:
+                    return -1
+                fake.sent.append(bytes(data))
+                return len(data)
+
+            def close(self):
+                pass
+
+        self.device = Device
+
+    def enumerate(self, vendor=0, product=0):
+        if not self.plugged:
+            return []
+        return [{"vendor_id": 0x046D, "product_id": 0xC092, "usage_page": 0xFF00, "usage": 1,
+                 "path": b"short", "product_string": "G102 LIGHTSYNC Gaming Mouse"},
+                {"vendor_id": 0x046D, "product_id": 0xC092, "usage_page": 0xFF00, "usage": 2,
+                 "path": b"long", "product_string": "G102 LIGHTSYNC Gaming Mouse"}]
+
+
+def test_mouse_sync():
+    print("\n34. The Logitech mouse follows the screen only while turned on")
+    from ambilight import mouse
+
+    take, back = mouse.report(*mouse.TAKE_CONTROL), mouse.report(*mouse.HAND_BACK)
+    apply_ = mouse.report(*mouse.APPLY)
+    check("reports are the mouse's 20-byte long HID++ reports",
+          len(take) == 20 and take[:7] == bytes([0x11, 0xFF, 0x0E, 0x50, 0x01, 0x03, 0x07]))
+    zones = mouse.zone_report([(1, 2, 3), (4, 5, 6), (7, 8, 9)])
+    check("the three zones are numbered 1-3 with their colours, then FF",
+          zones[:17] == bytes([0x11, 0xFF, 0x12, 0x10, 1, 1, 2, 3, 2, 4, 5, 6, 3, 7, 8, 9, 0xFF]))
+
+    cfg = {"layout": "frame", "edge_bottom": 6, "led_count": 10}
+    pixels = np.array([[200, 0, 0]] * 2 + [[0, 200, 0]] * 2 + [[0, 0, 200]] * 2 + [[255, 255, 255]] * 4, np.uint8)
+    check("left, middle and right zones follow the bottom edge's thirds, left to right",
+          mouse.zone_colours(pixels, cfg) == [(200, 0, 0), (0, 200, 0), (0, 0, 200)])
+    check("without a frame layout the whole strip is split in thirds",
+          len(mouse.zone_colours(pixels, {**cfg, "layout": "band"})) == 3)
+
+    now = [0.0]
+    fake = FakeMouseHID()
+    device = mouse.LightsyncMouse(fake, clock=lambda: now[0], access=lambda: "granted")
+    device.show([(10, 0, 0)] * 3)
+    check("the first colour takes control, then sets and applies the zones",
+          fake.sent[:3] == [take, mouse.zone_report([(10, 0, 0)] * 3), apply_], [s[:4].hex() for s in fake.sent])
+    check("the long-report interface is the one opened", device.path == b"long")
+    sent = len(fake.sent)
+    now[0] += 1
+    device.show([(10, 0, 0)] * 3)
+    check("an unchanged colour is not sent again", len(fake.sent) == sent)
+    device.show([(20, 0, 0)] * 3)
+    device.show([(30, 0, 0)] * 3)
+    check("changes are sent at most 30 times a second", len(fake.sent) == sent + 2)
+    now[0] += 1
+    device.show([(30, 0, 0)] * 3)
+    check("the latest colour still lands once the interval passes",
+          fake.sent[-2] == mouse.zone_report([(30, 0, 0)] * 3))
+    check("status names the mouse",
+          device.status() == {"connected": True, "name": "G102 LIGHTSYNC Gaming Mouse", "permission": "granted"})
+
+    device.release()
+    check("turning off hands the mouse back to its own lighting", fake.sent[-1] == back)
+    sent = len(fake.sent)
+    device.release()
+    check("releasing twice sends nothing more", len(fake.sent) == sent)
+
+    fake.fail_writes = True
+    now[0] += 1
+    device.show([(1, 1, 1)] * 3)
+    fake.fail_writes, fake.plugged = False, False
+    now[0] += 1
+    device.show([(2, 2, 2)] * 3)
+    check("an unplugged mouse is not retried on every frame", fake.opened == 2)
+    check("and reports as not connected", device.status()["connected"] is False)
+    fake.plugged = True
+    now[0] += mouse.RETRY_S
+    device.show([(3, 3, 3)] * 3)
+    check("plugging it back in picks it up again",
+          fake.opened == 3 and fake.sent[-2] == mouse.zone_report([(3, 3, 3)] * 3))
+
+    check("without the hidapi package the mouse simply reports unavailable",
+          mouse.LightsyncMouse(None, access=lambda: "granted").status()
+          == {"connected": False, "name": None, "permission": "granted"})
+
+    asked = []
+    fake = FakeMouseHID()
+    fake.plugged = True
+    blocked = mouse.LightsyncMouse(fake, clock=lambda: now[0], access=lambda: "not asked",
+                                   request_access=lambda: asked.append(1))
+    original = fake.device.open_path
+    fake.device.open_path = lambda self, path: (_ for _ in ()).throw(OSError("open failed"))
+    blocked.show([(5, 5, 5)] * 3)
+    now[0] += mouse.RETRY_S
+    blocked.show([(6, 6, 6)] * 3)
+    fake.device.open_path = original
+    check("without Input Monitoring, macOS is asked once so its prompt appears", asked == [1])
+    check("and status says the permission is what is missing", blocked.status()["permission"] == "not asked")
+
+    from ambilight.engine import Engine
+
+    cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-mouse-"), "config.json"))
+    cfg.update({"led_count": 10, "edge_bottom": 6, "layout": "frame"})
+    engine = Engine(cfg)
+    fake = FakeMouseHID()
+    engine.mouse = mouse.LightsyncMouse(fake, access=lambda: "granted")
+    engine.follow_mouse(pixels)
+    check("mouse sync is off until turned on", fake.sent == [] and cfg.get("mouse_sync") is False)
+    cfg.update({"mouse_sync": "1"})
+    engine.follow_mouse(pixels)
+    check("turned on, the mouse shows the screen's bottom edge",
+          mouse.zone_report([(200, 0, 0), (0, 200, 0), (0, 0, 200)]) in fake.sent)
+    cfg.update({"mouse_sync": "0"})
+    engine.follow_mouse(pixels)
+    check("turned off again, the mouse gets its own lighting back", fake.sent[-1] == back)
+    check("the hub's status reports the mouse", engine.status()["mouse"]["connected"] is True)
+
+
 def test_board_address_cache():
     print("\n32. A flaky .local name never stalls or drops the stream")
     from ambilight import hostcache
@@ -2151,6 +2282,7 @@ def main():
     test_camera_calibration_flow()
     test_board_address_cache()
     test_camera_choice()
+    test_mouse_sync()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)
