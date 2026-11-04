@@ -85,6 +85,21 @@ def pick_camera(cameras, wanted=None):
     return usable[0]
 
 
+def list_cameras_in_child():
+    """list_cameras(), run in a short-lived process for the hub.
+
+    Loading AVFoundation holds the interpreter lock for about a second the
+    first time, which froze the light while the web page listed webcams.
+    """
+    code = "import json; from ambilight.camrun import list_cameras; print(json.dumps(list_cameras()))"
+    try:
+        done = subprocess.run([sys.executable, "-c", code], cwd=str(SCRIPT.parent), capture_output=True,
+                              text=True, timeout=20, check=True)
+        return [(name, builtin) for name, builtin in json.loads(done.stdout)]
+    except (subprocess.SubprocessError, ValueError) as exc:
+        raise RuntimeError(f"could not list the webcams: {exc}") from None
+
+
 class CameraJob:
     """Runs the calibration (or a check) for the web page, as its own process.
 
@@ -96,7 +111,7 @@ class CameraJob:
     def __init__(self, port, popen=subprocess.Popen, cameras=None):
         self.port = port
         self.popen = popen
-        self.cameras = cameras or list_cameras
+        self.cameras = cameras or list_cameras_in_child
         self.lock = threading.Lock()
         self.state, self.task, self.camera, self.lines = "idle", None, None, []
 

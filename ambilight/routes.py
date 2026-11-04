@@ -287,9 +287,11 @@ def flash_start(hub, q):
 
 
 def camera_list(hub, q):
-    from .camrun import list_cameras
-
-    cameras = [{"name": name, "builtin": builtin} for name, builtin in list_cameras()]
+    try:
+        listed = hub.camera.cameras()
+    except RuntimeError as exc:
+        return {"error": str(exc)}, 503
+    cameras = [{"name": name, "builtin": builtin} for name, builtin in listed]
     return {"cameras": cameras, **hub.camera.status()}, OK
 
 

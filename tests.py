@@ -2000,6 +2000,8 @@ def test_camera_choice():
           "no external webcam" in refused([("FaceTime HD Camera", True), ("Ishwar's iPhone Camera", False)]))
     check("this Mac's camera list is read without opening any camera",
           all(isinstance(name, str) for name, _ in camrun.list_cameras()))
+    check("the hub lists them from a separate process, with the same result",
+          camrun.list_cameras_in_child() == camrun.list_cameras())
 
 
 class FakeMouseHID:
