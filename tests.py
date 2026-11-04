@@ -1895,6 +1895,70 @@ def test_camera_calibration_flow():
         camrun.RECORDINGS_DIR, camcal.fit_matrix = saved_dir, saved_fit
 
 
+def test_board_address_cache():
+    print("\n32. A flaky .local name never stalls or drops the stream")
+    from ambilight import hostcache
+    from ambilight.plugins import output_wled_udp
+
+    answers = {"ip": "192.168.1.50", "fail": False, "calls": 0}
+
+    def lookup(host):
+        answers["calls"] += 1
+        if answers["fail"]:
+            time.sleep(0.3)               # a dead mDNS name fails slowly
+            raise OSError("nodename nor servname provided")
+        return answers["ip"]
+
+    now = [0.0]
+    cache = hostcache.HostCache(resolve=lookup, refresh_s=30.0, clock=lambda: now[0])
+    check("an IP address is used as it is, without a lookup",
+          cache.address("10.0.0.9") == "10.0.0.9" and answers["calls"] == 0)
+    check("a name is looked up the first time", cache.address("wled.local") == "192.168.1.50")
+    check("and then answered from memory", cache.address("wled.local") == "192.168.1.50" and answers["calls"] == 1)
+
+    answers["fail"], now[0] = True, 31.0
+    start = time.monotonic()
+    got = [cache.address("wled.local") for _ in range(50)]
+    took = time.monotonic() - start
+    check("when the name stops resolving, the last good address is used at once",
+          set(got) == {"192.168.1.50"} and took < 0.05, f"{took * 1000:.1f} ms for 50 packets")
+    deadline = time.monotonic() + 2
+    while cache.refreshing and time.monotonic() < deadline:
+        time.sleep(0.01)
+    check("only one background lookup runs at a time", answers["calls"] == 2, answers["calls"])
+
+    answers["fail"], answers["ip"], now[0] = False, "192.168.1.77", 62.0
+    cache.address("wled.local")
+    deadline = time.monotonic() + 2
+    while cache.address("wled.local") != "192.168.1.77" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    check("a board that moved to a new address is followed", cache.address("wled.local") == "192.168.1.77")
+
+    answers["fail"] = True
+    try:
+        cache.address("never-seen.local")
+        failed = False
+    except OSError:
+        failed = True
+    check("a name never resolved fails loudly instead of guessing", failed)
+
+    saved = hostcache.lookup
+    hostcache.lookup = lambda host: (_ for _ in ()).throw(OSError("mDNS down"))
+    hostcache.BOARD.known.clear()
+    hostcache.BOARD.known["board.local"] = ("127.0.0.1", -1e9)      # known, but long stale
+    try:
+        out = output_wled_udp.WLEDUDPOutput("board.local", 9)
+        start = time.monotonic()
+        sent = [out.send(np.zeros((97, 3), np.uint8)) for _ in range(30)]
+        took = time.monotonic() - start
+        check("the stream keeps flowing to the last good address while mDNS is down",
+              all(sent) and took < 0.1, f"{took * 1000:.1f} ms for 30 frames")
+        out.close()
+    finally:
+        hostcache.lookup = saved
+        hostcache.BOARD.known.clear()
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -2008,6 +2072,7 @@ def main():
     test_fitted_matrix_in_use()
     test_calibration_routes()
     test_camera_calibration_flow()
+    test_board_address_cache()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)

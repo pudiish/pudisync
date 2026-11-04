@@ -9,14 +9,13 @@ Protocol per https://kno.wled.ge/interfaces/udp-realtime/ :
 Docs cap DNRGB at 489 LEDs per packet; we chunk at 400 for headroom.
 """
 import socket
-import time
 
 from . import OutputPlugin
+from .. import hostcache
 
 DNRGB = 4
 MAX_LEDS_PER_PACKET = 400
 HOLD_FOREVER = 255
-RESOLVE_EVERY_S = 30.0   # a .local name follows the controller across DHCP changes
 
 
 class WLEDUDPOutput(OutputPlugin):
@@ -40,21 +39,10 @@ class WLEDUDPOutput(OutputPlugin):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setblocking(False)
         self.last_error = None
-        self.address = None
-        self.resolved_at = 0.0
 
     def target(self):
-        """The controller's address, resolved once and refreshed periodically.
-
-        Resolving a host name per packet would stall the output thread
-        whenever mDNS is slow; an IP literal resolves instantly.
-        """
-        now = time.monotonic()
-        if self.address is None or now - self.resolved_at > RESOLVE_EVERY_S:
-            info = socket.getaddrinfo(self.host, self.port, socket.AF_INET, socket.SOCK_DGRAM)
-            self.address = info[0][4]
-            self.resolved_at = now
-        return self.address
+        """The controller's address; a slow or failing .local lookup never stalls a frame."""
+        return hostcache.BOARD.address(self.host), self.port
 
     def send(self, pixels, timeout_s=2):
         """Send pixels as one or more DNRGB packets. Returns True on success."""
@@ -82,9 +70,9 @@ class WLEDUDPOutput(OutputPlugin):
             self.last_error = None
             return True
         except OSError as exc:
-            # A dark or rebooting NodeMCU must not kill the frame loop, and a
-            # stale address must be looked up again on the next packet.
-            self.address = None
+            # A dark or rebooting NodeMCU must not kill the frame loop. The
+            # address may be stale: look it up again in the background.
+            hostcache.BOARD.mark_stale(self.host)
             self.last_error = f"{self.host}:{self.port} {exc}"
             return False
 

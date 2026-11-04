@@ -11,6 +11,8 @@ import time
 import urllib.error
 import urllib.request
 
+from . import hostcache
+
 TIMEOUT = 1.5
 META_TTL = 10.0  # effect/palette names never change at runtime; cache them
 
@@ -26,7 +28,7 @@ class WLEDClient:
 
     def _url(self, path):
         port = self.cfg.get("wled_http_port")
-        host = self.cfg.get("wled_ip")
+        host = hostcache.BOARD.address(self.cfg.get("wled_ip"))
         suffix = "" if port == 80 else f":{port}"
         return f"http://{host}{suffix}{path}"
 
@@ -44,10 +46,10 @@ class WLEDClient:
 
     def _post(self, payload):
         body = json.dumps(payload).encode()
-        req = urllib.request.Request(
-            self._url("/json/state"), data=body,
-            headers={"Content-Type": "application/json"}, method="POST")
         try:
+            req = urllib.request.Request(
+                self._url("/json/state"), data=body,
+                headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
                 resp.read()
             self.reachable = True
