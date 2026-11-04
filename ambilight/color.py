@@ -154,7 +154,54 @@ def grade(linear, cfg):
     sat = sat * smoothstep(0.02, 0.10, val)
 
     hsv[:, 1] = sat
-    return np.clip(hsv_to_rgb(hsv), 0.0, 1.0)
+    graded = np.clip(hsv_to_rgb(hsv), 0.0, 1.0)
+    amount = cfg.get("immersion", 0.0)
+    return immerse(graded, amount) if amount > 0 else graded
+
+
+IMMERSE_LIFT = 0.55     # at full immersion a colourful LED's level is raised to the power 0.45
+IMMERSE_PURITY = 1.5    # ...and its remaining greyness shrinks to the power 2.5
+IMMERSE_FLOOD = 0.4     # dull LEDs move this far toward the scene's colour
+HUE_FAMILIES = 12       # 30-degree hue slices; the theme is the strongest one and its neighbours
+
+
+def skin(hue, sat):
+    """1 for skin and other soft warm tones, which a stronger look should leave alone."""
+    warm = smoothstep(0.0, 0.03, hue) * (1.0 - smoothstep(0.12, 0.15, hue))
+    return warm * (1.0 - smoothstep(0.55, 0.75, sat))
+
+
+def immerse(perceptual, amount):
+    """Push one frame's colours into the scene's colour, the way a theatre floods a stage.
+
+    Deep shades (dark red, maroon, navy) are what LED gamma and contrast crush
+    most, so colourful LEDs are lifted more the darker they are, and made
+    purer. Then dull or dark LEDs are pulled toward the scene's own colour, so
+    a red scene fills the room with red. Greys, skin and black are left alone,
+    and a scene without a real colour (or with one small light) is not flooded.
+    """
+    hsv = rgb_to_hsv(perceptual)
+    hue, sat, level = hsv[:, 0], hsv[:, 1], hsv[:, 2]
+    colourful = smoothstep(0.15, 0.5, sat) * (1.0 - skin(hue, sat))
+    hsv[:, 2] = level ** (1.0 - IMMERSE_LIFT * amount * colourful)
+    hsv[:, 1] = 1.0 - (1.0 - sat) ** (1.0 + IMMERSE_PURITY * amount * colourful)
+    lifted = hsv_to_rgb(hsv)
+
+    # The theme is the strongest colour family, not the average of all of
+    # them: half red, half blue is a red or a blue scene, never a purple one.
+    presence = colourful * level
+    family = (hue * HUE_FAMILIES).astype(np.int64) % HUE_FAMILIES
+    mass = np.bincount(family, weights=presence, minlength=HUE_FAMILIES)
+    peak = int(np.argmax(mass + np.roll(mass, 1) + np.roll(mass, -1)))
+    apart = (family - peak + HUE_FAMILIES // 2) % HUE_FAMILIES - HUE_FAMILIES // 2
+    members = presence * (np.abs(apart) <= 1)
+    if members.sum() <= 0:
+        return lifted
+    theme = (lifted * members[:, None]).sum(axis=0) / members.sum()
+    # The theme must be a real share of the frame, not one small light in the dark.
+    strength = smoothstep(0.05, 0.25, members.mean())
+    pull = IMMERSE_FLOOD * amount * strength * (1.0 - presence)
+    return np.clip(lifted + (theme - lifted) * pull[:, None], 0.0, 1.0)
 
 
 def contrast_curve(level, amount):

@@ -58,6 +58,9 @@ DEFAULTS = {
     "contrast": 1.5,
     "black_level": 0.03,
     "colour_weight": 0.6,
+    # 0..1: deep shades lifted and the strip flooded with the scene's colour
+    # (color.immerse). 0 leaves colours exactly as graded.
+    "immersion": 0.0,
     # LED safety (safety.py). Defaults suit a 5V 5A supply: peaks stay under
     # 3.8A (WLED's own limiter, set to 4A, is the hardware-side backstop) and a
     # bright scene held for minutes settles at 3A.
@@ -215,6 +218,7 @@ _LIMITS = {
     "contrast": (0.5, 2.5),
     "black_level": (0.0, 0.2),
     "colour_weight": (0.0, 1.0),
+    "immersion": (0.0, 1.0),
     "power_limit_ma": (200, 20000),
     "sustained_ma": (200, 20000),
     "spread": (0.0, 0.8),

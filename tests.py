@@ -2113,6 +2113,58 @@ def test_mouse_sync():
     check("the hub's status reports the mouse", engine.status()["mouse"]["connected"] is True)
 
 
+def test_immersion():
+    print("\n35. Immersion: a red scene floods the room; greys, skin and black stay true")
+    from ambilight import color
+
+    cfg = {"saturation": 1.45, "immersion": 0.0}
+    deep = {"deep red": (0.45, 0.06, 0.06), "maroon": (0.30, 0.04, 0.08), "navy": (0.05, 0.08, 0.35)}
+    rows = np.array(list(deep.values()) + [(0.5, 0.5, 0.5), (0.85, 0.62, 0.50), (0.0, 0.0, 0.0)], np.float32)
+    linear = color.srgb_to_linear(rows)
+
+    def hsv(out):
+        return color.rgb_to_hsv(out)
+
+    def each(settings):
+        return np.vstack([color.grade(linear[k:k + 1], settings) for k in range(len(linear))])
+
+    off = each(cfg)
+    check("immersion 0 grades exactly as before",
+          np.allclose(color.grade(linear, cfg), color.grade(linear, {"saturation": 1.45})), off)
+    on = each({**cfg, "immersion": 1.0})
+    for k, name in enumerate(deep):
+        check(f"a {name} glows much brighter and at least as pure",
+              hsv(on)[k, 2] >= 1.4 * hsv(off)[k, 2] and hsv(on)[k, 1] >= hsv(off)[k, 1] - 1e-3,
+              (hsv(off)[k].round(3), hsv(on)[k].round(3)))
+        check(f"and keeps its hue ({name})", abs(hsv(on)[k, 0] - hsv(off)[k, 0]) < 0.02)
+    check("a grey stays grey and as bright",
+          hsv(on)[3, 1] < 0.02 and abs(hsv(on)[3, 2] - hsv(off)[3, 2]) < 0.02, on[3])
+    check("skin keeps its natural look",
+          hsv(on)[4, 2] < 1.08 * hsv(off)[4, 2] and hsv(on)[4, 1] < hsv(off)[4, 1] + 0.08,
+          (hsv(off)[4].round(3), hsv(on)[4].round(3)))
+
+    scene = np.array([(0.55, 0.05, 0.05)] * 30 + [(0.03, 0.03, 0.03)] * 10, np.float32)
+    flooded = color.grade(color.srgb_to_linear(scene), {**cfg, "immersion": 1.0})
+    plain = color.grade(color.srgb_to_linear(scene), cfg)
+    check("in a red scene the dark parts of the strip fill with the scene's red",
+          flooded[-1, 0] > 0.15 and flooded[-1, 0] > 3 * flooded[-1, 1], (plain[-1], flooded[-1]))
+    split = np.array([(0.6, 0.05, 0.05)] * 22 + [(0.05, 0.06, 0.5)] * 8 + [(0.03, 0.03, 0.03)] * 10, np.float32)
+    mixed = color.grade(color.srgb_to_linear(split), {**cfg, "immersion": 1.0})
+    check("a mostly red scene with some blue floods toward red, not a muddy purple",
+          mixed[-1, 0] > 2 * mixed[-1, 2] and mixed[-1, 0] > 0.12, mixed[-1])
+    grey_scene = np.array([(0.4, 0.4, 0.4)] * 30 + [(0.03, 0.03, 0.03)] * 10, np.float32)
+    calm = color.grade(color.srgb_to_linear(grey_scene), {**cfg, "immersion": 1.0})
+    check("a scene with no strong colour is not flooded",
+          np.allclose(calm, color.grade(color.srgb_to_linear(grey_scene), cfg), atol=0.02))
+    one_light = np.array([(0.8, 0.05, 0.05)] + [(0.03, 0.03, 0.03)] * 39, np.float32)
+    night = color.grade(color.srgb_to_linear(one_light), {**cfg, "immersion": 1.0})
+    check("one small red light in a dark scene does not paint the whole room",
+          night[-1].max() < 0.08, night[-1])
+    check("black stays black", np.allclose(on[5], 0.0, atol=1e-3), on[5])
+    check("immersion is a setting from 0 to 1, off by default",
+          Config(os.path.join(tempfile.mkdtemp(), "c.json")).get("immersion") == 0.0)
+
+
 def test_board_address_cache():
     print("\n32. A flaky .local name never stalls or drops the stream")
     from ambilight import hostcache
@@ -2293,6 +2345,7 @@ def main():
     test_board_address_cache()
     test_camera_choice()
     test_mouse_sync()
+    test_immersion()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)
