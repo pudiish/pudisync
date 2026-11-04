@@ -1667,10 +1667,22 @@ def test_camera_calibration_maths():
     base = np.full((h, w, 3), 20, np.uint8)
     screen_on = base.copy(); screen_on[30:90, 60:140] = 230
     wall_on = base.copy(); wall_on[10:110, 20:60] = 140; wall_on[10:110, 140:180] = 140
-    screen_mask, wall_mask = camcal.find_regions(base, screen_on, wall_on)
+    screen_mask, wall_mask = camcal.find_regions(screen_on, wall_on * 0.6)   # re-exposed in between
     check("the screen is found where it lit up", screen_mask[60, 100] and not screen_mask[60, 30])
     check("the wall glow is found beside it", wall_mask[60, 30] and wall_mask[60, 160])
     check("the screen is never counted as wall", not (screen_mask & wall_mask).any())
+
+    hot_spot = np.full((10, 10, 3), 120.0); hot_spot[4:6, 4:6, 0] = 255
+    seen = camcal.region_colour(hot_spot, np.ones((10, 10), bool))
+    check("a channel clipped in part of a region counts as clipped, not as its mean",
+          seen[0] == 255 and seen[1] == 120, seen)
+    kept = camcal.measurable(np.ones((10, 10), bool), hot_spot)
+    check("pixels blown out at the brightest test level are not read at all",
+          kept.sum() == 96 and not kept[4:6, 4:6].any())
+    ramp = np.repeat(np.linspace(20, 240, 10)[:, None, None], 3, axis=2).repeat(10, axis=1)
+    kept = camcal.measurable(np.ones((10, 10), bool), ramp)
+    check("only the dimmer half is read, leaving headroom for the webcam re-exposing",
+          kept[:5].all() and not kept[5:].any())
 
 
 def test_fitted_matrix_in_use():
@@ -1818,6 +1830,16 @@ class SimulatedRoom:
         return color.linear_to_srgb(np.clip(image, 0, 1)) * 255.0
 
 
+class HiddenWindowRoom(SimulatedRoom):
+    """The test colours open behind a full-screen video: the camera sees the video."""
+
+    def snapshot(self, frames=5):
+        image = super().snapshot(frames)
+        video = self.rng.integers(0, 256, (6, 10, 3)).repeat(10, axis=0).repeat(10, axis=1)
+        image[self.picture == 1] = video[self.picture == 1]
+        return image
+
+
 def test_camera_calibration_flow():
     print("\n31. The webcam calibration runs end to end in a simulated room")
     from ambilight import camcal, camrun
@@ -1853,6 +1875,22 @@ def test_camera_calibration_flow():
         result = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
         check("a fit that makes the match worse is thrown away and the old settings restored",
               not result["kept"] and room.settings == before, room.settings)
+        camcal.fit_matrix = saved_fit
+
+        two_screens = np.zeros((40, 60), bool); two_screens[5:30, 20:55] = True; two_screens[25:35, 2:12] = True
+        picked = camrun.largest_region(two_screens)
+        check("with a laptop screen also in view, the monitor is the largest lit region",
+              picked[10, 30] and not picked[30, 5])
+
+        room = HiddenWindowRoom()
+        try:
+            camrun.calibrate(room, room, room, dict(room.settings), lambda line: None)
+            stopped = ""
+        except RuntimeError as exc:
+            stopped = str(exc)
+        check("test colours hidden behind a full-screen video stop the calibration",
+              "did not show on the monitor" in stopped, stopped)
+        check("and the strip is still handed back to sync", room.calls[-2:] == ["/api/calibrate/done", "/api/sync/on"])
     finally:
         camrun.RECORDINGS_DIR, camcal.fit_matrix = saved_dir, saved_fit
 

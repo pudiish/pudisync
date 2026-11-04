@@ -24,10 +24,12 @@ from .engine import resolve_display
 from .plugins.capture_quartz import QuartzCapture
 from .recorder import RECORDINGS_DIR
 
-SETTLE_S = 0.8          # strip, screen and camera exposure all need a moment
-VERIFY_SETTLE_S = 1.4   # sync smoothing on top of that
+SETTLE_S = 1.5          # the webcam's auto exposure takes this long to settle
+VERIFY_SETTLE_S = 1.8   # sync smoothing on top of that
 WORK_WIDTH = 640        # camera pictures are analysed at this width
 MIN_READING = 20        # camera code value below which a region shows no usable colour
+NOT_SHOWN = ("the test colours did not show on the monitor (another window on top?), "
+             "or the camera does not see the whole monitor")
 VERIFY_COLOURS = [(255, 255, 255), (224, 172, 138), (255, 0, 0), (0, 200, 80),
                   (40, 80, 255), (255, 200, 90), (150, 60, 220), (0, 170, 160)]
 
@@ -94,31 +96,51 @@ class Camera:
 
 
 class PatchWindow:
-    """A borderless window covering one display, filled with a test colour."""
+    """A borderless panel covering one display, filled with a test colour.
 
-    def __init__(self, bounds):
-        import tkinter as tk
+    A video playing full screen lives in its own Space, where ordinary windows
+    never appear. This panel joins every Space, full-screen ones included, and
+    sits above them without taking focus from the video.
+    """
 
-        x, y, width, height = bounds
-        self.root = tk.Tk()
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
-        self.root.configure(bg="#000000", cursor="none")
-        self.root.update()
+    def __init__(self, display_id):
+        import AppKit
+
+        self.appkit = AppKit
+        AppKit.NSApplication.sharedApplication().setActivationPolicy_(
+            AppKit.NSApplicationActivationPolicyAccessory)
+        screen = next(s for s in AppKit.NSScreen.screens()
+                      if s.deviceDescription()["NSScreenNumber"] == display_id)
+        self.panel = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            screen.frame(), AppKit.NSWindowStyleMaskBorderless | AppKit.NSWindowStyleMaskNonactivatingPanel,
+            AppKit.NSBackingStoreBuffered, False)
+        self.panel.setLevel_(AppKit.NSScreenSaverWindowLevel)
+        self.panel.setCollectionBehavior_(AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
+                                          | AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary
+                                          | AppKit.NSWindowCollectionBehaviorStationary)
+        self.panel.setFrame_display_(screen.frame(), True)
+        self.show((0, 0, 0))
+        self.panel.orderFrontRegardless()
+        self.wait(0.2)
 
     def show(self, rgb):
-        self.root.configure(bg="#%02x%02x%02x" % tuple(int(v) for v in rgb))
-        self.root.update()
+        r, g, b = (v / 255.0 for v in rgb)
+        # Test colours are sRGB code values, like the video the strip follows.
+        self.panel.setBackgroundColor_(self.appkit.NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0))
+        self.panel.display()
+        self.wait(0)
 
     def wait(self, seconds):
+        AppKit = self.appkit
         end = time.monotonic() + seconds
-        while time.monotonic() < end:
-            self.root.update()
-            time.sleep(0.02)
+        while True:
+            AppKit.NSRunLoop.currentRunLoop().runUntilDate_(AppKit.NSDate.dateWithTimeIntervalSinceNow_(0.02))
+            if time.monotonic() >= end:
+                return
 
     def close(self):
-        self.root.destroy()
+        self.panel.orderOut_(None)
+        self.wait(0.1)
 
 
 class HubClient:
@@ -134,29 +156,57 @@ class HubClient:
         return self.get("/api/calibrate/paint", rgb="%02x%02x%02x" % tuple(int(v) for v in rgb))
 
 
-def display_bounds(index):
-    """(x, y, width, height) in points of display `index` (numbered like the hub)."""
+def display_id(index):
+    """The CoreGraphics id of display `index` (numbered like the hub)."""
     import Quartz
 
-    displays = Quartz.CGGetActiveDisplayList(16, None, None)[1] or ()
-    box = Quartz.CGDisplayBounds(displays[index - 1])
-    return int(box.origin.x), int(box.origin.y), int(box.size.width), int(box.size.height)
+    return (Quartz.CGGetActiveDisplayList(16, None, None)[1] or ())[index - 1]
+
+
+def light(window, hub, screen, strip):
+    """Show one test pair and let the camera settle on it."""
+    window.show(screen)
+    hub.paint(strip)
+    window.wait(SETTLE_S / 2)
+    hub.paint(strip)        # the paint is one UDP packet over Wi-Fi; a lost one would leave the old colour
+    window.wait(SETTLE_S / 2)
 
 
 def locate(window, hub, cam):
-    """Find the screen and the wall glow in the camera picture."""
-    window.show((0, 0, 0)); hub.paint((0, 0, 0)); window.wait(1.5)
-    dark = cam.snapshot(8)
-    window.show((255, 255, 255)); window.wait(SETTLE_S)
+    """Find where to read the screen and the wall glow in the camera picture."""
+    brightest = camcal.dimmed((255, 255, 255)), (camcal.DRIVE_RANGE[1] - 1,) * 3
+    light(window, hub, brightest[0], (0, 0, 0))
     screen_lit = cam.snapshot(8)
-    window.show((0, 0, 0)); hub.paint((255, 255, 255)); window.wait(SETTLE_S)
+    light(window, hub, (0, 0, 0), brightest[1])
     strip_lit = cam.snapshot(8)
-    screen, wall = camcal.find_regions(dark, screen_lit, strip_lit)
-    if screen.mean() < 0.02 or wall.mean() < 0.01:
-        raise RuntimeError("the camera cannot see both the screen and the glow on the wall; "
-                           "aim it so the monitor and the wall around it are in view")
-    save_view(strip_lit, screen, wall)
+    # With one light on, the webcam exposes until it blows out; tests always
+    # have both on, so clipping is judged with both at their brightest.
+    light(window, hub, *brightest)
+    both_lit = cam.snapshot(8)
+    screen, wall = camcal.find_regions(screen_lit, strip_lit)
+    screen = largest_region(screen)     # not a laptop screen or a lamp elsewhere in view
+    if not camcal.looks_like_screen(screen):
+        save_view(strip_lit, screen, wall)
+        raise RuntimeError(NOT_SHOWN)
+    # Read the screen at its border, which the strip follows.
+    screen = camcal.measurable(camcal.screen_edge(screen), both_lit)
+    wall = camcal.measurable(wall, both_lit)
+    save_view(both_lit, screen, wall)
+    if screen.mean() < 0.005 or wall.mean() < 0.005:
+        raise RuntimeError("the camera sees too little of the screen's border or the wall glow "
+                           "without blowing out; move it back so the monitor and the wall "
+                           "around it fill about half the picture")
     return screen, wall
+
+
+def largest_region(mask):
+    import cv2
+
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+    if count < 2:
+        return mask
+    biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    return labels == biggest
 
 
 def save_view(picture, screen, wall):
@@ -177,7 +227,7 @@ def score(window, hub, cam, screen, wall):
     hub.get("/api/sync/on")
     pairs = []
     for colour in VERIFY_COLOURS:
-        window.show(colour); window.wait(VERIFY_SETTLE_S)
+        window.show(camcal.dimmed(colour)); window.wait(VERIFY_SETTLE_S)
         picture = cam.snapshot(5)
         pairs.append((camcal.region_colour(picture, screen), camcal.region_colour(picture, wall)))
     return camcal.mismatch(pairs)
@@ -187,12 +237,15 @@ def measure(window, hub, cam, screen, wall, log):
     samples = []
     plan = camcal.patch_plan()
     for i, (colour, drive) in enumerate(plan, 1):
-        window.show(colour); hub.paint(drive); window.wait(SETTLE_S)
+        light(window, hub, colour, drive)
         picture = cam.snapshot(5)
         samples.append((colour, drive, camcal.region_colour(picture, screen),
                         camcal.region_colour(picture, wall)))
         if i % 6 == 0:
             log(f"  measured {i}/{len(plan)} colours")
+    # Kept so a fit that fails can be studied and redone without re-measuring.
+    with open(RECORDINGS_DIR / "calibration-samples.json", "w") as fh:
+        json.dump([[list(map(float, part)) for part in sample] for sample in samples], fh)
     return samples
 
 
@@ -203,7 +256,7 @@ def run_calibration(port, camera_index, log=print):
     display = resolve_display(status["monitor_index"], QuartzCapture.display_count())
     cam = Camera(camera_index)
     try:
-        window = PatchWindow(display_bounds(display))
+        window = PatchWindow(display_id(display))
         try:
             return calibrate(window, hub, cam, status, log)
         finally:
@@ -222,7 +275,10 @@ def calibrate(window, hub, cam, status, log):
         before = score(window, hub, cam, screen, wall)
         log(f"  mismatch before: {before:.3f}")
         log("Measuring test colours…")
-        fitted = camcal.fit_matrix(measure(window, hub, cam, screen, wall, log))
+        samples = measure(window, hub, cam, screen, wall, log)
+        if not camcal.screen_follows_tests(samples):
+            raise RuntimeError(NOT_SHOWN)
+        fitted = camcal.fit_matrix(samples)
         # The fitted matrix already includes this strip's channel balance.
         hub.get("/api/set", led_matrix=json.dumps(fitted.round(4).flatten().tolist()),
                 wb_r=1, wb_g=1, wb_b=1)
@@ -257,12 +313,10 @@ def run_check(port, camera_index, seconds, log=print):
 
 def watch(cam, screen, wall, seconds):
     """Mismatch between the screen's border and the wall glow over `seconds`."""
-    # The strip follows the screen's edges, not its middle.
-    edge = screen & camcal.grow(~screen, max(2, min(screen.shape) // 25))
     pairs, end = [], time.monotonic() + seconds
     while time.monotonic() < end:
         picture = cam.snapshot(3)
-        seen = camcal.region_colour(picture, edge), camcal.region_colour(picture, wall)
+        seen = camcal.region_colour(picture, screen), camcal.region_colour(picture, wall)
         # Dark scenes carry no colour to compare, only sensor noise.
         if min(seen[0].max(), seen[1].max()) >= MIN_READING:
             pairs.append(seen)
