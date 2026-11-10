@@ -1286,6 +1286,55 @@ def test_board_urls():
     check("an address is its own last-known address", cache.last_known("10.0.0.9") == "10.0.0.9")
 
 
+def decode_qr(rows, scale=8, quiet=4):
+    """Read a module matrix back the way a phone camera would, with CoreImage's detector."""
+    import Quartz
+    from Foundation import NSData
+
+    side = (len(rows) + 2 * quiet) * scale
+    pixels = bytearray(b"\xff" * (side * side))
+    for y, row in enumerate(rows):
+        for x, bit in enumerate(row):
+            if bit == "1":
+                for dy in range(scale):
+                    start = ((y + quiet) * scale + dy) * side + (x + quiet) * scale
+                    pixels[start:start + scale] = bytes(scale)
+    provider = Quartz.CGDataProviderCreateWithCFData(NSData.dataWithBytes_length_(bytes(pixels), len(pixels)))
+    image = Quartz.CGImageCreate(side, side, 8, 8, side, Quartz.CGColorSpaceCreateDeviceGray(),
+                                 Quartz.kCGImageAlphaNone, provider, None, False,
+                                 Quartz.kCGRenderingIntentDefault)
+    detector = Quartz.CIDetector.detectorOfType_context_options_(
+        Quartz.CIDetectorTypeQRCode, None, {Quartz.CIDetectorAccuracy: Quartz.CIDetectorAccuracyHigh})
+    return [feature.messageString() for feature in detector.featuresInImage_(Quartz.CIImage.imageWithCGImage_(image))]
+
+
+def test_pairing_qr():
+    print("\n44. QR codes for pairing a phone or tablet")
+    from ambilight import qr
+
+    url = "http://ishwars-macbook-air.local:8080"
+    rows = qr.modules(url)
+    check("the code is square, 21 + 4n modules a side",
+          len(rows) == len(rows[0]) and (len(rows) - 21) % 4 == 0 and all(len(r) == len(rows) for r in rows),
+          (len(rows), len(rows[0])))
+    check("it holds only dark and light modules", set("".join(rows)) <= {"0", "1"})
+    check("the finder squares sit top-left, top-right and bottom-left, so it reads the right way up",
+          rows[0].startswith("1111111") and rows[0].endswith("1111111")
+          and rows[-1].startswith("1111111") and not rows[-1].endswith("1111111"))
+    check("a camera reads back exactly the address", decode_qr(rows) == [url], decode_qr(rows))
+    check("the same address is drawn once and then remembered", qr.modules(url) is rows)
+
+    saved = sys.modules.get("Quartz")
+    sys.modules["Quartz"] = None    # what an install without pyobjc looks like
+    try:
+        qr.modules("http://elsewhere.local:1")
+        check("without CoreImage it says what is missing", False)
+    except RuntimeError as exc:
+        check("without CoreImage it says what is missing", "pyobjc" in str(exc), str(exc))
+    finally:
+        sys.modules["Quartz"] = saved
+
+
 def test_frame_wizard():
     print("\n19. Setup test pattern for a strip round the monitor")
     from ambilight.wizard import Wizard
@@ -2981,6 +3030,31 @@ def test_connect_api(base):
     check("status says where the board's own page is",
           status.get("board_urls") == [f"http://127.0.0.1:{FAKE_WLED_HTTP}"], status.get("board_urls"))
 
+    code, _, body = get("/api/pair")
+    targets = json.loads(body)["targets"] if code == 200 else []
+    urls = [t["url"] for t in targets]
+    check("pairing offers the hub by name, by address, and the board's page",
+          [t["label"] for t in targets] == ["Hub", "Hub by IP address", "Strip's own page"], urls)
+    check("the hub's .local name comes first, because it survives an address change",
+          bool(urls) and urls[0].endswith(f".local:{SANDBOX_PORT}"), urls[:1])
+    check("the board's page is where the hub reaches the board",
+          urls[2:] == [f"http://127.0.0.1:{FAKE_WLED_HTTP}"], urls[2:])
+    check("every code is square", all(len(t["modules"]) == len(t["modules"][0]) for t in targets))
+    check("a phone camera reads the first code as the hub's address",
+          bool(targets) and decode_qr(targets[0]["modules"]) == [urls[0]])
+
+    a = {"X-Ambilight-Pin": "2468"}
+    get("/api/set?new_pin=2468")
+    try:
+        check("a hub with a PIN shows its pairing codes only to a device that knows it",
+              get("/api/pair")[0] == 403 and get("/api/pair", a)[0] == 200)
+        get("/api/set?brightness=0.42", a)
+        seen_by_b = json.loads(get("/api/status", a)[2])["brightness"]
+        check("a change from one device shows on another's next poll", seen_by_b == 0.42, seen_by_b)
+    finally:
+        get("/api/set?new_pin=", a)
+    check("the PIN is cleared again", get("/api/status")[0] == 200)
+
 
 def main():
     print("=" * 62)
@@ -3002,6 +3076,7 @@ def main():
     test_access()
     test_board_answering()
     test_board_urls()
+    test_pairing_qr()
     test_frame_wizard()
     test_firmware_download()
     test_quartz_capture()
