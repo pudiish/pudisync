@@ -75,6 +75,9 @@ DEFAULTS = {
     "sustained_ma": 3000,
     "spread": 0.3,
     "sync_on_start": False,
+    # Switching off from the Ambient screen fades the light out over this many
+    # seconds, so the room does not drop to dark at once. 0 = at once.
+    "off_fade_s": 3.0,
     # The WLED preset that means "follow my monitor" (saved on the board).
     "sync_preset": 1,
     # Skip black bars under video that is not the monitor's shape.
@@ -285,6 +288,7 @@ _LIMITS = {
     "power_limit_ma": (200, 20000),
     "sustained_ma": (200, 20000),
     "spread": (0.0, 0.8),
+    "off_fade_s": (0.0, 10.0),
     "sync_preset": (1, 250),
     "led_count": (1, 1500),
     "left_led": (0, 1499),

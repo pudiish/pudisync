@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -2754,6 +2755,112 @@ def test_ambient_tables():
     check("the tables survive JSON unchanged", json.loads(json.dumps(tables)) == tables)
 
 
+def test_switch_off_fade():
+    print("\n41. Switching off fades the light out instead of cutting it")
+    from urllib.parse import parse_qs
+    from ambilight import routes
+    from ambilight.engine import Engine, OutputStage
+
+    cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-fade-"), "config.json"))
+    cfg.update({"led_count": 60, "bed_leds": 20, "bed_mode": "screen", "bed_look": "mood",
+                "zones": json.dumps([{"start": 0, "end": 9, "mode": "solid", "color": "#ff2010", "keep": True}])})
+    check("the fade time is a setting: 3 s by default, 0-10 s", cfg.get("off_fade_s") == 3.0
+          and cfg.validate("off_fade_s", 25) == 10.0 and cfg.validate("off_fade_s", -1) == 0.0)
+    live = cfg.snapshot()
+    scene = np.full((60, 3), 0.6, np.float32)
+    stage = OutputStage()
+
+    def run(start, end, step=1 / 60):
+        """Frames at the output's own pace, so the fade is never mistaken for a flash."""
+        out, now = None, start
+        while now <= end + 1e-9:
+            stage.set_target(scene, now)
+            out = stage.frame(now, live).astype(int)
+            now += step
+        return out
+
+    full = run(0.0, 0.5)
+    check("nothing dims until asked", np.array_equal(run(0.5, 0.5), full))
+    stage.fade_out(0.5, 2.0)
+    half = run(0.5 + 1 / 60, 1.5)
+    ratio = half[:60].sum() / full[:60].sum()
+    check("halfway through, the strip is at about a quarter: an even fade to the eye", 0.2 < ratio < 0.3, ratio)
+    check("a locked colour fades with it", 0.15 < half[:10].sum() / full[:10].sum() < 0.35)
+    check("a bed following the screen fades with it", 0.15 < half[60:].sum() / full[60:].sum() < 0.35,
+          (half[60:].sum(), full[60:].sum()))
+    dark = run(1.5 + 1 / 60, 2.6)
+    check("at the end everything is dark, the bed too", not dark.any(), dark.sum())
+    stage.cancel_fade()
+    back = run(2.6 + 1 / 60, 3.6)
+    check("cancelling brings the light straight back", np.abs(back - full).max() <= 1,
+          np.abs(back - full).max())
+
+    engine = Engine(cfg)
+    engine._release = lambda: None      # no output was ever opened; nothing to hand back
+    done = threading.Event()
+    check("there is nothing to fade while sync is off", engine.fade_out(0.1, done.set) is False)
+    engine.running = True
+    check("with sync on, the fade starts", engine.fade_out(0.2, done.set) is True and engine.status()["fading"])
+    check("when it ends, the board is switched off once", done.wait(2.0))
+    engine._fade_thread.join(2.0)
+    check("and sync stops", engine.running is False and not engine.status()["fading"])
+    for interrupt in ("start", "stop"):
+        called = threading.Event()
+        engine.running = True
+        engine.fade_out(5.0, called.set)
+        getattr(engine, interrupt)()
+        engine._fade_thread.join(2.0)
+        check(f"{interrupt} during a fade cancels it: the board is never switched off",
+              not engine._fade_thread.is_alive() and not called.is_set() and not engine.status()["fading"])
+        engine.running = False
+
+    class Wled:
+        def __init__(self):
+            self.sent = []
+
+        def apply(self, payload):
+            self.sent.append(payload)
+            return True
+
+    class FakeEngine:
+        def __init__(self, running):
+            self.running, self.fades, self.stopped = running, [], False
+
+        def fade_out(self, seconds, then):
+            self.fades.append((seconds, then))
+            return True
+
+        def stop(self):
+            self.stopped, self.running = True, False
+
+    class Hub:
+        def __init__(self, running, seconds):
+            self.cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-off-"), "config.json"))
+            self.cfg.update({"off_fade_s": seconds})
+            self.wled, self.engine = Wled(), FakeEngine(running)
+
+        def status(self):
+            return {"running": self.engine.running}
+
+    hub = Hub(running=True, seconds=4)
+    body, code = routes.handle(hub, "/api/ambient/off", parse_qs(""))
+    seconds, then = hub.engine.fades[0]
+    check("with sync on, off fades the stream over off_fade_s and leaves the board alone until the end",
+          code == 200 and seconds == 4 and hub.wled.sent == [] and not hub.engine.stopped)
+    then()
+    off = hub.wled.sent[-1]
+    check("then the board goes off with a real look change, so the sync preset clears",
+          off["on"] is False and off["seg"][0]["fx"] == 0, off)
+    hub = Hub(running=True, seconds=0)
+    routes.handle(hub, "/api/ambient/off", parse_qs(""))
+    check("a fade of 0 switches off at once", hub.engine.stopped and hub.wled.sent[-1]["on"] is False
+          and not hub.engine.fades)
+    hub = Hub(running=False, seconds=2.5)
+    routes.handle(hub, "/api/ambient/off", parse_qs(""))
+    check("with an effect or glow on the board, the board fades itself over the same time (tt, 100 ms units)",
+          hub.wled.sent == [{"on": False, "tt": 25}], hub.wled.sent)
+
+
 def test_ambient_api(base):
     print("\n43. The Ambient screen's calls change exactly what they claim")
 
@@ -2787,7 +2894,51 @@ def test_ambient_api(base):
         check(f"glow {glow['label']}: the board runs effect {glow['fx']} in its colour, and sync stops",
               seg["fx"] == glow["fx"] and seg["sx"] == glow["speed"] and seg.get("col", [[]])[0] == wanted
               and not s["running"], seg)
-    restore = {k: before[k] for k in ("saturation", "immersion", "blend", "bed_mode", "bed_look", "bed_side")}
+    # --- switching off -----------------------------------------------------
+    get("/api/set", {"off_fade_s": 1})
+    get("/api/sync/on")
+    time.sleep(1.0)
+    asked = time.monotonic()
+    s = get("/api/ambient/off")
+    answered = time.monotonic() - asked
+    check("off answers at once, still syncing, and says it is fading",
+          answered < 0.5 and s["running"] and s["fading"], f"{answered * 1000:.0f} ms")
+    while get("/api/status")["running"] and time.monotonic() - asked < 5:
+        time.sleep(0.05)
+    stopped_after = time.monotonic() - asked
+    s, b = get("/api/status"), board()
+    # Never before the fade is over; the rest is the capture thread finishing its frame.
+    check("a 1 s fade ends with sync stopped, never before the second is up",
+          not s["running"] and not s["fading"] and 1.0 <= stopped_after < 3.0, f"{stopped_after:.2f} s")
+    check("and the board is off with the sync preset cleared, so nothing restarts sync",
+          b["on"] is False and b["ps"] == -1, {"on": b["on"], "ps": b["ps"]})
+    time.sleep(1.5)
+    check("it stays off", not get("/api/status")["running"])
+
+    get("/api/set", {"off_fade_s": 2})
+    get("/api/sync/on")
+    time.sleep(0.5)
+    get("/api/ambient/off")
+    time.sleep(0.5)
+    s = get("/api/sync/on")
+    check("sync on mid-fade cancels the fade", s["running"] and not s["fading"])
+    time.sleep(2.0)
+    s, b = get("/api/status"), board()
+    # The fake board stores a loaded preset's id but not its contents, so "on"
+    # still says what the last off left; the switch-off look would clear the preset.
+    check("and the board is never switched off: sync keeps running on its preset",
+          s["running"] and b["ps"] == 1, {"running": s["running"], "ps": b["ps"]})
+
+    get("/api/sync/off")
+    s = get("/api/ambient/off")
+    b = board()
+    check("with sync off, the board fades its own look off over the same time (tt = 20 x 100 ms)",
+          not s["running"] and b["on"] is False and b.get("tt") == 20, {"on": b["on"], "tt": b.get("tt")})
+    check("the fade time is kept to 0-10 s", get("/api/set", {"off_fade_s": 99})["off_fade_s"] == 10.0
+          and get("/api/set", {"off_fade_s": -2})["off_fade_s"] == 0.0)
+
+    restore = {k: before[k] for k in ("saturation", "immersion", "blend", "bed_mode", "bed_look", "bed_side",
+                                      "off_fade_s")}
     get("/api/set", restore)
 
 
@@ -2913,6 +3064,7 @@ def main():
     test_webcam_job()
     test_bed_strip()
     test_ambient_tables()
+    test_switch_off_fade()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)

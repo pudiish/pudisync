@@ -129,8 +129,29 @@ def monitors():
 
 
 # --- the Ambient screen ----------------------------------------------------------
+# Off for good: a real look change as well, so the sync preset clears and the
+# watcher in intent.py does not start sync again.
+OFF_LOOK = {"on": False, **FALLBACK_LOOK}
+
+
 def ambient(hub, q):
     return ambient_presets.tables(), OK
+
+
+def ambient_off(hub, q):
+    """Lights off, faded over off_fade_s: the hub fades its stream, the board fades its own looks.
+
+    Answers at once; the status says "fading" until the stream has faded and stopped.
+    """
+    seconds = hub.cfg.get("off_fade_s")
+    if not hub.engine.running:
+        return {"ok": hub.wled.apply({"on": False, "tt": round(seconds * 10)}), **hub.status()}, OK
+    if seconds > 0:
+        hub.engine.fade_out(seconds, lambda: hub.wled.apply(OFF_LOOK))
+        return hub.status(), OK
+    ok = hub.wled.apply(OFF_LOOK)
+    hub.engine.stop()
+    return {"ok": ok, **hub.status()}, OK
 
 
 # --- recordings: capture real scenes, replay them while tuning ----------------
@@ -369,6 +390,7 @@ ROUTES = {
     "/api/monitors": displays,
     "/api/diagnostics": diagnostics,
     "/api/ambient": ambient,
+    "/api/ambient/off": ambient_off,
     "/api/record/start": record_start,
     "/api/record/replay": record_replay,
     "/api/wled/meta": wled_meta,

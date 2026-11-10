@@ -133,6 +133,26 @@ class OutputStage:
         self.guard = Guard()
         self.last_target = None
         self.bed = bed.BedStage()
+        # Switching off: when the fade began and how long it takes, or None.
+        self.dim_from = None
+        self.dim_s = 0.0
+
+    def fade_out(self, now, seconds):
+        """Dim everything streamed to black over `seconds` from `now`; cancel_fade undoes it."""
+        with self.lock:
+            self.dim_from, self.dim_s = now, seconds
+
+    def cancel_fade(self):
+        with self.lock:
+            self.dim_from = None
+
+    def _dimmer(self, now):
+        if self.dim_from is None:
+            return 1.0
+        left = max(0.0, 1.0 - (now - self.dim_from) / self.dim_s) if self.dim_s > 0 else 0.0
+        # LED drive is linear light and the eye is not: squared, the room
+        # darkens evenly instead of hanging bright and dropping at the end.
+        return left * left
 
     def set_target(self, target, now):
         with self.lock:
@@ -153,13 +173,14 @@ class OutputStage:
             # Zones paint over the sync layer after smoothing, so a solid zone
             # is not dragged toward screen colour.
             composed = zonelib.composite(levels, cfg["zones"], cfg["led_count"])
-            safe = self.guard.apply(composed * cfg["brightness"], now, cfg)
+            dim = self._dimmer(now)
+            safe = self.guard.apply(composed * cfg["brightness"] * dim, now, cfg)
             pixels = self.quantizer.apply(safe)
             if not bed.streams(cfg):
                 return pixels
             # Board LEDs between the hub's and the bed's (a monitor strip longer than its frame) stay dark.
             gap = np.zeros((bed.first_led(cfg) - len(pixels), 3), dtype=np.uint8)
-            return np.concatenate([pixels, gap, self.bed.frame(self.smoother.target, now, cfg, fade)])
+            return np.concatenate([pixels, gap, self.bed.frame(self.smoother.target, now, cfg, fade * dim)])
 
     def safety(self):
         with self.lock:
@@ -321,6 +342,9 @@ class Engine:
         self.last_recording = None
         self.awake = None
         self.mouse = mouse.LightsyncMouse(mouse.load_hid())
+        # Set while a switch-off fade runs; setting it cancels that fade.
+        self._fade_cancel = None
+        self._fade_thread = None
 
     @property
     def last_error(self):
@@ -329,6 +353,7 @@ class Engine:
     # --- lifecycle ---------------------------------------------------------
     def start(self):
         with self.lifecycle:
+            self._cancel_fade()
             if self.running:
                 return True
             # A fresh event per run: a thread from an earlier run that missed
@@ -345,17 +370,59 @@ class Engine:
 
     def stop(self):
         with self.lifecycle:
-            self.stop_event.set()
-            for thread in (self._thread, self.emitter):
-                if thread is not None:
-                    thread.join(timeout=2.0)
-            self.running = False
-            self.mouse.release()
-            if self.awake is not None:
-                self.awake.stop()
-                self.awake = None
-            self._release()
-            self.fps = self.output_fps = 0.0
+            self._stop_locked()
+
+    def _stop_locked(self):
+        self.stop_event.set()
+        for thread in (self._thread, self.emitter):
+            if thread is not None:
+                thread.join(timeout=2.0)
+        self.running = False
+        self.mouse.release()
+        if self.awake is not None:
+            self.awake.stop()
+            self.awake = None
+        self._release()
+        self.fps = self.output_fps = 0.0
+        # Only now: lifting the dimmer while frames still flowed would flash the light back on.
+        self._cancel_fade()
+
+    # --- switching off -------------------------------------------------------
+    def fade_out(self, seconds, then):
+        """Fade the light to black over `seconds`, then run `then` and stop sync.
+
+        Starting or stopping sync before the end cancels it, so tapping sync or
+        an effect mid-fade wins and `then` never runs. False when sync is off.
+        """
+        with self.lifecycle:
+            if not self.running:
+                return False
+            self._cancel_fade()
+            cancel = self._fade_cancel = threading.Event()
+            self.stage.fade_out(time.perf_counter(), seconds)
+            self._fade_thread = threading.Thread(target=self._finish_fade, args=(cancel, seconds, then),
+                                                 daemon=True, name="fade-out")
+            self._fade_thread.start()
+            return True
+
+    def _finish_fade(self, cancel, seconds, then):
+        if cancel.wait(seconds):
+            return
+        # Under the lifecycle lock, so a start that slips in cannot be switched off.
+        with self.lifecycle:
+            if cancel is not self._fade_cancel:
+                return
+            try:
+                then()
+            except Exception:
+                log.exception("switching off after the fade failed; stopping sync anyway")
+            self._stop_locked()
+
+    def _cancel_fade(self):
+        if self._fade_cancel is not None:
+            self._fade_cancel.set()
+            self._fade_cancel = None
+        self.stage.cancel_fade()
 
     def start_recording(self, seconds):
         """Keep the next `seconds` of per-LED averages for replay and tuning."""
@@ -601,6 +668,7 @@ class Engine:
             "measured_fps": round(self.fps, 1),
             "output_fps": round(self.output_fps, 1),
             "paused": self.paused,
+            "fading": self._fade_cancel is not None,
             "recording": self.recorder is not None,
             "safety": self.stage.safety(),
             "last_recording": self.last_recording,
