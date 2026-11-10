@@ -1063,6 +1063,12 @@ def test_smoothing():
     moved = q.apply(np.array([[110.0, 110.0, 110.0]], np.float32))[0]
     check("a real change still gets through", tuple(moved) == (110, 110, 110), moved)
     check("the quantizer emits wire bytes", moved.dtype == np.uint8)
+    fading = Quantizer()
+    for level in (3.0, 2.0, 1.2, 0.6, 0.3, 0.0):
+        last = fading.apply(np.array([[level, level * 0.2, 0.0]], np.float32))[0]
+    check("a fade to black ends dark, not on a glow of level 1", not last.any(), last)
+    hover = [fading.apply(np.array([[v, 0.0, 0.0]], np.float32))[0, 0] for v in (0.4, 0.6, 0.4, 0.6)]
+    check("and a level hovering just above black does not flicker back on", hover == [0, 0, 0, 0], hover)
 
 
 def test_recorder():

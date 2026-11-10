@@ -120,5 +120,9 @@ class Quantizer:
             self.held = rounded
         else:
             moved = np.abs(levels - self.held).max(axis=1) > HYSTERESIS
+            # From level 1 the step to black is exactly the hysteresis, never
+            # over it, so a fade would end on a faint glow. Dark always commits;
+            # coming back up still needs a real move, so it cannot flicker.
+            moved |= ~rounded.any(axis=1)
             self.held[moved] = rounded[moved]
         return self.held.astype(np.uint8)
