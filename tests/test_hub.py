@@ -2901,6 +2901,67 @@ def test_telemetry_api(base):
     check("the page shows every stage the hub times", set(re.findall(r'\["(\w+)", "', stages)) == set(STAGES))
 
 
+def test_soak_verdict():
+    print("\n43. The soak script's verdict on memory and frame rate")
+    import math
+    import soak
+
+    def run_of(minutes=120, rss=lambda t: 50.0, fresh=lambda i: 33.0, drops=0, paused=()):
+        """A sample every 10 s, shaped like soak.sample()'s."""
+        return [{"t": i * 10.0, "rss_mb": rss(i * 10.0), "paused": i in paused,
+                 "fresh_fps": 0.0 if i in paused else fresh(i), "delivered_fps": 60.0,
+                 "delivered": i * 600, "dropped": i * drops} for i in range(minutes * 6)]
+
+    def verdict(samples):
+        return {name: ok for name, ok, _ in soak.judge(samples, 60)}
+
+    steady = verdict(run_of(rss=lambda t: 50 + 0.3 * math.sin(t / 60)))
+    check("a steady two-hour run passes every check, the leak check included",
+          all(steady.values()) and "memory stays flat" in steady, steady)
+    check("a 10 MB an hour leak fails", verdict(run_of(rss=lambda t: 50 + 10 * t / 3600))["memory stays flat"] is False)
+    check("memory that jumps 30 MB fails, however short the run",
+          verdict(run_of(minutes=2, rss=lambda t: 80.0 if t > 60 else 50.0))["memory does not grow"] is False)
+    check("single readings swinging by tens of MB are not a leak",
+          verdict(run_of(rss=lambda t: 50.0 + (35.0 if int(t) % 70 == 0 else 0.0)))["memory does not grow"])
+    check("fresh frames collapsing now and then fails",
+          verdict(run_of(fresh=lambda i: 5.0 if i % 10 == 0 else 33.0))["fresh frames never collapse"] is False)
+    check("2% dropped frames fails", verdict(run_of(drops=12))["dropped frames stay rare"] is False)
+    check("time with the screen locked or asleep is left out",
+          all(verdict(run_of(paused=set(range(300, 360)))).values()))
+    short = verdict(run_of(minutes=1))
+    check("a one-minute run is judged, but not for a slow leak",
+          all(short.values()) and "memory stays flat" not in short, short)
+    check("no samples is a failure, not a pass", verdict([]) == {"enough samples to judge": False})
+
+    check("ps CPU times are read in every form",
+          (soak.cpu_seconds("0:01.23"), soak.cpu_seconds("12:34.50"), soak.cpu_seconds("1-02:03:04.00"))
+          == (1.23, 754.5, 93784.0))
+    try:
+        soak.ports(8079)
+        refused = False
+    except SystemExit:
+        refused = True
+    check("the soak refuses a port base that lands on the live hub", refused)
+
+
+def test_soak_live():
+    print("\n44. A short soak against its own sandbox hub")
+    import soak
+    from ambilight.telemetry import STAGES
+
+    out = os.path.join(tempfile.mkdtemp(prefix="ambilight-soak-test-"), "samples.jsonl")
+    samples = soak.run(PORT_BASE + 2, seconds=6, every=1.0, layout="frame", fps=60, out=out, log=lambda line: None)
+    check("it samples for the whole run", len(samples) >= 6 and samples[-1]["t"] >= 6, len(samples))
+    check("every sample has memory, CPU and every stage",
+          all(s["rss_mb"] > 0 and s["cpu_s"] >= 0 and set(s["stages_ms"]) == set(STAGES) for s in samples))
+    check("the fake board counts the packets", samples[-1]["packets"] > samples[0]["packets"])
+    check("the hub delivers frames throughout", min(s["delivered_fps"] for s in samples) > 20,
+          [s["delivered_fps"] for s in samples])
+    with open(out) as fh:
+        check("every sample is saved as a JSON line", len(fh.read().splitlines()) == len(samples))
+    check("the summary covers every stage", all(any(name in line for line in soak.summary(samples)) for name in STAGES))
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -3025,6 +3086,8 @@ def main():
     test_engine_parts()
     test_telemetry()
     test_engine_telemetry()
+    test_soak_verdict()
+    test_soak_live()
     with sandbox_hub() as base:
         test_telemetry_api(base)
         test_api(base)
