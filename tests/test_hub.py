@@ -2709,6 +2709,93 @@ def test_board_address_cache():
         hostcache.BOARD.known.clear()
 
 
+class FakeClock:
+    """Time that moves only when told to, so timing checks are exact. It also
+    stands in for a stop event: waiting on it moves time on instead of sleeping."""
+
+    def __init__(self, now=100.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+    def wait(self, seconds):
+        self.now += seconds
+
+    def is_set(self):
+        return False
+
+
+def test_telemetry():
+    print("\n40. Telemetry: stage timing, delivered frames, drops and picture age")
+    from ambilight.telemetry import STAGES, WINDOW, Telemetry, percentile
+
+    check("percentiles use the nearest rank",
+          percentile([4, 1, 3, 2], 0.5) == 2 and percentile([4, 1, 3, 2], 0.95) == 4)
+    check("no samples, no percentile", percentile([], 0.5) is None)
+
+    clock = FakeClock()
+    t = Telemetry(clock)
+    empty = t.snapshot()
+    check("a fresh collector lists every stage, all empty",
+          set(empty["stages_ms"]) == set(STAGES)
+          and all(v == {"p50": None, "p95": None} for v in empty["stages_ms"].values()), empty["stages_ms"])
+    check("and nothing delivered or dropped", (empty["delivered_fps"], empty["dropped"]) == (0, 0))
+
+    for ms in (10, 20, 30, 40):
+        with t.stage("capture"):
+            clock.wait(ms / 1000)
+    capture = t.snapshot()["stages_ms"]["capture"]
+    check("a stage reports its median and p95 in ms", capture == {"p50": 20.0, "p95": 40.0}, capture)
+
+    try:
+        with t.stage("process"):
+            raise OSError("display gone")
+    except OSError:
+        pass
+    check("a stage that fails is not counted", t.snapshot()["stages_ms"]["process"]["p50"] is None)
+
+    for i in range(WINDOW + 60):
+        t.record("send", i / 1000)
+    check("only the most recent samples count",
+          t.snapshot()["stages_ms"]["send"]["p50"] == 60 + WINDOW // 2 - 1, t.snapshot()["stages_ms"]["send"])
+
+    for _ in range(120):
+        clock.wait(1 / 60)
+        t.sent(True, clock())
+    fps = t.snapshot()["delivered_fps"]
+    check("delivered fps counts the last second of sends", 59 <= fps <= 61, fps)
+    clock.wait(2.0)
+    check("and falls to zero when sends stop", t.snapshot()["delivered_fps"] == 0)
+
+    t = Telemetry(clock)
+    t.captured(clock())
+    clock.wait(0.030)
+    t.sent(True, clock())
+    clock.wait(1 / 60)
+    t.sent(True, clock())
+    check("a picture's age is taken at its first send only",
+          t.snapshot()["latency_ms"] == {"p50": 30.0, "p95": 30.0}, t.snapshot()["latency_ms"])
+
+    t.captured(clock())
+    clock.wait(0.010)
+    t.sent(False, clock())
+    clock.wait(0.010)
+    t.sent(True, clock())
+    snap = t.snapshot()
+    check("a failed send is a drop and an error", (snap["dropped"], snap["send_errors"]) == (1, 1), snap)
+    check("and the picture's age runs to the first send that got through",
+          snap["latency_ms"] == {"p50": 20.0, "p95": 30.0}, snap["latency_ms"])
+    t.missed(5)
+    check("frames the pacer skipped are drops too", t.snapshot()["dropped"] == 6)
+    check("delivered counts only good sends", t.snapshot()["delivered"] == 3)
+
+    t.reset()
+    snap = t.snapshot()
+    check("reset starts from nothing",
+          (snap["delivered"], snap["dropped"], snap["latency_ms"]["p50"]) == (0, 0, None), snap)
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -2831,6 +2918,7 @@ def main():
     test_webcam_job()
     test_bed_strip()
     test_engine_parts()
+    test_telemetry()
     with sandbox_hub() as base:
         test_api(base)
         test_wizard(base)
