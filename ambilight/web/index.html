@@ -58,7 +58,7 @@ h2,h3,.label{font-size:11px;letter-spacing:.16em;color:var(--dim)}
   padding:calc(14px + env(safe-area-inset-top)) 16px 12px}
 .brand{margin:0;display:flex;align-items:center;gap:10px;font:700 13px/1 var(--mono);letter-spacing:.24em;color:var(--amber)}
 .brand span{color:var(--dim)}
-.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(6,1fr);
+.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(7,1fr);
   background:var(--panel);border-top:1px solid var(--rule-hi);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
@@ -66,13 +66,14 @@ h2,h3,.label{font-size:11px;letter-spacing:.16em;color:var(--dim)}
 .tab::before{content:"";width:20px;height:4px;border-radius:1px;background:var(--lamp-off)}
 .tab[aria-current=page]{color:var(--amber)}
 .tab[aria-current=page]::before{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+@media (max-width:440px){.tab{font-size:9.5px;letter-spacing:.06em}}
 main{max-width:760px;margin:0 auto;padding:0 16px calc(var(--tabbar) + 28px + env(safe-area-inset-bottom))}
 .screen,.steps,.panel,.stack,.field,.ask,.zones,.zone,.now{display:grid;gap:14px;align-content:start}
 .field{gap:6px}
 .steps,.zones{list-style:none;margin:0;padding:0;gap:12px}
 @media (min-width:860px){
   .tabs{position:static;display:flex;gap:2px;margin-left:auto;padding:0;background:none;border:0}
-  .tab{flex-direction:row;gap:8px;min-height:44px;padding:0 12px}
+  .tab{flex-direction:row;gap:8px;min-height:44px;padding:0 8px;letter-spacing:.1em}
   .tab::before{width:6px;height:6px;border-radius:50%}
   main{padding-bottom:40px}
 }
@@ -174,6 +175,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:34px;border:1px solid #000
 .colour-row{display:flex;align-items:center;gap:12px}
 .colour-row .hint{font-weight:400;letter-spacing:0;text-transform:none}
 
+/* ambient */
+.glow-chip{display:block;height:6px;margin-bottom:4px;border:1px solid #000;border-radius:1px;
+  background:linear-gradient(90deg,#0b4f8a,#1aa38f)}
+
 /* setup */
 .step-no{display:inline-grid;place-items:center;width:26px;height:26px;border:1px solid var(--amber);
   border-radius:2px;color:var(--amber);font:700 13px/1 var(--mono);letter-spacing:0}
@@ -244,6 +249,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
   <h1 class="brand"><i class="lamp" id="head-lamp" aria-hidden="true"></i>AMBILIGHT <span>HUB</span></h1>
   <nav class="tabs" aria-label="Sections">
     <button class="tab" type="button" data-action="tab" data-value="home">Home</button>
+    <button class="tab" type="button" data-action="tab" data-value="ambient">Ambient</button>
     <button class="tab" type="button" data-action="tab" data-value="effects">Effects</button>
     <button class="tab" type="button" data-action="tab" data-value="override">Override</button>
     <button class="tab" type="button" data-action="tab" data-value="bed">Bed</button>
@@ -322,6 +328,54 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
       <button class="switch" type="button" role="switch" aria-checked="false" data-switch="mouse_sync"
         aria-describedby="mouse-hint">Follow the screen<span class="toggle" aria-hidden="true"></span></button>
       <p class="hint" id="mouse-hint"></p>
+    </div>
+  </section>
+
+  <section class="screen" id="tab-ambient" aria-label="Ambient" hidden>
+    <div class="panel">
+      <h2>Ambient</h2>
+      <div class="seg" role="group" aria-label="What the light follows">
+        <button type="button" data-action="ambient-follow" data-value="screen" aria-pressed="false">Screen</button>
+        <button type="button" data-action="ambient-follow" data-value="glow" aria-pressed="false">Glow</button>
+        <button type="button" data-action="ambient-follow" data-value="off" aria-pressed="false">Off</button>
+      </div>
+      <p class="hint" id="amb-follow-hint" aria-live="polite"></p>
+    </div>
+    <div class="panel">
+      <h2>Screen</h2>
+      <p class="label" id="amb-style-label">Style</p>
+      <div class="tiles" id="amb-styles" role="group" aria-labelledby="amb-style-label"><p class="hint">Loading looks…</p></div>
+      <p class="label" id="amb-pace-label">Pace</p>
+      <div class="seg" id="amb-paces" role="group" aria-labelledby="amb-pace-label"></div>
+      <p class="hint" id="amb-pace-hint"></p>
+      <div class="fader" data-fader="amb_brightness"></div>
+      <div class="fader" data-fader="amb_saturation"></div>
+      <div class="fader" data-fader="amb_white_kelvin"></div>
+    </div>
+    <div class="panel">
+      <h2>Room glow</h2>
+      <p class="hint">Runs on the controller itself, so it keeps glowing while the Mac sleeps.</p>
+      <div class="tiles" id="amb-glows" role="group" aria-label="Room glows"></div>
+      <div class="fader" data-fader="amb_glow_bri"></div>
+    </div>
+    <div class="panel">
+      <h2>Around the room</h2>
+      <div class="stack" id="amb-bed">
+        <p class="label" id="amb-bed-label">Bed strip follows</p>
+        <div class="seg" id="amb-bed-follow" role="group" aria-labelledby="amb-bed-label"></div>
+        <p class="hint" id="amb-bed-hint"></p>
+        <div class="fader" data-fader="amb_bed_brightness"></div>
+      </div>
+      <p class="hint" id="amb-bed-none" hidden>No bed strip yet. Set one up on the Bed tab.</p>
+      <button class="switch" type="button" role="switch" aria-checked="false" data-switch="mouse_sync"
+        aria-describedby="amb-mouse-hint">Mouse follows the screen<span class="toggle" aria-hidden="true"></span></button>
+      <p class="hint" id="amb-mouse-hint"></p>
+    </div>
+    <div class="panel">
+      <h2>Wall and switch-off</h2>
+      <p class="hint" id="amb-wall"></p>
+      <button class="btn" type="button" data-action="ambient-setup">Open Setup</button>
+      <div class="fader" data-fader="off_fade_s" data-hint="How long the light takes to fade out when you choose Off."></div>
     </div>
   </section>
 
@@ -669,7 +723,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 <script>
 "use strict";
 const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, PIN_KEY = "ambilight-pin";
-const TABS = ["home", "effects", "override", "bed", "setup", "advanced"];
+const TABS = ["home", "ambient", "effects", "override", "bed", "setup", "advanced"];
 const EDGE_KEYS = ["edge_bottom", "edge_right", "edge_top", "edge_left"];
 const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g", "wb_b",
   "led_gamma", "contrast", "black_level", "colour_weight", "spread"];
@@ -705,7 +759,17 @@ const FADERS = {
   bed_speed: {label: "Speed", min: 0, max: 255, fmt: String},
   fx_brightness: {label: "Effect brightness", min: 0, max: 255, fmt: v => `${Math.round(v / 2.55)}%`,
     apply: v => act("/api/wled/brightness", {value: v})},
+  off_fade_s: {label: "Switch-off fade", min: 0, max: 100, step: 5, scale: 10, fmt: v => v ? `${v.toFixed(1)} s` : "At once"},
 };
+// The Ambient tab shows some of the same settings as Home; its faders have keys
+// of their own (element ids must be unique) and name the setting they change.
+Object.assign(FADERS, {
+  amb_brightness: {...FADERS.brightness, setting: "brightness"},
+  amb_saturation: {...FADERS.saturation, setting: "saturation"},
+  amb_white_kelvin: {...FADERS.white_kelvin, setting: "white_kelvin"},
+  amb_bed_brightness: {...FADERS.bed_brightness, label: "Bed brightness", setting: "bed_brightness"},
+  amb_glow_bri: {...FADERS.fx_brightness, label: "Glow brightness"},
+});
 
 const $ = id => document.getElementById(id);
 const $$ = sel => [...document.querySelectorAll(sel)];
@@ -871,7 +935,7 @@ function render(s) {
   state = s;
   renderHero(s);
   renderPreview();
-  for (const key in faders) if (!FADERS[key].apply) setFader(key, s[key]);
+  for (const key in faders) if (!FADERS[key].apply) setFader(key, s[FADERS[key].setting || key]);
   setFader("fx_brightness", s.wled_bri);
   renderProfiles(s);
   $$("[data-action=profile]").forEach(b => press(b, b.dataset.value === s.profile));
@@ -884,6 +948,7 @@ function render(s) {
   renderSetup(s);
   renderZonesFromStatus(s);
   renderAdvanced(s);
+  renderAmbient(s);
   if (currentTab === "override") drawPaint();
 }
 
@@ -1000,7 +1065,7 @@ function buildFader(host) {
     input.setAttribute("aria-describedby", `${id}-hint`);
   }
   faders[key] = {input, out, spec};
-  const send = debounce(() => spec.apply ? spec.apply(faderValue(key)) : setKey(key, faderValue(key)), 150);
+  const send = debounce(() => spec.apply ? spec.apply(faderValue(key)) : setKey(spec.setting || key, faderValue(key)), 150);
   input.addEventListener("input", () => { editedAt[key] = Date.now(); showFader(key); send(); });
   showFader(key);
 }
@@ -1050,7 +1115,7 @@ function runSolid(hex) {
 }
 
 function markEffects(fx) {
-  $$(".tile").forEach(t => press(t, Number(t.dataset.fx) === fx));
+  $$("#fx-tiles .tile").forEach(t => press(t, Number(t.dataset.fx) === fx));
   $$(".swatch").forEach(b => press(b, fx === 0 && b.dataset.hex === $("colour").value.toLowerCase()));
 }
 
@@ -1094,6 +1159,90 @@ function runLook(name, path, params) {
   lookName = name;
   activeFx = null;
   act(path, params);
+}
+
+/* ---------- ambient ---------- */
+// Presets come from the hub (/api/ambient), so the Mac app offers the same ones.
+// A choice is lit while the settings still match it; after a fader moves, none is.
+let ambient = null, ambientGlow = "", ambientChoices = [];
+const sameSetting = (want, have) => typeof want === "number" ? Math.abs(have - want) < 0.005 : have === want;
+const ambientMatches = (preset, s) => Object.entries(preset.set).every(([k, v]) => sameSetting(v, s[k]));
+
+async function loadAmbient() {
+  if (ambient) return;
+  try {
+    ambient = await api("/api/ambient");
+  } catch (err) {
+    $("amb-styles").replaceChildren(make("p", {className: "hint", textContent: `Couldn't load the looks. ${err.message}`}));
+    return;
+  }
+  ambientChoices = [];
+  const choose = preset => () => act("/api/set", preset.set);
+  $("amb-styles").replaceChildren(...ambient.styles.map(p => ambientTile(p, choose(p))));
+  $("amb-glows").replaceChildren(...ambient.glows.map(g => ambientTile(g, () => runGlow(g), g.color)));
+  $("amb-paces").replaceChildren(...ambient.paces.map(p => ambientKey(p, choose(p))));
+  $("amb-bed-follow").replaceChildren(...ambient.bed.map(p => ambientKey(p, choose(p))));
+  if (state) renderAmbient(state);
+}
+
+function ambientTile(preset, onClick, chip) {
+  const tile = button("", "tile", onClick);
+  tile.dataset.preset = preset.name;
+  if (chip !== undefined) {
+    const swatch = make("span", {className: "glow-chip"});
+    if (chip) swatch.style.background = `#${chip}`;
+    tile.append(swatch);
+  }
+  tile.append(make("span", {className: "tile-name", textContent: preset.label}),
+    make("span", {className: "tile-about", textContent: preset.about}));
+  ambientChoices.push([tile, preset]);
+  return tile;
+}
+
+function ambientKey(preset, onClick) {
+  const key = button(preset.label, "", onClick);
+  key.dataset.preset = preset.name;
+  key.title = preset.about;
+  ambientChoices.push([key, preset]);
+  return key;
+}
+
+function runGlow(glow) {
+  ambientGlow = glow.name;
+  const params = {fx: glow.fx, speed: glow.speed, intensity: glow.intensity};
+  if (glow.color) params.color = glow.color;
+  runLook(glow.label, "/api/effect/run", params);
+}
+
+function ambientFollow(value) {
+  if (value === "screen") return act("/api/sync/on");
+  if (value === "off") return act("/api/ambient/off");
+  if (!ambient) return null;
+  const glows = ambient.glows;
+  return runGlow(glows.find(g => g.name === ambientGlow) || glows.find(g => g.name === "warm-white") || glows[0]);
+}
+
+function renderAmbient(s) {
+  const mode = modeOf(s), follow = s.fading || mode === "off" ? "off" : mode === "sync" ? "screen" : "glow";
+  if (mode !== "effect") ambientGlow = "";
+  $$("[data-action=ambient-follow]").forEach(b => press(b, b.dataset.value === follow));
+  setText($("amb-follow-hint"), s.fading ? "Fading out…" : mode === "sync" ? "The light follows your screen."
+    : mode === "effect" ? `Glowing: ${lookName || "an effect or colour"}.` : "The lights are off.");
+  setText($("amb-pace-hint"), `Settles on a new colour in ${two(settle(s.blend))} s.`);
+  setFader("amb_glow_bri", s.wled_bri);
+  const hasBed = s.bed_leds > 0;
+  $("amb-bed").hidden = !hasBed;
+  $("amb-bed-none").hidden = hasBed;
+  const m = s.mouse || {};
+  setText($("amb-mouse-hint"), m.connected ? "Its lights take the colours along the bottom of the screen."
+    : "No Logitech LIGHTSYNC mouse is plugged in.");
+  setText($("amb-wall"), (s.led_matrix || []).length === 9
+    ? "Your wall is measured: the webcam calibration already allows for its colour."
+    : "Your wall isn't measured yet. A coloured wall tints the light; the webcam calibration in Setup measures it and corrects for it.");
+  ambientChoices.forEach(([el, p]) => press(el, p.set ? ambientMatches(p, s) : p.name === ambientGlow));
+  if (!ambient) return;
+  const bedNow = ambient.bed.find(p => ambientMatches(p, s));
+  setText($("amb-bed-hint"), bedNow ? bedNow.about : "Set on the Bed tab: its own effect, colour or one edge.");
 }
 
 /* ---------- setup ---------- */
@@ -1707,6 +1856,7 @@ function showTab(name) {
   window.scrollTo(0, 0);
   if (leaving === "setup" && wizardLive) stopWizard({offer: true});
   if (name === "home") { previewKey = ""; renderPreview(); }
+  if (name === "ambient") loadAmbient();
   if (name === "effects") { if (!effects.length) loadEffects(); loadMeta(); }
   if (name === "override") drawPaint();
   if (name === "bed" && !effects.length) loadEffects();
@@ -1717,6 +1867,8 @@ const ACTIONS = {
   "tab": b => showTab(b.dataset.value),
   "power": () => act(state && modeOf(state) === "sync" ? "/api/sync/off" : "/api/sync/on"),
   "sync-on": () => act("/api/sync/on"),
+  "ambient-follow": b => ambientFollow(b.dataset.value),
+  "ambient-setup": () => showTab("setup"),
   "lights-off": async () => { if (await act("/api/wled/power", {on: 0})) refresh(); },
   "profile": b => act(`/api/profile/${encodeURIComponent(b.dataset.value)}`),
   "profile-save": showProfileForm,

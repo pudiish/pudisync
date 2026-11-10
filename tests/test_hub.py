@@ -2861,6 +2861,68 @@ def test_switch_off_fade():
           hub.wled.sent == [{"on": False, "tt": 25}], hub.wled.sent)
 
 
+def test_ambient_page():
+    print("\n42. The Ambient tab on the phone page")
+    import pathlib, re, shutil
+    from ambilight import routes
+    from ambilight.config import DEFAULTS
+
+    html = pathlib.Path("ambilight/web/index.html").read_text()
+    script = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
+    tab = re.search(r'<section class="screen" id="tab-ambient".*?\n  </section>', html, re.S).group(0)
+    tabs = re.search(r"const TABS = \[(.*?)\];", script).group(1)
+    check("Ambient is a tab: listed, and in the navigation",
+          '"ambient"' in tabs and 'data-action="tab" data-value="ambient">Ambient<' in html)
+    check("the tab bar has a column for every tab", f"repeat({tabs.count(',') + 1},1fr)" in html)
+    check("the page never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
+    actions = set(re.findall(r'data-action="([^"]+)"', tab))
+    missing = [a for a in actions if f'"{a}":' not in script]
+    check("every button on the tab has a handler", not missing, missing)
+    switches = re.findall(r'data-switch="([^"]+)"', tab)
+    check("every switch on the tab is a real setting", switches and all(k in DEFAULTS for k in switches), switches)
+    block = script[script.index("/* ---------- ambient"):script.index("/* ---------- setup")]
+    endpoints = set(re.findall(r'"(/api/[a-z/]+)"', block))
+    check("the tab calls only endpoints the hub has", endpoints and all(e in routes.ROUTES for e in endpoints), endpoints)
+
+    node = shutil.which("node")
+    if not node:
+        print("    (skipped: node not installed, so the page's script was not run)")
+        return
+    folder = pathlib.Path(tempfile.mkdtemp())
+    (folder / "page.js").write_text(script)
+    syntax = subprocess.run([node, "--check", str(folder / "page.js")], capture_output=True, text=True)
+    check("the script parses", syntax.returncode == 0, syntax.stderr[:200])
+
+    # The fader table and the matching rule, run as the page runs them.
+    faders = script[script.index("const settle"):script.index("});\n", script.index("Object.assign(FADERS")) + 4]
+    matching = "\n".join(line for line in script.splitlines()
+                         if line.startswith(("const sameSetting", "const ambientMatches")))
+    probe = faders + matching + r"""
+const tab = %s;
+const settings = Object.fromEntries(tab.map(k => [k, FADERS[k] ? (FADERS[k].apply ? "apply" : FADERS[k].setting || k) : null]));
+const s = {saturation: 1.2, immersion: 0.0, bed_mode: "screen", bed_look: "mood"};
+const matches = [
+  ambientMatches({set: {saturation: 1.2, immersion: 0}}, s),
+  ambientMatches({set: {saturation: 1.2004, immersion: 0.004}}, s),
+  !ambientMatches({set: {saturation: 1.3, immersion: 0}}, s),
+  ambientMatches({set: {bed_mode: "screen", bed_look: "mood"}}, s),
+  !ambientMatches({set: {bed_mode: "screen", bed_look: "side"}}, s),
+];
+console.log(JSON.stringify({settings, matches, fmt: [FADERS.off_fade_s.fmt(0), FADERS.off_fade_s.fmt(4.5)]}));
+""" % json.dumps(re.findall(r'data-fader="([^"]+)"', tab))
+    (folder / "faders.js").write_text(probe)
+    run = subprocess.run([node, str(folder / "faders.js")], capture_output=True, text=True)
+    out = json.loads(run.stdout) if run.returncode == 0 else {"settings": {}, "matches": [], "fmt": []}
+    settings = out["settings"]
+    check("every fader on the tab changes a real setting, or the board's brightness",
+          settings and all(v == "apply" or v in DEFAULTS for v in settings.values()), run.stderr[:200] or settings)
+    check("the tab's faders have ids of their own, apart from Home's",
+          all(k.startswith("amb_") or k == "off_fade_s" for k in settings))
+    check("a choice is lit while the settings match it, numbers to within 0.005",
+          out["matches"] and all(out["matches"]), out["matches"])
+    check("the fade reads 'At once' at 0 and in seconds otherwise", out["fmt"] == ["At once", "4.5 s"], out["fmt"])
+
+
 def test_ambient_api(base):
     print("\n43. The Ambient screen's calls change exactly what they claim")
 
@@ -2940,6 +3002,158 @@ def test_ambient_api(base):
     restore = {k: before[k] for k in ("saturation", "immersion", "blend", "bed_mode", "bed_look", "bed_side",
                                       "off_fade_s")}
     get("/api/set", restore)
+
+
+def test_ambient_browser(base):
+    print("\n44. The Ambient tab in a browser at iPhone, iPad and Mac sizes")
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("    (skipped: Playwright is not installed, so the page was not driven in a browser)")
+        return
+    shots = os.environ.get("AMBIENT_SHOTS")
+
+    def get(path, params=None):
+        query = f"?{urllib.parse.urlencode(params)}" if params else ""
+        with urllib.request.urlopen(base + path + query, timeout=5) as r:
+            return json.loads(r.read())
+
+    def board():
+        with urllib.request.urlopen(f"http://127.0.0.1:{FAKE_WLED_HTTP}/json/state", timeout=3) as r:
+            return json.loads(r.read())
+
+    def settles(want, timeout=4.0):
+        """The status once `want` holds for it, or the last one seen."""
+        end = time.monotonic() + timeout
+        while True:
+            s = get("/api/status")
+            if want(s) or time.monotonic() > end:
+                return s
+            time.sleep(0.1)
+
+    before = get("/api/config")
+    tables = get("/api/ambient")
+    get("/api/set", {"bed_leds": 30})       # the bed's controls only show with a bed strip
+    get("/api/sync/on")
+    # The default look, so every size shows the same choices lit.
+    get("/api/set", {"saturation": 1.2, "immersion": 0.0, "blend": 0.3, "bed_mode": "screen", "bed_look": "mood"})
+    sizes = [("iphone-se", 375, 667), ("iphone", 390, 844), ("ipad", 820, 1180), ("mac-narrow", 860, 700),
+             ("mac", 1280, 800)]
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as exc:
+            print(f"    (skipped: Playwright has no Chromium to run: {str(exc)[:80]})")
+            return
+
+        def open_page(width, height, errors):
+            page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=2)
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            page.goto(base + "/#ambient")
+            page.wait_for_selector("#amb-styles .tile", timeout=8000)
+            page.wait_for_function("document.querySelector('[data-action=ambient-follow][data-value=screen]')"
+                                   ".getAttribute('aria-pressed') === 'true'", timeout=8000)
+            return page
+
+        for name, width, height in sizes:
+            errors = []
+            page = open_page(width, height, errors)
+            fit = page.evaluate("""() => {
+              const root = document.documentElement, top = document.querySelector('.top');
+              return {sideways: root.scrollWidth > root.clientWidth, header: top.scrollWidth > top.clientWidth,
+                      clipped: [...document.querySelectorAll('.tab')].filter(t => t.scrollWidth > t.clientWidth + 0.5)
+                                 .map(t => t.textContent)};
+            }""")
+            check(f"{name} {width}x{height}: no sideways scroll, and the header and every tab label fit",
+                  not fit["sideways"] and not fit["header"] and not fit["clipped"], fit)
+            lit = page.evaluate("[...document.querySelectorAll('#tab-ambient [aria-pressed=true]')]"
+                                ".map(b => b.dataset.preset || b.dataset.value)")
+            check(f"{name}: the default look shows Screen, Balanced, Smooth and Loosely lit",
+                  sorted(lit) == ["balanced", "loosely", "screen", "smooth"], lit)
+            check(f"{name}: the page runs without script errors", not errors, errors[:2])
+            if shots:
+                page.screenshot(path=os.path.join(shots, f"web-{name}.png"))
+                # A full-length capture would paint the fixed tab bar mid-page; pin it to the end instead.
+                page.add_style_tag(content="body{position:relative}.tabs{position:absolute}")
+                page.screenshot(path=os.path.join(shots, f"web-{name}-full.png"), full_page=True)
+            page.close()
+
+        errors = []
+        page = open_page(390, 844, errors)
+
+        def click(selector):
+            page.click(selector)
+
+        def slide(key, value):
+            page.evaluate("""([key, value]) => {
+              const input = document.getElementById('f-' + key);
+              input.value = value;
+              input.dispatchEvent(new Event('input', {bubbles: true}));
+            }""", [key, value])
+
+        for group, holder in (("styles", "#amb-styles"), ("paces", "#amb-paces"), ("bed", "#amb-bed-follow")):
+            for preset in tables[group]:
+                click(f'{holder} [data-preset="{preset["name"]}"]')
+                s = settles(lambda st: all(st[k] == v for k, v in preset["set"].items()))
+                lit = page.wait_for_function(
+                    f"""document.querySelector('{holder} [data-preset="{preset["name"]}"]')"""
+                    ".getAttribute('aria-pressed') === 'true'", timeout=4000) is not None
+                check(f"tapping {group} {preset['label']} sets {preset['set']}, and lights it",
+                      all(s[k] == v for k, v in preset["set"].items()) and lit,
+                      {k: s[k] for k in preset["set"]})
+        for key, value, setting, expect in (("amb_brightness", 55, "brightness", 0.55),
+                                            ("amb_saturation", 150, "saturation", 1.5),
+                                            ("amb_white_kelvin", 5200, "white_kelvin", 5200),
+                                            ("amb_bed_brightness", 40, "bed_brightness", 0.4),
+                                            ("off_fade_s", 45, "off_fade_s", 4.5)):
+            slide(key, value)
+            s = settles(lambda st: abs(st[setting] - expect) < 1e-6)
+            check(f"the {setting} fader sets {setting}", abs(s[setting] - expect) < 1e-6, s[setting])
+        check("after a fader moves, no style claims the look",
+              page.evaluate("[...document.querySelectorAll('#amb-styles .tile')]"
+                            ".every(t => t.getAttribute('aria-pressed') === 'false')"))
+        mouse_was = get("/api/status")["mouse_sync"]
+        click("#tab-ambient [data-switch=mouse_sync]")
+        s = settles(lambda st: st["mouse_sync"] != mouse_was)
+        check("the mouse switch flips mouse_sync", s["mouse_sync"] != mouse_was)
+        click("#tab-ambient [data-switch=mouse_sync]")
+        settles(lambda st: st["mouse_sync"] == mouse_was)
+
+        for glow in tables["glows"]:
+            click(f'#amb-glows [data-preset="{glow["name"]}"]')
+            s = settles(lambda st: st["mode"] == "effect" and board()["seg"][0]["fx"] == glow["fx"])
+            lit = page.wait_for_function(
+                f"""document.querySelector('#amb-glows [data-preset="{glow["name"]}"]')"""
+                ".getAttribute('aria-pressed') === 'true'", timeout=4000) is not None
+            check(f"tapping the {glow['label']} glow runs effect {glow['fx']} on the board, and lights it",
+                  s["mode"] == "effect" and board()["seg"][0]["fx"] == glow["fx"] and lit)
+        slide("amb_glow_bri", 102)
+        time.sleep(0.6)
+        check("the glow brightness fader sets the board's brightness", board()["bri"] == 102, board()["bri"])
+
+        click("[data-action=ambient-follow][data-value=screen]")
+        s = settles(lambda st: st["mode"] == "sync")
+        check("Screen starts screen sync", s["mode"] == "sync")
+        get("/api/set", {"off_fade_s": 1})
+        click("[data-action=ambient-follow][data-value=off]")
+        fading = page.wait_for_function("document.getElementById('amb-follow-hint').textContent === 'Fading out…'",
+                                        timeout=4000) is not None
+        s = settles(lambda st: not st["running"], timeout=5.0)
+        check("Off fades out, says so, then sync stops and the board is off",
+              fading and not s["running"] and board()["on"] is False)
+        click("[data-action=ambient-follow][data-value=glow]")
+        s = settles(lambda st: st["mode"] == "effect")
+        check("Glow brings back a room glow", s["mode"] == "effect")
+        click("[data-action=ambient-setup]")
+        check("Open Setup goes to the Setup tab", page.evaluate("location.hash") == "#setup"
+              and page.is_visible("#tab-setup"))
+        check("driving every control raised no script errors", not errors, errors[:2])
+        page.close()
+        browser.close()
+    restore = {k: before[k] for k in ("saturation", "immersion", "blend", "brightness", "white_kelvin", "bed_mode",
+                                      "bed_look", "bed_side", "bed_brightness", "bed_leds", "off_fade_s", "mouse_sync")}
+    get("/api/set", restore)
+    get("/api/sync/off")
 
 
 @contextmanager
@@ -3065,6 +3279,7 @@ def main():
     test_bed_strip()
     test_ambient_tables()
     test_switch_off_fade()
+    test_ambient_page()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)
@@ -3073,6 +3288,7 @@ def main():
         test_provision_api(base)
         test_security_api(base)
         test_ambient_api(base)
+        test_ambient_browser(base)
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")
