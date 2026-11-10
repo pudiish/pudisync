@@ -96,7 +96,8 @@ def test_packets():
     check("timeout 255 (hold) passes through", pkts and pkts[0][1] == 255)
 
     pkts = sniff(PORT, 1, out.release)
-    check("release frame uses short timeout", pkts and pkts[0][1] == 1,
+    # A frame held with 255 latches on the board; only timeout 0 ends live mode.
+    check("release frame ends live mode at once (timeout 0)", pkts and pkts[0][1] == 0,
           f"got {pkts[0][1] if pkts else 'none'}")
     check("release frame is black", pkts and tuple(pkts[0][4:7]) == (0, 0, 0))
     out.close()

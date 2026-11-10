@@ -2,7 +2,8 @@
 
 Protocol per https://kno.wled.ge/interfaces/udp-realtime/ :
   byte 0  = 4            (DNRGB)
-  byte 1  = timeout seconds before WLED returns to normal mode (255 = hold)
+  byte 1  = timeout seconds before WLED returns to normal mode (255 = hold,
+            0 = return now)
   byte 2  = start index, high byte
   byte 3  = start index, low byte
   byte 4+ = RGB triplets
@@ -16,6 +17,7 @@ from .. import hostcache
 DNRGB = 4
 MAX_LEDS_PER_PACKET = 400
 HOLD_FOREVER = 255
+END_LIVE = 0
 
 
 class WLEDUDPOutput(OutputPlugin):
@@ -58,11 +60,16 @@ class WLEDUDPOutput(OutputPlugin):
         return ok
 
     def release(self):
-        """Send one black frame with a 1s timeout so WLED resumes its own mode."""
+        """Hand the board back to its own mode now.
+
+        WLED 16.0.1 latches a 255 (hold) timeout: later packets cannot shorten
+        it (udp.cpp:431), so after a wizard frame a short timeout is ignored and
+        the board stays live. Timeout 0 ends live mode at once (udp.cpp:607).
+        """
         import numpy as np
 
         blank = np.zeros((1, 3), dtype=np.uint8)
-        return self.send(blank, timeout_s=1)
+        return self.send(blank, timeout_s=END_LIVE)
 
     def _sendto(self, packet):
         try:
