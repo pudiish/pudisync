@@ -2962,6 +2962,48 @@ def test_soak_live():
     check("the summary covers every stage", all(any(name in line for line in soak.summary(samples)) for name in STAGES))
 
 
+def test_latency_script():
+    print("\n45. The camera latency script, in a simulated room")
+    import latency
+    from ambilight import camrun
+
+    times = [i / 30 for i in range(30)]
+    hit = latency.crossing(times, [0.0] * 10 + [0.25, 0.75] + [1.0] * 18, times[5])
+    check("a crossing is interpolated between camera frames", hit is not None and abs(hit - 10.5 / 30) < 1e-9, hit)
+    hit = latency.crossing(times, [0.0] * 10 + [0.9] + [0.0] * 4 + [1.0] * 15, times[5])
+    check("a one-frame blip is not taken for the change", hit is not None and abs(hit - 14.5 / 30) < 1e-9, hit)
+    check("a light that does not change gives no reading", latency.crossing(times, [0.3] * 30, times[5]) is None)
+    screen = [(t, 0.0 if i < 10 else 1.0, 0.0 if i < 13 else 1.0) for i, t in enumerate(times)]
+    check("a flash's latency is the wall's crossing minus the screen's",
+          abs(latency.trial_latency(screen, times[5]) - 0.1) < 1e-9)
+
+    for delay in (80, 150):
+        result, truth = latency.dry_run(delay)
+        check(f"the simulated camera recovers a {delay} ms delay to within 10 ms",
+              result["usable"] == result["trials"] and abs(result["median_ms"] - truth) <= 10, (result, truth))
+        check(f"and reports a p95 no lower than the median ({delay} ms)", result["p95_ms"] >= result["median_ms"])
+
+    def opened(*args, **kwargs):
+        raise AssertionError("a camera was opened")
+
+    saved = (camrun.list_cameras, camrun.Camera.__init__, camrun.open_camera, camrun.PatchWindow)
+    camrun.Camera.__init__ = camrun.open_camera = camrun.PatchWindow = opened
+    try:
+        camrun.list_cameras = opened
+        check("the dry run passes without touching a camera or a hub", latency.main(["--dry-run"]) == 0)
+        try:
+            latency.main([])
+            refused = False
+        except SystemExit as exc:
+            refused = exc.code == 2
+        check("a real run without --camera is refused", refused)
+        camrun.list_cameras = lambda: [("FaceTime HD Camera", True), ("Lenovo FHD Webcam", False)]
+        check("naming the built-in camera stops before anything is opened",
+              latency.main(["--camera", "FaceTime", "--port", "9"]) == 1)
+    finally:
+        camrun.list_cameras, camrun.Camera.__init__, camrun.open_camera, camrun.PatchWindow = saved
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -3088,6 +3130,7 @@ def main():
     test_engine_telemetry()
     test_soak_verdict()
     test_soak_live()
+    test_latency_script()
     with sandbox_hub() as base:
         test_telemetry_api(base)
         test_api(base)
