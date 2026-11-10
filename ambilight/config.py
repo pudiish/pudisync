@@ -13,12 +13,19 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
 log = logging.getLogger(__name__)
 
-# Moods trade smoothness for reaction time. They only touch motion, never the
-# colour tuning, so picking one cannot undo a calibration. "blend" is the
-# Response setting: 0.3 settles in ~0.37s, 0.7 in ~0.13s (smoothing.settle_seconds).
+# The two sync modes, each a whole look: how fast the light follows and how
+# the colour feels. They never touch brightness, warmth, contrast or the
+# calibration, so picking one cannot undo a measured strip; the Home sliders
+# fine-tune whichever is chosen.
+# - Cinema glides (Response 0.3 settles in ~0.37s, cuts still snap), lifts the
+#   deep shades films live in and floods the dark parts of the room with the
+#   scene's colour, with a soft wall wash.
+# - Gaming settles in ~0.1s, with punchier colour, small vivid effects
+#   favoured over large grey areas, and light kept where the action is. It
+#   keeps a little spread, as without it fast motion jitters LED to LED.
 PROFILES = {
-    "movie": {"blend": 0.3, "fps": 60},
-    "game": {"blend": 0.70, "fps": 60},
+    "movie": {"blend": 0.3, "fps": 60, "saturation": 1.2, "immersion": 0.4, "spread": 0.4, "colour_weight": 0.6},
+    "game": {"blend": 0.8, "fps": 60, "saturation": 1.35, "immersion": 0.15, "spread": 0.2, "colour_weight": 0.75},
 }
 # What a profile of your own saves: the whole look, not the strip's setup.
 PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
@@ -66,14 +73,15 @@ DEFAULTS = {
     "black_level": 0.03,
     "colour_weight": 0.6,
     # 0..1: deep shades lifted and the strip flooded with the scene's colour
-    # (color.immerse). 0 leaves colours exactly as graded.
-    "immersion": 0.0,
+    # (color.immerse). 0 leaves colours exactly as graded. A fresh install
+    # starts in Cinema, so this and the other look settings are its recipe.
+    "immersion": 0.4,
     # LED safety (safety.py). Defaults suit a 5V 5A supply: peaks stay under
     # 3.8A (WLED's own limiter, set to 4A, is the hardware-side backstop) and a
     # bright scene held for minutes settles at 3A.
     "power_limit_ma": 3800,
     "sustained_ma": 3000,
-    "spread": 0.3,
+    "spread": 0.4,
     "sync_on_start": False,
     # The WLED preset that means "follow my monitor" (saved on the board).
     "sync_preset": 1,

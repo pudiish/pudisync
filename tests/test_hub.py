@@ -326,12 +326,15 @@ def test_api(base):
     check("an unknown bed mode is refused", refused_mode)
     get("/api/set?bed_mode=screen&bed_look=blend&bed_side=whole&bed_reverse=0")
 
+    from ambilight.config import PROFILES
     s = get("/api/profile/movie")
     check("/api/profile/movie applies", s["profile"] == "movie")
-    check("movie profile smooths more", s["blend"] <= 0.3, f"blend={s['blend']}")
+    check("Cinema arrives as its whole look", all(s[k] == v for k, v in PROFILES["movie"].items()),
+          {k: s[k] for k in PROFILES["movie"]})
     s = get("/api/profile/game")
     check("/api/profile/game applies", s["profile"] == "game")
-    check("game profile reacts faster", s["blend"] >= 0.5, f"blend={s['blend']}")
+    check("Gaming arrives as its whole look", all(s[k] == v for k, v in PROFILES["game"].items()),
+          {k: s[k] for k in PROFILES["game"]})
 
     s = get("/api/set?immersion=0.7")
     s = get("/api/profiles/save?name=Late%20Night")
@@ -1193,10 +1196,12 @@ def test_config():
     check("non-numbers are refused, not crashed on", rejects({"fps": "fast"}))
     check("a serial port must be a device path", rejects({"serial_port": "../../etc/passwd"}))
 
-    before = recovered.get("saturation")
+    recovered.update({"brightness": 0.55, "white_kelvin": 3200, "contrast": 1.1})
     recovered.apply_profile("game")
-    check("moods change response only, not colour tuning",
-          recovered.get("saturation") == before and recovered.get("blend") == PROFILES["game"]["blend"])
+    kept = {k: recovered.get(k) for k in ("brightness", "white_kelvin", "contrast")}
+    check("a sync mode never touches brightness, warmth or contrast",
+          kept == {"brightness": 0.55, "white_kelvin": 3200, "contrast": 1.1}
+          and recovered.get("blend") == PROFILES["game"]["blend"], kept)
 
     # Zones in the same request as a new LED count are checked against the new
     # count, not the old one (an old count of 97 squeezed the "off" zone onto LED 96).
@@ -2220,13 +2225,14 @@ def test_immersion():
     check("one small red light in a dark scene does not paint the whole room",
           night[-1].max() < 0.08, night[-1])
     check("black stays black", np.allclose(on[5], 0.0, atol=1e-3), on[5])
-    check("immersion is a setting from 0 to 1, off by default",
-          Config(os.path.join(tempfile.mkdtemp(), "c.json")).get("immersion") == 0.0)
+    from ambilight.config import PROFILES
+    check("immersion is a setting from 0 to 1, starting at Cinema's level",
+          Config(os.path.join(tempfile.mkdtemp(), "c.json")).get("immersion") == PROFILES["movie"]["immersion"])
 
 
 def test_user_profiles():
     print("\n36. Your own profiles: save the whole look, switch, delete")
-    from ambilight.config import PROFILE_KEYS
+    from ambilight.config import PROFILE_KEYS, PROFILES
 
     path = os.path.join(tempfile.mkdtemp(prefix="ambilight-profiles-"), "config.json")
     cfg = Config(path)
@@ -2242,7 +2248,7 @@ def test_user_profiles():
                                                         "mouse_sync": True}, look)
     check("profiles survive a restart", set(Config(path).get("user_profiles")) == {"Immersive", "Everyday"})
     cfg.apply_profile("game")
-    check("the built-in profiles still work as before", cfg.get("blend") == 0.7 and cfg.get("immersion") == 0.8)
+    check("a built-in mode brings its own whole look", all(cfg.get(k) == v for k, v in PROFILES["game"].items()))
 
     def refused(action, name):
         try:
@@ -2267,6 +2273,54 @@ def test_user_profiles():
     reloaded = Config(path).get("user_profiles")
     check("a damaged profile on disk is dropped, a good one is clamped and kept",
           "Bad" not in reloaded and reloaded["Fine"]["saturation"] == 3.0, reloaded)
+
+
+def test_sync_modes():
+    print("\n40. Two sync modes: Cinema and Gaming, each a whole tuned look")
+    from ambilight import color
+    from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
+    from ambilight.smoothing import settle_seconds
+
+    cinema, gaming = PROFILES.get("movie", {}), PROFILES.get("game", {})
+    check("there are exactly two sync modes, Cinema and Gaming", list(PROFILES) == ["movie", "game"], list(PROFILES))
+    recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight"}
+    check("each sets motion and colour feel together", set(cinema) == set(gaming) == recipe,
+          (sorted(cinema), sorted(gaming)))
+    check("and only what a profile of your own also keeps", recipe <= set(PROFILE_KEYS))
+    check("a fresh install starts in Cinema, exactly",
+          DEFAULTS["profile"] == "movie" and all(DEFAULTS[k] == v for k, v in cinema.items()))
+
+    check("Cinema glides: a change settles in about a third of a second",
+          0.3 < settle_seconds(cinema["blend"]) < 0.45, round(settle_seconds(cinema["blend"]), 3))
+    check("Gaming settles in about a tenth of a second, quicker than the old 0.13 s",
+          settle_seconds(gaming["blend"]) < 0.11, round(settle_seconds(gaming["blend"]), 3))
+
+    film = color.srgb_to_linear(np.array([(0.45, 0.06, 0.06)] * 30 + [(0.03, 0.03, 0.03)] * 10, np.float32))
+    plain, cinematic = color.grade(film, {"saturation": 1.2}), color.grade(film, cinema)
+    check("Cinema lifts a dark film red",
+          cinematic[0, 0] > 1.15 * plain[0, 0], (plain[0].round(3), cinematic[0].round(3)))
+    check("and fills the dark parts of the room with it",
+          cinematic[-1, 0] > plain[-1, 0] + 0.02 and cinematic[-1, 0] > 2 * cinematic[-1, 1],
+          (plain[-1].round(3), cinematic[-1].round(3)))
+
+    muted = color.srgb_to_linear(np.array([(0.6, 0.35, 0.3)], np.float32))
+    punch = [color.rgb_to_hsv(color.grade(muted, mode))[0, 1] for mode in (cinema, gaming)]
+    check("Gaming makes colour punchier than Cinema", punch[1] > punch[0] + 0.03, np.round(punch, 3))
+
+    band = np.full((40, 100, 3), 128, np.uint8)
+    band[:, 45:55] = (230, 30, 30)
+    mapping = {"starts": np.array([0]), "stops": np.array([100])}
+    red_share = [float(c[0, 0] / c[0, 1]) for c in
+                 (processing.zone_colors(band, mapping, mode["colour_weight"]) for mode in (cinema, gaming))]
+    check("Gaming picks a small vivid object out of a grey edge more strongly", red_share[1] > red_share[0],
+          np.round(red_share, 2))
+
+    lit = np.zeros((9, 3), np.float32)
+    lit[4] = 1.0
+    kept = [processing.spread(lit, mode["spread"])[4, 0] for mode in (cinema, gaming)]
+    shared = processing.spread(lit, gaming["spread"])[3, 0]
+    check("Gaming keeps light where the action is; Cinema washes it wider", kept[1] > kept[0], np.round(kept, 2))
+    check("Gaming still shares a little, so fast motion does not jitter LED to LED", shared > 0.05, round(float(shared), 3))
 
 
 def test_colour_locks():
@@ -2827,6 +2881,7 @@ def main():
     test_mouse_sync()
     test_immersion()
     test_user_profiles()
+    test_sync_modes()
     test_colour_locks()
     test_webcam_job()
     test_bed_strip()
