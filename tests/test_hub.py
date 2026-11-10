@@ -9,7 +9,7 @@ captures the real screen, so run it with the display awake and unlocked.
 
     AMBILIGHT_TEST_PORT_BASE=8800 python3 tests/test_hub.py
 
-moves every port the run binds (8800-8801, UDP 21401 and 21409), so parallel
+moves every port the run binds (8800-8801, UDP 21401, 21402 and 21409), so parallel
 runs don't collide. Give each parallel run its own base, 10 apart.
 """
 import json
@@ -36,6 +36,7 @@ if PORT_BASE in (8079, 8080):
     sys.exit("AMBILIGHT_TEST_PORT_BASE would land on the live hub's port 8080")
 SANDBOX_PORT, FAKE_WLED_HTTP, FAKE_WLED_UDP = PORT_BASE, PORT_BASE + 1, PORT_BASE + 12601
 SNIFF_UDP = PORT_BASE + 12609   # 21399 by default; bases 10 apart never overlap
+FAKE_WLED_DDP = PORT_BASE + 12602
 from ambilight import processing
 from ambilight.config import Config
 from ambilight.plugins.output_wled_udp import MAX_LEDS_PER_PACKET, WLEDUDPOutput
@@ -617,6 +618,23 @@ def test_serial_api(base):
     s = get("/api/status")
     check("stale serial error clears on switching back", not s["last_error"],
           str(s["last_error"]))
+
+    def board_ddp():
+        with urllib.request.urlopen(f"http://127.0.0.1:{FAKE_WLED_HTTP}/stats", timeout=3) as r:
+            return json.loads(r.read())["ddp"]
+
+    before = board_ddp()
+    get("/api/set?output=ddp")
+    time.sleep(1.5)
+    s = get("/api/status")
+    after = board_ddp()
+    check("DDP can be chosen while sync runs", s["running"] and s["output_plugin"] == "wled-ddp",
+          s["output_plugin"])
+    check("frames reach the board as DDP", after["pushes"] - before["pushes"] > 20,
+          f"{after['pushes'] - before['pushes']} frames in 1.5 s")
+    check("the board finds nothing wrong with them", not after["violations"], after["violations"][:3])
+    check("no error while streaming DDP", not s["last_error"], str(s["last_error"]))
+    get("/api/set?output=udp")
     get("/api/sync/off")
 
 
@@ -1697,6 +1715,26 @@ def test_fake_wled_presets():
         check("so does a brightness change", post({"ps": 1}) and post({"bri": 90})["ps"] == -1)
     finally:
         server.shutdown()
+
+
+def test_fake_wled_ddp():
+    print("\n26b. The fake WLED checks DDP packets the way WLED 16.0.1 reads them")
+    import fake_wled
+    from ambilight.plugins.output_wled_ddp import header
+
+    good = fake_wled.parse_ddp(header(1440, 6, 3, True) + bytes(6))
+    check("the hub's packet is accepted",
+          good["violations"] == [] and (good["offset"], good["leds"], good["push"], good["seq"]) == (1440, 2, True, 3),
+          good)
+
+    def flagged(packet, tag):
+        return any(v.startswith(tag) for v in fake_wled.parse_ddp(packet)["violations"])
+
+    check("a short packet is flagged", flagged(b"\x41\x01", "SHORT"))
+    check("a wrong version is flagged", flagged(b"\x81" + header(0, 3, 1, True)[1:] + bytes(3), "NOT-V1"))
+    check("a length that disagrees with the payload is flagged", flagged(header(0, 6, 1, True) + bytes(3), "LENGTH"))
+    check("an offset between LEDs is flagged", flagged(header(4, 3, 1, True) + bytes(3), "UNALIGNED"))
+    check("more than 1440 data bytes is flagged", flagged(header(0, 1443, 1, True) + bytes(1443), "OVER-1440"))
 
 
 def test_display_follow():
@@ -2789,11 +2827,11 @@ def sandbox_hub():
     config = os.path.join(folder, "config.json")
     with open(config, "w") as fh:
         json.dump({"wled_ip": "127.0.0.1", "wled_http_port": FAKE_WLED_HTTP,
-                   "wled_port": FAKE_WLED_UDP, "monitor_index": 1}, fh)
+                   "wled_port": FAKE_WLED_UDP, "ddp_port": FAKE_WLED_DDP, "monitor_index": 1}, fh)
     log = open(os.path.join(folder, "hub.log"), "w")
     procs = [
         subprocess.Popen([sys.executable, "tools/fake_wled.py", "--udp-port", str(FAKE_WLED_UDP),
-                          "--http-port", str(FAKE_WLED_HTTP), "--quiet"],
+                          "--ddp-port", str(FAKE_WLED_DDP), "--http-port", str(FAKE_WLED_HTTP), "--quiet"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
         subprocess.Popen([sys.executable, "hub.py", "--config", config,
                           "--port", str(SANDBOX_PORT), "--no-bonjour"],
@@ -2891,6 +2929,7 @@ def main():
     test_board_deploy()
     test_board_ui()
     test_fake_wled_presets()
+    test_fake_wled_ddp()
     test_display_follow()
     test_camera_calibration_maths()
     test_fitted_matrix_in_use()
