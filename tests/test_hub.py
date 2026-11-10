@@ -2796,6 +2796,101 @@ def test_telemetry():
           (snap["delivered"], snap["dropped"], snap["latency_ms"]["p50"]) == (0, 0, None), snap)
 
 
+def test_engine_telemetry():
+    print("\n41. The engine times every stage and counts what it drops")
+    import ambilight.engine as eng
+    from ambilight.telemetry import STAGES
+
+    clock = FakeClock()
+    pacer = eng._Pacer(clock)
+    for _ in range(10):
+        pacer.tick(60, clock)
+    clock.wait(0.1)
+    for _ in range(8):
+        pacer.tick(60, clock)
+    check("a short hiccup is caught up, not dropped", pacer.missed == 0, pacer.missed)
+    clock.wait(0.41)
+    before = clock()
+    pacer.tick(60, clock)
+    check("a stall that forces a resync counts the frames it skipped", pacer.missed == 23, pacer.missed)
+    pacer.tick(60, clock)
+    check("and the pacer still resyncs instead of sprinting", abs(clock() - before - 1 / 60) < 1e-9)
+
+    class Steady:
+        name = "steady"
+
+        @staticmethod
+        def available():
+            return True
+
+        @staticmethod
+        def display_count():
+            return 1
+
+        def open(self, monitor_index, band_height):
+            return 600, 150
+
+        def grab(self):
+            band = np.zeros((150, 600, 3), np.uint8)
+            band[:, :300] = (200, 30, 30)
+            return band
+
+        def grab_full(self):
+            return self.grab()
+
+        def grab_search(self, rows):
+            return self.grab()
+
+        def set_inset(self, rows):
+            pass
+
+        def close(self):
+            pass
+
+    real = (eng.CAPTURES, eng.screen_locked)
+    eng.CAPTURES, eng.screen_locked = {"steady": Steady}, lambda: False
+    try:
+        cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-telemetry-"), "config.json"))
+        cfg.update({"wled_ip": "127.0.0.1", "wled_port": FAKE_WLED_UDP, "led_count": 60,
+                    "layout": "strip", "fps": 60})
+        engine = eng.Engine(cfg)
+        engine.start()
+        time.sleep(1.2)
+        t = engine.status()["telemetry"]
+        engine.stop()
+        engine.start()
+        restarted = engine.status()["telemetry"]["delivered"]
+        engine.stop()
+    finally:
+        eng.CAPTURES, eng.screen_locked = real
+    check("every stage has timings", all(t["stages_ms"][name]["p50"] is not None for name in STAGES),
+          t["stages_ms"])
+    check("p95 is never below the median",
+          all(v["p95"] >= v["p50"] for v in [*t["stages_ms"].values(), t["latency_ms"]]))
+    check("frames reach the output at the set rate", t["delivered_fps"] > 40, t["delivered_fps"])
+    check("a picture's age when it is sent is measured", (t["latency_ms"]["p50"] or 0) > 0, t["latency_ms"])
+    check("each run starts counting afresh", restarted < t["delivered"], (restarted, t["delivered"]))
+
+
+def test_telemetry_api(base):
+    print("\n42. Timing in the status API")
+    from ambilight.telemetry import STAGES
+
+    def get(path):
+        with urllib.request.urlopen(base + path, timeout=3) as r:
+            return json.loads(r.read())
+
+    get("/api/sync/on")
+    time.sleep(2.0)
+    s = get("/api/status")
+    get("/api/sync/off")
+    t = s.get("telemetry", {})
+    check("status carries the stage timings", set(t.get("stages_ms", {})) == set(STAGES), t)
+    check("the screen capture is timed", (t["stages_ms"]["capture"]["p50"] or 0) > 0, t["stages_ms"]["capture"])
+    check("frames are delivered to the board", t["delivered_fps"] > 20, t["delivered_fps"])
+    check("diagnostics carries the same block", set(get("/api/diagnostics")["telemetry"]) == set(t))
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -2919,7 +3014,9 @@ def main():
     test_bed_strip()
     test_engine_parts()
     test_telemetry()
+    test_engine_telemetry()
     with sandbox_hub() as base:
+        test_telemetry_api(base)
         test_api(base)
         test_wizard(base)
         test_serial_api(base)
