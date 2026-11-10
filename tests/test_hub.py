@@ -6,6 +6,11 @@
 Starts its own fake WLED and a sandbox hub on ports 8790-8791 with a throwaway
 config, so it can never touch a live hub on 8080 or real LEDs. The HTTP part
 captures the real screen, so run it with the display awake and unlocked.
+
+    AMBILIGHT_TEST_PORT_BASE=8800 python3 tests/test_hub.py
+
+moves every port the run binds (8800-8801, UDP 21401 and 21409), so parallel
+runs don't collide. Give each parallel run its own base, 10 apart.
 """
 import json
 import os
@@ -26,7 +31,11 @@ os.chdir(ROOT)  # the checks read repo files and start scripts by relative path
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 CONFIG_FOR_TESTS = os.path.join(tempfile.mkdtemp(prefix="ambilight-tests-"), "config.json")
-SANDBOX_PORT, FAKE_WLED_HTTP, FAKE_WLED_UDP = 8790, 8791, 21391
+PORT_BASE = int(os.environ.get("AMBILIGHT_TEST_PORT_BASE", "8790"))
+if PORT_BASE in (8079, 8080):
+    sys.exit("AMBILIGHT_TEST_PORT_BASE would land on the live hub's port 8080")
+SANDBOX_PORT, FAKE_WLED_HTTP, FAKE_WLED_UDP = PORT_BASE, PORT_BASE + 1, PORT_BASE + 12601
+SNIFF_UDP = PORT_BASE + 12609   # 21399 by default; bases 10 apart never overlap
 from ambilight import processing
 from ambilight.config import Config
 from ambilight.plugins.output_wled_udp import MAX_LEDS_PER_PACKET, WLEDUDPOutput
@@ -59,7 +68,7 @@ def sniff(port, expect, send):
 
 def test_packets():
     print("\n1. DNRGB packet format")
-    PORT = 21399
+    PORT = SNIFF_UDP
     out = WLEDUDPOutput("127.0.0.1", PORT)
 
     px = np.zeros((240, 3), np.uint8)
