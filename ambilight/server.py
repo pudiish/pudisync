@@ -114,6 +114,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "this page is missing from the install"}, 500)
 
 
+def board_answering(reachable, running, output_error):
+    """Whether the LED board is answering, as the clients are told.
+
+    While syncing, the stream's own sends are the freshest evidence, so a
+    failed send means the board is gone even if its last JSON reply was fine.
+    Otherwise the last JSON API call decides.
+    """
+    if running:
+        return output_error is None
+    return reachable
+
+
 class Hub:
     """Ties config, engine, WLED client and wizard together for the handler."""
 
@@ -161,7 +173,8 @@ class Hub:
                 "preview": self.engine.preview(),
                 "wled_bri": wled_state.get("bri"),
                 "wled_on": wled_state.get("on"),
-                "wled_reachable": self.wled.reachable or self.engine.running,
+                "wled_reachable": board_answering(self.wled.reachable, self.engine.running,
+                                                  self.engine.errors["output"]),
                 "mode": mode,
                 "urls": hub_urls(self.port)}
 

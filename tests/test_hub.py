@@ -1253,6 +1253,19 @@ def test_access():
     check("the lockout expires", gate.check("1234", "1234", "10.0.0.2", now=70) == "ok")
 
 
+def test_board_answering():
+    print("\n41. Clients are told when the LED board stops answering")
+    from ambilight.server import board_answering
+
+    check("syncing with frames getting through: answering", board_answering(False, True, None))
+    check("syncing while sends fail: not answering, so the page can say NO LINK",
+          not board_answering(True, True, "could not reach the lights: [Errno 64] Host is down"))
+    check("not syncing: the board's JSON API decides",
+          board_answering(True, False, None) and not board_answering(False, False, None))
+    check("an output error from an earlier sync does not count once sync is off",
+          board_answering(True, False, "release failed: [Errno 65] No route to host"))
+
+
 def test_frame_wizard():
     print("\n19. Setup test pattern for a strip round the monitor")
     from ambilight.wizard import Wizard
@@ -2880,6 +2893,7 @@ def main():
     test_safety()
     test_config()
     test_access()
+    test_board_answering()
     test_frame_wizard()
     test_firmware_download()
     test_quartz_capture()
