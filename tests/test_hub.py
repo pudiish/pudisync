@@ -36,6 +36,7 @@ if PORT_BASE in (8079, 8080):
     sys.exit("AMBILIGHT_TEST_PORT_BASE would land on the live hub's port 8080")
 SANDBOX_PORT, FAKE_WLED_HTTP, FAKE_WLED_UDP = PORT_BASE, PORT_BASE + 1, PORT_BASE + 12601
 SNIFF_UDP = PORT_BASE + 12609   # 21399 by default; bases 10 apart never overlap
+SILENT_PORT = PORT_BASE + 2     # accepts connections and never answers
 from ambilight import processing
 from ambilight.config import Config
 from ambilight.plugins.output_wled_udp import MAX_LEDS_PER_PACKET, WLEDUDPOutput
@@ -1603,6 +1604,76 @@ console.log(JSON.stringify(out));
     check("the colour wheel maps angle and distance to the right colours", results and all(results), run.stderr[:200] or results)
 
 
+def page_script(path):
+    import pathlib, re
+    return re.search(r"<script>(.*?)</script>", pathlib.Path(path).read_text(), re.S).group(1)
+
+
+def js_block(script, start):
+    """One top-level declaration of the page, from `start` to its closing brace."""
+    import re
+    return re.search(rf"^{re.escape(start)}.*?\n}};?$", script, re.S | re.M).group(0)
+
+
+@contextmanager
+def silent_server():
+    """A port that accepts connections and never answers: a sleeping Mac, as a phone sees it."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", SILENT_PORT))
+    sock.listen(8)
+    try:
+        yield f"http://127.0.0.1:{SILENT_PORT}"
+    finally:
+        sock.close()
+
+
+def run_node(code, timeout=12):
+    """Run page JavaScript under node; None when node is missing or the code never finishes."""
+    import pathlib, shutil
+    node = shutil.which("node")
+    if not node:
+        return None
+    path = pathlib.Path(tempfile.mkdtemp()) / "probe.js"
+    path.write_text(code)
+    try:
+        run = subprocess.run([node, str(path)], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"hung": True}
+    if run.returncode != 0:
+        return {"error": run.stderr[-400:]}
+    return json.loads(run.stdout)
+
+
+def test_phone_page_connection():
+    print("\n40. The phone page notices a hub that stops answering")
+    import re, shutil
+    if not shutil.which("node"):
+        print("    (skipped: node not installed, so the page's script was not run)")
+        return
+    script = page_script("ambilight/web/index.html")
+    plumbing = "\n".join(js_block(script, start) for start in
+                         ("class HubError", "async function api"))
+    timed = js_block(script, "async function timedFetch") if "async function timedFetch" in script else ""
+    constants = re.search(r"^const POLL_MS.*$", script, re.M).group(0)
+
+    with silent_server() as silent:
+        result = run_node(constants + "\n" + timed + "\n" + plumbing + f"""
+const realFetch = fetch;
+globalThis.fetch = (path, options) => realFetch("{silent}" + path, options);
+let pin = "";
+const pinHeaders = () => ({{}});
+function showLocked() {{}}
+const started = Date.now();
+api("/api/status").then(
+  () => console.log(JSON.stringify({{kind: "answered", ms: Date.now() - started}})),
+  err => console.log(JSON.stringify({{kind: err.kind, ms: Date.now() - started}})));
+""")
+    check("a hub that accepts but never answers is reported offline, not waited on forever",
+          result and result.get("kind") == "offline", result)
+    check("...within five seconds", result and result.get("kind") == "offline" and result["ms"] < 5000, result)
+
+
 def test_fake_wled_presets():
     print("\n26. The fake WLED clears the active preset on a manual change, like the real board")
     import http.server, threading as th
@@ -2816,6 +2887,7 @@ def main():
     test_sync_routes()
     test_board_deploy()
     test_board_ui()
+    test_phone_page_connection()
     test_fake_wled_presets()
     test_display_follow()
     test_camera_calibration_maths()

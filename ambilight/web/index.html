@@ -668,7 +668,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 
 <script>
 "use strict";
-const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, PIN_KEY = "ambilight-pin";
+const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, FETCH_TIMEOUT_MS = 4000, PIN_KEY = "ambilight-pin";
 const TABS = ["home", "effects", "override", "bed", "setup", "advanced"];
 const EDGE_KEYS = ["edge_bottom", "edge_right", "edge_top", "edge_left"];
 const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g", "wb_b",
@@ -733,11 +733,23 @@ function storePin(value) {
 
 const pinHeaders = () => pin ? {"X-Ambilight-Pin": pin} : {};
 
+/* A sleeping Mac, or a phone that has moved to mobile data, never refuses the
+   connection: without a deadline the page shows stale lights for a minute. */
+async function timedFetch(url, options) {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, Object.assign({}, options, {signal: abort.signal}));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function api(path, params) {
   const query = new URLSearchParams(params || {}).toString();
   let res;
   try {
-    res = await fetch(path + (query ? `?${query}` : ""), {cache: "no-store", headers: pinHeaders()});
+    res = await timedFetch(path + (query ? `?${query}` : ""), {cache: "no-store", headers: pinHeaders()});
   } catch (err) {
     throw new HubError("offline", "Can't reach the hub. Is this device on the home Wi-Fi?");
   }
