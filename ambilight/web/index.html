@@ -237,6 +237,7 @@ progress::-moz-progress-bar{background:var(--amber)}
 dialog{width:min(360px,calc(100% - 32px));padding:20px;background:var(--panel);color:var(--ink);
   border:1px solid var(--rule-hi);border-radius:var(--r);box-shadow:0 20px 60px #000}
 dialog::backdrop{background:rgb(0 0 0/.75)}
+#pair-code{width:264px;max-width:100%;aspect-ratio:1;justify-self:center;image-rendering:pixelated}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}}
 </style>
 </head>
@@ -642,6 +643,8 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
         <div class="inline"><input type="password" id="new-pin" inputmode="numeric" autocomplete="new-password">
           <button class="btn" type="submit">Set PIN</button></div></form>
       <button class="btn" type="button" data-action="pin-remove" id="pin-remove" hidden>Remove PIN</button>
+      <button class="btn" type="button" data-action="pair">Add a phone or tablet</button>
+      <p class="hint" id="origin-hint" hidden></p>
       <form class="field" id="form-port"><label for="http_port">Web port</label>
         <div class="inline"><input type="number" id="http_port" min="1024" max="65535" inputmode="numeric">
           <button class="btn" type="submit">Save</button></div>
@@ -656,6 +659,18 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 </main>
 
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<dialog id="pair" aria-labelledby="pair-title">
+  <form class="stack" method="dialog">
+    <h2 id="pair-title">Add a phone or tablet</h2>
+    <p class="hint">Point the other device's camera at the code and open the link it offers. It must be on
+      the same Wi-Fi. If the hub has a PIN, the new device asks for it once.</p>
+    <div class="field"><label for="pair-target">Open</label><select id="pair-target"></select></div>
+    <canvas id="pair-code" width="264" height="264" role="img" aria-labelledby="pair-url"></canvas>
+    <code id="pair-url"></code>
+    <button class="btn primary" type="submit">Done</button>
+  </form>
+</dialog>
 
 <dialog id="unlock" aria-labelledby="unlock-title">
   <form class="stack" id="unlock-form">
@@ -1453,6 +1468,50 @@ function renderAdvanced(s) {
   setText($("pin-state"), s.has_pin ? "A PIN is set. Each device asks for it once."
     : "No PIN: anyone on your Wi-Fi can control the lights.");
   $("pin-remove").hidden = !s.has_pin;
+  const stable = (s.urls || []).find(u => u.includes(".local"));
+  const hint = ipOrigin(location.hostname) && stable
+    ? `You opened the hub by its IP address, which can change. Bookmark ${stable} instead, or add that to the Home Screen.`
+    : "";
+  $("origin-hint").hidden = !hint;
+  setText($("origin-hint"), hint);
+}
+
+const ipOrigin = host => /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith("[");
+
+/* ---------- pairing another device ---------- */
+let pairTargets = [];
+
+async function openPair() {
+  const body = await act("/api/pair");
+  if (!body) return;
+  pairTargets = body.targets;
+  $("pair-target").replaceChildren(...pairTargets.map((t, i) =>
+    make("option", {value: String(i), textContent: t.label})));
+  showPairTarget(0);
+  $("pair").showModal();
+}
+
+function showPairTarget(index) {
+  const target = pairTargets[index];
+  setText($("pair-url"), target.url);
+  drawQr($("pair-code"), target.modules);
+}
+
+/* Whole-pixel modules, centred, with the four-module light margin scanners need. */
+function qrLayout(size, count, quiet = 4) {
+  const cell = Math.floor(size / (count + 2 * quiet));
+  return {cell, offset: Math.floor((size - cell * count) / 2)};
+}
+
+function drawQr(canvas, modules) {
+  const {cell, offset} = qrLayout(canvas.width, modules.length);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000";
+  modules.forEach((row, y) => [...row].forEach((bit, x) => {
+    if (bit === "1") ctx.fillRect(offset + x * cell, offset + y * cell, cell, cell);
+  }));
 }
 
 function loadMonitors() {
@@ -1830,6 +1889,7 @@ const ACTIONS = {
   "health": loadHealth,
   "unlock": () => { pinDismissed = false; askPin(); },
   "unlock-cancel": () => { pinDismissed = true; $("unlock").close(); },
+  "pair": openPair,
 };
 
 function onSwitch(btn) {
@@ -1887,6 +1947,7 @@ function wire() {
   onChange("wled-fx", v => runLook($("wled-fx").selectedOptions[0].textContent, "/api/wled/effect", {index: v}));
   onChange("monitor_index", v => setKey("monitor_index", v));
   onChange("serial_port", v => setKey("serial_port", v));
+  onChange("pair-target", v => showPairTarget(Number(v)));
   onChange("serial_baud", async v => { if (await setKey("serial_baud", v)) loadPorts(); });
   $("unlock-form").addEventListener("submit", event => {
     event.preventDefault();

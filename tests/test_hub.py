@@ -1292,13 +1292,20 @@ def decode_qr(rows, scale=8, quiet=4):
     from Foundation import NSData
 
     side = (len(rows) + 2 * quiet) * scale
+    dark = [((x + quiet) * scale, (y + quiet) * scale, scale, scale)
+            for y, row in enumerate(rows) for x, bit in enumerate(row) if bit == "1"]
+    return decode_rects(side, dark)
+
+
+def decode_rects(side, dark):
+    """Decode a white square of `side` pixels with black (x, y, w, h) rectangles on it."""
+    import Quartz
+    from Foundation import NSData
+
     pixels = bytearray(b"\xff" * (side * side))
-    for y, row in enumerate(rows):
-        for x, bit in enumerate(row):
-            if bit == "1":
-                for dy in range(scale):
-                    start = ((y + quiet) * scale + dy) * side + (x + quiet) * scale
-                    pixels[start:start + scale] = bytes(scale)
+    for x, y, w, h in dark:
+        for row in range(y, y + h):
+            pixels[row * side + x:row * side + x + w] = bytes(w)
     provider = Quartz.CGDataProviderCreateWithCFData(NSData.dataWithBytes_length_(bytes(pixels), len(pixels)))
     image = Quartz.CGImageCreate(side, side, 8, 8, side, Quartz.CGColorSpaceCreateDeviceGray(),
                                  Quartz.kCGImageAlphaNone, provider, None, False,
@@ -1825,6 +1832,30 @@ console.log(JSON.stringify(out));
     check("Wi-Fi coming back retries at once", 'addEventListener("online", poll)' in script)
     check("a page restored from the back-forward cache refreshes", '"pageshow"' in script)
     check("the page still never builds markup from strings", "innerHTML" not in script)
+
+    from ambilight import qr
+    url = "http://ishwars-macbook-air.local:8080"
+    drawn = run_node("\n".join(js_block(script, start) for start in ("function qrLayout", "function drawQr")) +
+                     f"\nconst modules = {json.dumps(list(qr.modules(url)))};" + r"""
+const rects = [];
+let fill = "";
+const ctx = {set fillStyle(v) { fill = v; }, fillRect(x, y, w, h) { if (fill === "#000") rects.push([x, y, w, h]); }};
+drawQr({width: 264, height: 264, getContext: () => ctx}, modules);
+console.log(JSON.stringify({rects, layout: qrLayout(264, modules.length)}));
+""")
+    if drawn and "rects" in drawn:
+        layout = drawn["layout"]
+        check("the code is drawn in whole pixels with a four-module margin",
+              layout["cell"] == 7 and layout["offset"] >= 4 * layout["cell"], layout)
+        check("a phone camera reads back what the page draws", decode_rects(264, drawn["rects"]) == [url])
+    else:
+        check("the pairing code is drawn", False, drawn)
+
+    origins = run_node(re.search(r"^const ipOrigin.*$", script, re.M).group(0).replace("const ipOrigin", "const f") + r"""
+console.log(JSON.stringify(["192.168.29.53", "[fe80::1]", "ishwars-macbook-air.local", "localhost"].map(f)));
+""") if "const ipOrigin" in script else None
+    check("a page opened by IP address is told to use the stable name instead",
+          origins == [True, True, False, False], origins)
 
 
 def test_fake_wled_presets():
