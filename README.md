@@ -295,6 +295,26 @@ black are left alone, and a scene without a real colour (or one small light in
 the dark) is not flooded. Measured on the wall with the webcam at 100%: dark red
 ×3.5, maroon ×5, grey unchanged.
 
+### A second strip round the bed (the Bed tab)
+
+A second WS2812B strip can run from the same board's second output, through the
+level shifter's spare channel, as wired in [docs/wiring.md](docs/wiring.md)
+section 7. In the web page's **Bed** tab and the Mac app's **Bed strip** page:
+
+- **Follow screen** takes the screen's colours while sync runs. **Blend** is for
+  a strip low on the wall beside the monitor: the bottom-right corner of the
+  screen next to it, easing into the scene's strongest colour along the strip.
+  **Mood** is that one colour for the whole strip; **Edge** stretches one part of
+  the screen along it. The bed moves at the same **Response** as the monitor
+  strip. **Effect**, **Colour** and **Off** are run by the board, so the bed can
+  do its own thing while the monitor strip follows the screen.
+- **Strip** sets the LED count, the board pin and the bed's current limit (each
+  strip is limited separately, so they can share one adapter), and which end is
+  first. Applying it restarts the board for about 10 seconds
+  (`/api/bed/setup?leds=201&amps=1&pin=3`).
+- The board's ESP8266 has little memory to spare: on RX (pin 3) about 180 to 200
+  LEDs is the limit while syncing; D1 (pin 5) and the other D pins leave more.
+
 ## 7. The phone page lives on the board
 
 The page you use day to day is stored **on the WLED board itself**, so it loads
@@ -372,7 +392,8 @@ Logitech G HUB: your devices (the LED strip, the mouse) in a sidebar, each with
 its own page, plus Profiles and Calibrate, a **Lighting** menu with shortcuts
 (⇧⌘S sync, ⌘1/⌘2 Cinema/Gaming, ⌘3… your profiles, ⇧⌘M mouse) and quick
 controls in the menu bar. It talks to the hub's API, so the hub must be running
-(it starts at login). Built with the Command Line Tools, no Xcode needed:
+(it starts at login). The Bed strip page has the same controls as the web
+page's Bed tab. Built with the Command Line Tools, no Xcode needed:
 
 ```bash
 macapp/build.sh test      # the app's layout and colour logic
