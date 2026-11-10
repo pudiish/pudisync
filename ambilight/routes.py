@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import bed
+from . import ambient as ambient_presets, bed
 from .config import DEFAULTS, PROFILES
 from .effects import catalogue as effect_catalogue, state_for
 from .plugins.output_serial import list_ports, required_baud
@@ -126,6 +126,11 @@ def monitors():
     with mss.mss() as shots:
         return [{"index": i, "width": m["width"], "height": m["height"], "primary": i == 1}
                 for i, m in enumerate(shots.monitors) if i > 0]
+
+
+# --- the Ambient screen ----------------------------------------------------------
+def ambient(hub, q):
+    return ambient_presets.tables(), OK
 
 
 # --- recordings: capture real scenes, replay them while tuning ----------------
@@ -363,6 +368,7 @@ ROUTES = {
     "/api/defaults": defaults,
     "/api/monitors": displays,
     "/api/diagnostics": diagnostics,
+    "/api/ambient": ambient,
     "/api/record/start": record_start,
     "/api/record/replay": record_replay,
     "/api/wled/meta": wled_meta,

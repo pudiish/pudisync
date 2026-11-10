@@ -2709,6 +2709,82 @@ def test_board_address_cache():
         hostcache.BOARD.known.clear()
 
 
+def test_ambient_tables():
+    print("\n40. Ambient presets: named looks made of existing settings")
+    from ambilight import ambient, routes
+    from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
+    from ambilight.effects import EFFECTS
+
+    cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-ambient-"), "config.json"))
+    tables = ambient.tables()
+    check("the tables hold styles, paces, glows and the bed's choices",
+          sorted(tables) == ["bed", "glows", "paces", "styles"] and all(tables.values()))
+    for group, presets in tables.items():
+        names = [p["name"] for p in presets]
+        check(f"{group}: every choice has its own name, a label and a line about it",
+              len(names) == len(set(names)) and all(p["label"] and p["about"] for p in presets), names)
+    setters = tables["styles"] + tables["paces"] + tables["bed"]
+    bad = [(p["name"], k, v) for p in setters for k, v in p["set"].items()
+           if k not in DEFAULTS or cfg.validate(k, v) != v]
+    check("every preset sets real settings to values they accept as they are", not bad, bad)
+    balanced = next(p for p in tables["styles"] if p["name"] == "balanced")["set"]
+    check("Balanced is the hub's default look, so a fresh install shows it chosen",
+          all(DEFAULTS[k] == v for k, v in balanced.items()), balanced)
+    styles = [tuple(sorted(p["set"].items())) for p in tables["styles"]]
+    check("no two styles are the same look", len(styles) == len(set(styles)))
+    paces = {p["name"]: p["set"]["blend"] for p in tables["paces"]}
+    check("Smooth is Cinema's pace and Instant is Gaming's",
+          paces["smooth"] == PROFILES["movie"]["blend"] and paces["instant"] == PROFILES["game"]["blend"], paces)
+    check("the paces run from slowest to fastest", list(paces.values()) == sorted(set(paces.values())), paces)
+    offered = {fx for fx, *_ in EFFECTS} | {0}
+    glows = tables["glows"]
+    check("every glow runs an effect the board offers, or a plain colour",
+          all(g["fx"] in offered for g in glows), [g["fx"] for g in glows])
+    check("every glow colour is six hex digits", all(g["color"] is None or routes.hex_colour(g["color"]) for g in glows))
+    check("glow speed and intensity are in WLED's 0-255",
+          all(0 <= g[k] <= 255 for g in glows for k in ("speed", "intensity")))
+    check("a profile of your own keeps everything the Ambient screen sets",
+          all(k in PROFILE_KEYS for p in setters for k in p["set"]))
+    check("the tables survive JSON unchanged", json.loads(json.dumps(tables)) == tables)
+
+
+def test_ambient_api(base):
+    print("\n43. The Ambient screen's calls change exactly what they claim")
+
+    def get(path, params=None):
+        query = f"?{urllib.parse.urlencode(params)}" if params else ""
+        with urllib.request.urlopen(base + path + query, timeout=5) as r:
+            return json.loads(r.read())
+
+    def board():
+        with urllib.request.urlopen(f"http://127.0.0.1:{FAKE_WLED_HTTP}/json/state", timeout=3) as r:
+            return json.loads(r.read())
+
+    tables = get("/api/ambient")
+    check("/api/ambient serves the presets", sorted(tables) == ["bed", "glows", "paces", "styles"])
+    before = get("/api/config")
+    for group in ("styles", "paces", "bed"):
+        for preset in tables[group]:
+            start = get("/api/config")
+            after = get("/api/set", preset["set"])
+            moved = {k for k in start if k in after and start[k] != after[k]}
+            check(f"{group} {preset['label']}: sets {', '.join(preset['set'])} and nothing else",
+                  all(after[k] == v for k, v in preset["set"].items()) and moved <= set(preset["set"]),
+                  {k: after[k] for k in moved | set(preset["set"])})
+    for glow in tables["glows"]:
+        params = {"fx": glow["fx"], "speed": glow["speed"], "intensity": glow["intensity"]}
+        if glow["color"]:
+            params["color"] = glow["color"]
+        s = get("/api/effect/run", params)
+        seg = board()["seg"][0]
+        wanted = [int(glow["color"][i:i + 2], 16) for i in (0, 2, 4)] if glow["color"] else seg.get("col", [[]])[0]
+        check(f"glow {glow['label']}: the board runs effect {glow['fx']} in its colour, and sync stops",
+              seg["fx"] == glow["fx"] and seg["sx"] == glow["speed"] and seg.get("col", [[]])[0] == wanted
+              and not s["running"], seg)
+    restore = {k: before[k] for k in ("saturation", "immersion", "blend", "bed_mode", "bed_look", "bed_side")}
+    get("/api/set", restore)
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -2830,6 +2906,7 @@ def main():
     test_colour_locks()
     test_webcam_job()
     test_bed_strip()
+    test_ambient_tables()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)
@@ -2837,6 +2914,7 @@ def main():
         test_serial_api(base)
         test_provision_api(base)
         test_security_api(base)
+        test_ambient_api(base)
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")
