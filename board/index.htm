@@ -138,7 +138,7 @@ input[type=range]::-moz-range-thumb{width:28px;height:28px;border-radius:50%;bac
 <script>
 "use strict";
 const SYNC_PRESET = 1;      // WLED preset "Monitor sync"; the Mac streams while it is active
-const POLL_MS = 2000, WAIT_MS = 5000, TOUCH_MS = 2500, RETRY_MS = 2500, GIVE_UP_MS = 60000;
+const POLL_MS = 2000, WAIT_MS = 5000, TOUCH_MS = 2500, RETRY_MS = 2500, GIVE_UP_MS = 60000, TIMEOUT_MS = 4000;
 const WARM = [255, 170, 80];
 
 const EFFECTS = [
@@ -176,8 +176,17 @@ function queue(top, seg) {
   flush();
 }
 
+/* A board that has dropped off Wi-Fi, or a phone on mobile data, never refuses
+   the connection: without a deadline the page keeps showing the old state. */
+async function ask(url, options) {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
+  try { return await fetch(url, Object.assign({}, options, {signal: abort.signal})); }
+  finally { clearTimeout(timer); }
+}
+
 async function post(payload) {
-  const res = await fetch("/json/state", {method: "POST", headers: {"Content-Type": "application/json"},
+  const res = await ask("/json/state", {method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify(payload)});
   if (!res.ok) throw new Error(String(res.status));
 }
@@ -196,7 +205,7 @@ async function flush() {
 
 async function poll() {
   try {
-    const res = await fetch("/json/si", {cache: "no-store"});
+    const res = await ask("/json/si", {cache: "no-store"});
     if (!res.ok) throw new Error(String(res.status));
     const data = await res.json();
     state = data.state; info = data.info;
@@ -413,6 +422,8 @@ function bindControls() {
   $("speed").addEventListener("input", () => { touch(); remember({sx: Number($("speed").value)}); outputs(); queue({lor: 1}, {sx: Number($("speed").value)}); });
   $("intensity").addEventListener("input", () => { touch(); remember({ix: Number($("intensity").value)}); outputs(); queue({lor: 1}, {ix: Number($("intensity").value)}); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+  window.addEventListener("online", poll);
+  window.addEventListener("pageshow", event => { if (event.persisted) poll(); });
 }
 
 buildTiles(); buildSwatches(); bindWheel(); bindTabs(); bindControls();

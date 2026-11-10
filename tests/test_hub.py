@@ -1637,8 +1637,13 @@ def test_board_ui():
     script = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
 
     check("it is small enough for the board's flash and slow Wi-Fi", len(html) < 30000, f"{len(html)} bytes")
-    check("it fetches only WLED's own state endpoints",
-          set(re.findall(r'fetch\("([^"]+)"', script)) == {"/json/state", "/json/si"})
+    check("it fetches only WLED's own state endpoints, all through one wrapper",
+          set(re.findall(r'ask\("([^"]+)"', script)) == {"/json/state", "/json/si"}
+          and script.count("fetch(") == 1)
+    check("a board that drops off Wi-Fi is noticed within a few seconds",
+          "abort.abort()" in script and "TIMEOUT_MS = 4000" in script)
+    check("Wi-Fi coming back refreshes at once",
+          'addEventListener("online", poll)' in script and '"pageshow"' in script)
     check("it loads nothing from outside the board", not re.search(r"(src|href)=\"https?://|url\(https?://", html))
     check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
     check("its sync preset matches the hub's", f"SYNC_PRESET = {DEFAULTS['sync_preset']};" in script)
@@ -1691,6 +1696,16 @@ console.log(JSON.stringify(out));
     run = subprocess.run([node, str(folder / "wheel.js")], capture_output=True, text=True)
     results = json.loads(run.stdout) if run.returncode == 0 else []
     check("the colour wheel maps angle and distance to the right colours", results and all(results), run.stderr[:200] or results)
+
+    constants = re.search(r"^const POLL_MS.*$", script, re.M).group(0)
+    with silent_server() as silent:
+        result = run_node(constants + "\n" + js_block(script, "async function ask") + f"""
+const started = Date.now();
+ask("{silent}/json/si").then(() => console.log(JSON.stringify({{kind: "answered"}})),
+  () => console.log(JSON.stringify({{kind: "gave up", ms: Date.now() - started}})));
+""")
+    check("a board that accepts but never answers is given up on within five seconds",
+          result and result.get("kind") == "gave up" and result["ms"] < 5000, result)
 
 
 def page_script(path):
