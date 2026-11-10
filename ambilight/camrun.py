@@ -37,7 +37,7 @@ WORK_WIDTH = 640        # camera pictures are analysed at this width
 SETTINGS = ("led_matrix", "wb_r", "wb_g", "wb_b", "saturation")    # what calibration may change
 NOT_SHOWN = ("the test colours did not show on the monitor (another window on top?), "
              "or the camera does not see the whole monitor")
-SCRIPT = Path(__file__).resolve().parent.parent / "ambilight.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "hub.py"
 JOB_LINES = 60          # progress lines kept for the web page
 VERIFY_COLOURS = [(255, 255, 255), (224, 172, 138), (255, 0, 0), (0, 200, 80),
                   (40, 80, 255), (255, 200, 90), (150, 60, 220), (0, 170, 160)]
@@ -104,7 +104,7 @@ class CameraJob:
     """Runs the calibration (or a check) for the web page, as its own process.
 
     The test-colour window needs a main thread of its own, which the hub's web
-    server cannot give it, so the hub starts `ambilight.py --camera-calibrate`
+    server cannot give it, so the hub starts `hub.py --camera-calibrate`
     and relays its progress lines. Same shape as provision.Provisioner.
     """
 

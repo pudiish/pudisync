@@ -83,7 +83,7 @@ Notes:
 git clone https://github.com/pudiish/pudisync.git
 cd pudisync
 python3 -m pip install -r requirements.txt
-python3 ambilight.py
+python3 hub.py
 ```
 
 On start it prints the addresses to open from any phone, tablet or computer on
@@ -217,7 +217,7 @@ the hub running:
 
 ```bash
 python3 -m pip install opencv-python
-python3 ambilight.py --camera-calibrate    # --camera Lenovo to name the webcam
+python3 hub.py --camera-calibrate    # --camera Lenovo to name the webcam
 ```
 
 The Mac's built-in camera is never used: cameras are chosen by name, and with
@@ -236,7 +236,7 @@ colours, and the measured colours without the saturation boost, and keeps the
 best. Warmth and contrast still apply on top. `recordings/calibration-view.jpg`
 shows what was measured: the screen's border is tinted blue and the wall orange.
 
-Later, with a video playing, `python3 ambilight.py --camera-check 60` scores
+Later, with a video playing, `python3 hub.py --camera-check 60` scores
 the match for a minute without changing anything (0 is a perfect match).
 
 ### A Logitech mouse that follows the screen
@@ -338,7 +338,7 @@ Install or update the page (turn screen sync off first; it writes to the board's
 flash):
 
 ```bash
-python3 ambilight.py --deploy-board
+python3 hub.py --deploy-board
 ```
 
 The source is `board/index.htm`; it is uploaded compressed (~6 KB). WLED's own
@@ -406,21 +406,21 @@ notarisation. The hub address and PIN are under Ambilight Hub ▸ Settings.
 ## 10. Testing without hardware
 
 ```bash
-python3 tests.py           # ~360 checks; starts its own fake WLED and sandbox hub
+python3 tests/test_hub.py           # ~360 checks; starts its own fake WLED and sandbox hub
 ```
 
 The test run starts a fake WLED and a sandbox hub on ports 8790-8791 with a
 throwaway config, so it never touches the hub driving your lights. Its HTTP part
 captures the real screen, so run it with the display awake and unlocked.
 
-`hardware_sim.py` simulates a real strip and puts a hub through the failures you
+`tools/hardware_sim.py` simulates a real strip and puts a hub through the failures you
 would otherwise only find on your desk. It rewrites settings, so point it at a
 sandbox hub (it refuses port 8080):
 
 ```bash
-python3 fake_wled.py &
-python3 ambilight.py --config /tmp/sim-config.json --port 8790 --no-bonjour &
-python3 hardware_sim.py --hub http://127.0.0.1:8790
+python3 tools/fake_wled.py &
+python3 hub.py --config /tmp/sim-config.json --port 8790 --no-bonjour &
+python3 tools/hardware_sim.py --hub http://127.0.0.1:8790
 ```
 
 | Scenario | What it proves |

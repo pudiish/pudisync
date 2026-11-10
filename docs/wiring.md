@@ -12,7 +12,7 @@ WLED, and an **SN74AHCT125** level shifter.
 ```
    ┌──────────────┐                           ┌──────────────┐
    │     Mac      │   Wi-Fi (UDP 21324)       │  NodeMCU     │
-   │ ambilight.py │ ────────────────────────▶ │  (WLED)      │
+   │ hub.py │ ────────────────────────▶ │  (WLED)      │
    │              │                           │              │
    │              │   ── or USB serial ──▶    │              │
    └──────────────┘                           └──────┬───────┘

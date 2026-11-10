@@ -5,16 +5,16 @@ The fake WLED harness answers the happy path. This one answers "what happens
 when the thing misbehaves" -- a controller that reboots, a flaky Wi-Fi link, a
 strip shorter than configured, a browned-out power supply.
 
-    python hardware_sim.py              # run every scenario
-    python hardware_sim.py --list       # show them
-    python hardware_sim.py reboot       # run one
+    python tools/hardware_sim.py              # run every scenario
+    python tools/hardware_sim.py --list       # show them
+    python tools/hardware_sim.py reboot       # run one
 
 Nothing here needs a strip, a NodeMCU, or a power supply. The scenarios
 rewrite the hub's settings (LED count, zones, corners), so run them against a
 sandbox hub, never the one driving your lights:
 
-    python3 ambilight.py --config /tmp/sim-config.json --port 8790 --no-bonjour
-    python3 hardware_sim.py --hub http://127.0.0.1:8790
+    python3 hub.py --config /tmp/sim-config.json --port 8790 --no-bonjour
+    python3 tools/hardware_sim.py --hub http://127.0.0.1:8790
 """
 import argparse
 import json
@@ -57,7 +57,7 @@ def use_hub(url):
         hub("/api/status", timeout=2)
     except (OSError, ValueError) as exc:
         print(f"Cannot reach the hub at {HUB}: {exc}")
-        print("Start a sandbox hub first:  python3 ambilight.py --config /tmp/sim-config.json"
+        print("Start a sandbox hub first:  python3 hub.py --config /tmp/sim-config.json"
               " --port 8790 --no-bonjour")
         return False
     return True

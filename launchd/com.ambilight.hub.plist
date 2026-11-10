@@ -13,7 +13,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/python3</string>
-    <string>/Users/YOU/pudisync/ambilight.py</string>
+    <string>/Users/YOU/pudisync/hub.py</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/YOU/pudisync</string>

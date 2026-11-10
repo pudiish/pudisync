@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Acceptance tests.
 
-    python tests.py
+    python3 tests/test_hub.py
 
 Starts its own fake WLED and a sandbox hub on ports 8790-8791 with a throwaway
 config, so it can never touch a live hub on 8080 or real LEDs. The HTTP part
@@ -21,7 +21,10 @@ from contextlib import contextmanager
 
 import numpy as np
 
-sys.path.insert(0, ".")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.chdir(ROOT)  # the checks read repo files and start scripts by relative path
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 CONFIG_FOR_TESTS = os.path.join(tempfile.mkdtemp(prefix="ambilight-tests-"), "config.json")
 SANDBOX_PORT, FAKE_WLED_HTTP, FAKE_WLED_UDP = 8790, 8791, 21391
 from ambilight import processing
@@ -2707,10 +2710,10 @@ def sandbox_hub():
                    "wled_port": FAKE_WLED_UDP, "monitor_index": 1}, fh)
     log = open(os.path.join(folder, "hub.log"), "w")
     procs = [
-        subprocess.Popen([sys.executable, "fake_wled.py", "--udp-port", str(FAKE_WLED_UDP),
+        subprocess.Popen([sys.executable, "tools/fake_wled.py", "--udp-port", str(FAKE_WLED_UDP),
                           "--http-port", str(FAKE_WLED_HTTP), "--quiet"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
-        subprocess.Popen([sys.executable, "ambilight.py", "--config", config,
+        subprocess.Popen([sys.executable, "hub.py", "--config", config,
                           "--port", str(SANDBOX_PORT), "--no-bonjour"],
                          stdout=log, stderr=subprocess.STDOUT),
     ]

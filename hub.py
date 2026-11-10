@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Ambilight Hub -- screen-synced LED lighting for WLED, controlled from a phone.
 
-    python ambilight.py                       # uses config.json next to this file
-    python ambilight.py --config other.json --port 8790 --no-bonjour
-    python ambilight.py --deploy-board        # install the phone page on the WLED board
-    python ambilight.py --camera-calibrate    # with the hub running: match the strip via webcam
-    python ambilight.py --camera-check 60     # ...score the match while a video plays
+    python hub.py                       # uses config.json next to this file
+    python hub.py --config other.json --port 8790 --no-bonjour
+    python hub.py --deploy-board        # install the phone page on the WLED board
+    python hub.py --camera-calibrate    # with the hub running: match the strip via webcam
+    python hub.py --camera-check 60     # ...score the match while a video plays
 
 Home LAN only. Never forward the web port to the internet.
 """

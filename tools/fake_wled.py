@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fake WLED: UDP realtime listener + JSON API stub. No hardware needed.
 
-    python fake_wled.py            # listen on 21324 (UDP) and 8081 (HTTP)
-    python fake_wled.py --quiet    # stats only, no per-packet lines
+    python tools/fake_wled.py            # listen on 21324 (UDP) and 8081 (HTTP)
+    python tools/fake_wled.py --quiet    # stats only, no per-packet lines
 """
 import argparse
 import json
