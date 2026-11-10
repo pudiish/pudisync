@@ -36,21 +36,36 @@ flowchart LR
     class camera last
 ```
 
+## One-time setup on this Mac
+
+1. Trust the folder: in a terminal, `cd` into the repo and run `claude agents`,
+   then accept the trust prompt. Agent view opens.
+2. Allow the macOS prompts for **Claude Code** the first time they appear. The
+   background sessions run in their own process, so they ask separately from
+   your terminal:
+   - Files and Folders → Downloads (the repo lives there)
+   - Screen Recording (the tests capture the screen)
+   - Local Network (transport reads the board once)
+
+   If a session reports `Operation not permitted`, grant the access in System
+   Settings → Privacy & Security.
+
 ## How you watch and decide
 
 Everything runs in Claude Code's agent view; nothing custom.
 
 | You want to | Do this |
 |---|---|
-| See every agent | `claude agents` in any terminal. Rows are grouped by state: Working, Needs input (yellow, at the top), Completed, Failed. |
-| See what needs you | The yellow rows. That is your queue: plan approvals, questions, permission prompts. |
-| Reply, approve, reject | Select the row, `Space` to peek, type your answer, `Enter`. |
-| Read an agent's whole log | Select the row, `Enter` to attach; it is the full chat. `Esc` leaves and the session keeps running. |
-| Check from a shell | `claude logs <id>` shows recent output. |
-| Approve code | Each session opens a PR. Review it on GitHub, on the web or in the iPhone and iPad app: Approve, Request changes or Comment. Nothing merges without your approval. |
+| See every agent | `claude agents` in the repo. Rows are grouped by state: Working, Needs input (yellow, at the top), Completed, Failed. |
+| See what needs you | The yellow rows. That is your queue: plans, questions and permission prompts. |
+| Answer a question | Select the row, `Space` to peek, type your answer (or a listed choice's number), `Enter`. |
+| Approve or reject a plan, or a permission prompt | Select the row, `→` to attach, answer the dialog, `←` to go back to the list. A peek reply doesn't answer dialogs. |
+| Read an agent's whole log | Attach with `→`: the full conversation is the log. `Esc` on the list leaves agent view, and the sessions keep running. |
+| Check from a shell | `claude logs <name>` shows recent output. |
+| Approve code | Each session ends by opening a draft PR against `feature/color-engine`. Review it on GitHub, on the web or in the iPhone and iPad app: Approve, Request changes or Comment. Nothing merges without your approval. |
 
 Every session starts in **plan mode**: it researches read-only, then stops and
-asks you to approve its plan. Approve and it builds. Reply with changes and it
+asks you to approve its plan. Approve and it builds. Answer with changes and it
 revises. Tell it to stop and it stops.
 
 ## Teams
