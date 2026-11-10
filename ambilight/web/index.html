@@ -92,6 +92,7 @@ main{max-width:760px;margin:0 auto;padding:0 16px calc(var(--tabbar) + 28px + en
 .btn.primary{background:var(--amber);color:var(--amber-ink);border-color:#ffd166 #7a5400 #4d3500}
 .btn.small{padding:0 12px;font-size:11px}
 .btn.wide{width:100%}
+a.btn{display:inline-flex;align-items:center;color:var(--ink);text-decoration:none}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:3px;padding:3px}
 .seg button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 4px;
   border-radius:2px;color:var(--dim);font-size:11px;letter-spacing:.1em}
@@ -254,7 +255,8 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 
 <main>
   <div role="status" aria-live="polite">
-    <div class="banner" id="offline-banner" hidden><p id="offline-text">Hub offline — retrying.</p></div>
+    <div class="banner" id="offline-banner" hidden><p id="offline-text">Hub offline — retrying.</p>
+      <a class="btn small" id="board-link" hidden>Strip's own page</a></div>
     <div class="banner fault" id="throttled-banner" hidden><p id="throttled-text"></p></div>
     <div class="banner fault" id="board-banner" hidden><p id="board-text"></p></div>
     <div class="banner" id="locked-banner" hidden><p>This hub is protected by a PIN.</p>
@@ -671,6 +673,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 <script>
 "use strict";
 const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, FETCH_TIMEOUT_MS = 4000, PIN_KEY = "ambilight-pin";
+const BOARD_KEY = "ambilight-board";
 const TABS = ["home", "effects", "override", "bed", "setup", "advanced"];
 const EDGE_KEYS = ["edge_bottom", "edge_right", "edge_top", "edge_left"];
 const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g", "wb_b",
@@ -713,6 +716,7 @@ const $ = id => document.getElementById(id);
 const $$ = sel => [...document.querySelectorAll(sel)];
 const faders = {}, editedAt = {};
 let state = null, pin = readPin(), offline = false, pinDismissed = false, currentTab = "", lastSeen = 0;
+let boardUrls = readBoardUrls();
 let wizardLive = false, markerAt = null, effects = [], activeFx = null, lookName = "";
 let metaLoadedAt = 0, zones = [], zonesJson = "", previewKey = "", urlsKey = "", flashLogSize = -1;
 let profilesKey = "", selection = null, dragFrom = null, lockKeep = true, webcamTimer = 0;
@@ -734,6 +738,20 @@ function storePin(value) {
 }
 
 const pinHeaders = () => pin ? {"X-Ambilight-Pin": pin} : {};
+
+/* Where the board's own page is, kept from the last good status so it can be
+   offered when the hub itself is out of reach. */
+function readBoardUrls() {
+  try { return JSON.parse(localStorage.getItem(BOARD_KEY) || "[]"); }
+  catch (err) { console.warn("board address unavailable", err); return []; }
+}
+
+function rememberBoardUrls(urls) {
+  if (!Array.isArray(urls) || !urls.length) return;
+  try { localStorage.setItem(BOARD_KEY, JSON.stringify(urls)); }
+  catch (err) { console.warn("board address kept for this visit only", err); }
+  boardUrls = urls;
+}
 
 /* A sleeping Mac, or a phone that has moved to mobile data, never refuses the
    connection: without a deadline the page shows stale lights for a minute. */
@@ -844,7 +862,9 @@ let pollTimer = 0, pollBusy = false;
 
 async function refresh() {
   try {
-    render(await api("/api/status"));
+    const s = await api("/api/status");
+    render(s);
+    rememberBoardUrls(s.board_urls);
     lastSeen = Date.now();
     showLink("ok");
     return true;
@@ -865,11 +885,14 @@ function ago(ms) {
 /* Everything the page says about its links to the hub and the board. Pure, so
    the tests can run it for each situation. While syncing, a lost board shows
    as NO LINK plus the engine's own error instead. */
-function linkView({kind, lastSeen, now, wledReachable, syncing}) {
-  const view = {offline: null, throttled: null, board: null};
+function linkView({kind, lastSeen, now, wledReachable, syncing, boardUrls}) {
+  const view = {offline: null, throttled: null, board: null, boardUrl: null};
   if (kind === "offline") {
+    // The last address is the one the board answered on most recently.
+    view.boardUrl = (boardUrls && boardUrls.length) ? boardUrls[boardUrls.length - 1] : null;
     view.offline = `Can't reach the hub${lastSeen ? ` · last seen ${ago(now - lastSeen)}` : ""}. Retrying. ` +
-      "If your Mac is asleep or the hub is stopped, wake or start it. " +
+      "If your Mac is asleep or the hub is stopped, wake or start it" +
+      (view.boardUrl ? ", or use the strip's own page, which works without the Mac. " : ". ") +
       "Away from home? The hub only answers on your home Wi-Fi.";
   } else if (kind === "throttled") {
     view.throttled = "Too many wrong PINs from this device. Wait a minute, then try again.";
@@ -881,9 +904,11 @@ function linkView({kind, lastSeen, now, wledReachable, syncing}) {
 
 function showLink(kind) {
   const view = linkView({kind, lastSeen, now: Date.now(), wledReachable: state && state.wled_reachable,
-    syncing: !!state && modeOf(state) === "sync"});
+    syncing: !!state && modeOf(state) === "sync", boardUrls});
   setOffline(!!view.offline);
   setText($("offline-text"), view.offline || "");
+  $("board-link").hidden = !view.boardUrl;
+  if (view.boardUrl) $("board-link").href = view.boardUrl;
   $("throttled-banner").hidden = !view.throttled;
   setText($("throttled-text"), view.throttled || "");
   $("board-banner").hidden = !view.board;

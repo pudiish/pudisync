@@ -8,11 +8,11 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import routes
+from . import hostcache, routes
 from .access import PinGate, allowed_fetch_site, allowed_host
 from .bed import Keeper
 from .camrun import CameraJob
-from .discovery import hub_urls
+from .discovery import board_urls, hub_urls
 from .intent import SyncIntent
 from .plugins import CAPTURES, OUTPUTS
 from .provision import Provisioner
@@ -176,7 +176,12 @@ class Hub:
                 "wled_reachable": board_answering(self.wled.reachable, self.engine.running,
                                                   self.engine.errors["output"]),
                 "mode": mode,
-                "urls": hub_urls(self.port)}
+                "urls": hub_urls(self.port),
+                "board_urls": self.board_urls()}
+
+    def board_urls(self):
+        host = self.cfg.get("wled_ip")
+        return board_urls(host, self.cfg.get("wled_http_port"), hostcache.BOARD.last_known(host))
 
     def diagnostics(self):
         cfg = self.cfg.snapshot()

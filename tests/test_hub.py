@@ -1266,6 +1266,26 @@ def test_board_answering():
           board_answering(True, False, "release failed: [Errno 65] No route to host"))
 
 
+def test_board_urls():
+    print("\n42. Where the board's own page is, for when the hub is out of reach")
+    from ambilight.discovery import board_urls
+    from ambilight.hostcache import HostCache
+
+    check("a named board lists its name, then the address it last answered on",
+          board_urls("wled-6b0bc6.local", 80, "192.168.29.40")
+          == ["http://wled-6b0bc6.local", "http://192.168.29.40"])
+    check("a board set by address is listed once", board_urls("192.168.29.40", 80, "192.168.29.40")
+          == ["http://192.168.29.40"])
+    check("a name never resolved is still offered", board_urls("wled.local", 80, None) == ["http://wled.local"])
+    check("a non-standard web port is kept", board_urls("127.0.0.1", 8821, "127.0.0.1") == ["http://127.0.0.1:8821"])
+
+    cache = HostCache(resolve=lambda host: "10.0.0.7")
+    check("nothing is known about a name before its first lookup", cache.last_known("wled.local") is None)
+    cache.address("wled.local")
+    check("after a lookup, its address is known without asking again", cache.last_known("wled.local") == "10.0.0.7")
+    check("an address is its own last-known address", cache.last_known("10.0.0.9") == "10.0.0.9")
+
+
 def test_frame_wizard():
     print("\n19. Setup test pattern for a strip round the monitor")
     from ambilight.wizard import Wizard
@@ -1710,6 +1730,8 @@ const replies = [[403, {error: "PIN required or incorrect"}],
 const now = 1000000;
 const out = {
   asleep: linkView({kind: "offline", lastSeen: now - 12000, now}),
+  withBoard: linkView({kind: "offline", lastSeen: now, now,
+                       boardUrls: ["http://wled-6b0bc6.local", "http://192.168.29.40"]}),
   never: linkView({kind: "offline", lastSeen: 0, now}),
   long: linkView({kind: "offline", lastSeen: now - 3 * 60000, now}),
   throttled: linkView({kind: "throttled", lastSeen: now, now}),
@@ -1729,6 +1751,12 @@ console.log(JSON.stringify(out));
         check("...and leaves the time out when it was never seen", "last seen" not in views["never"]["offline"])
         check("it says the hub only answers at home, for a phone that is out",
               "home Wi-Fi" in views["asleep"]["offline"])
+        check("with the board's address remembered, it offers the strip's own page",
+              "strip's own page" in views["withBoard"]["offline"], views["withBoard"])
+        check("...at the address the board last answered on",
+              views["withBoard"]["boardUrl"] == "http://192.168.29.40", views["withBoard"]["boardUrl"])
+        check("...and offers no link it doesn't have",
+              views["asleep"]["boardUrl"] is None and "strip's own page" not in views["asleep"]["offline"])
         check("a PIN lockout says to wait a minute instead of going quiet",
               "Wait a minute" in (views["throttled"]["throttled"] or ""))
         check("a board that stops answering gets its own banner",
@@ -2938,6 +2966,22 @@ def test_security_api(base):
           and call("/api/status")[0] == 200)
 
 
+def test_connect_api(base):
+    print("\n43. Connecting phones, tablets and the Mac")
+
+    def get(path, headers=None):
+        req = urllib.request.Request(base + path, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.headers.get("Content-Type"), r.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, None, b""
+
+    status = json.loads(get("/api/status")[2])
+    check("status says where the board's own page is",
+          status.get("board_urls") == [f"http://127.0.0.1:{FAKE_WLED_HTTP}"], status.get("board_urls"))
+
+
 def main():
     print("=" * 62)
     print("AMBILIGHT HUB -- ACCEPTANCE TESTS")
@@ -2957,6 +3001,7 @@ def main():
     test_config()
     test_access()
     test_board_answering()
+    test_board_urls()
     test_frame_wizard()
     test_firmware_download()
     test_quartz_capture()
@@ -2986,6 +3031,7 @@ def main():
         test_serial_api(base)
         test_provision_api(base)
         test_security_api(base)
+        test_connect_api(base)
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")
