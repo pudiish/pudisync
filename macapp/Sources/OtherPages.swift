@@ -63,6 +63,128 @@ struct MousePage: View {
     }
 }
 
+struct BedPage: View {
+    @EnvironmentObject private var store: HubStore
+    @State private var leds = ""
+    @State private var amps = ""
+    @State private var pin = 5
+
+    private static let modes = [("screen", "Follow screen"), ("effect", "Effect"), ("colour", "Colour"), ("off", "Off")]
+    private static let looks = [("blend", "Blend"), ("mood", "Mood"), ("side", "Edge")]
+    private static let sides = [("whole", "All round"), ("bottom", "Bottom"), ("right", "Right"), ("top", "Top"), ("left", "Left")]
+    private static let pins = [("D1", 5), ("D2", 4), ("D5", 14), ("D6", 12), ("D7", 13), ("RX", 3)]
+    private static let lookHints = [
+        "blend": "For a strip low on the wall beside the monitor: the bottom-right corner of the screen next to it, "
+            + "easing into the scene's colour along the strip.",
+        "mood": "One slowly changing colour for the whole strip: the scene's strongest.",
+        "side": "One part of the screen stretched along the strip.",
+    ]
+
+    var body: some View {
+        let status = store.status
+        ScrollView {
+            VStack(spacing: 16) {
+                if (status?.bedLeds ?? 0) > 0 {
+                    controls(status)
+                } else {
+                    Card(title: "Bed strip") {
+                        Text("No bed strip is set up yet. Wire it as in docs/wiring.md, then enter its details under Strip below.")
+                            .hint()
+                    }
+                }
+                stripCard(status)
+            }
+            .padding(20)
+        }
+        .onAppear {
+            store.loadEffects()
+            fillForm()
+        }
+        .onChange(of: store.status?.bedLeds) { _, _ in fillForm() }
+    }
+
+    private func controls(_ status: HubStatus?) -> some View {
+        let mode = status?.bedMode ?? "screen", look = status?.bedLook ?? "blend"
+        return Card(title: "Bed strip") {
+            Text("\(status?.bedLeds ?? 0) LEDs · up to " + String(format: "%.1f A", Double(status?.bedPowerMa ?? 0) / 1000)).caps()
+            choices("bed_mode", Self.modes, current: mode)
+            if mode == "screen" {
+                choices("bed_look", Self.looks, current: look)
+                Text(Self.lookHints[look] ?? "").hint()
+                if look == "side" { choices("bed_side", Self.sides, current: status?.bedSide ?? "whole") }
+            }
+            if mode == "effect" {
+                Picker("Effect", selection: Binding(get: { status?.bedEffect ?? 9 },
+                                                    set: { store.set("bed_effect", String($0)) })) {
+                    ForEach(effectChoices(current: status?.bedEffect ?? 9), id: \.fx) { Text($0.name).tag($0.fx) }
+                }
+                SettingSlider(key: "bed_speed", label: "Speed", range: 0...255, format: { String(Int($0.rounded())) })
+            }
+            if mode == "colour" {
+                ColorPicker("Colour", selection: colour(status), supportsOpacity: false)
+            }
+            SettingSlider(key: "bed_brightness", label: "Brightness")
+        }
+    }
+
+    private func stripCard(_ status: HubStatus?) -> some View {
+        Card(title: "Strip") {
+            Toggle(isOn: Binding(get: { status?.bedReverse ?? false },
+                                 set: { store.set("bed_reverse", $0 ? "1" : "0") })) {
+                Text("First LED is the far end").caps(Theme.ink)
+            }
+            .toggleStyle(.switch).tint(Theme.green)
+            Text("Leave off when the strip starts next to the monitor.").hint()
+            HStack(alignment: .bottom, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("LEDs").caps()
+                    TextField("LEDs", text: $leds).textFieldStyle(.roundedBorder).labelsHidden()
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Data pin").caps()
+                    Picker("Data pin", selection: $pin) {
+                        ForEach(Self.pins, id: \.1) { Text($0.0).tag($0.1) }
+                    }
+                    .labelsHidden().fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Power limit (A)").caps()
+                    TextField("Amps", text: $amps).textFieldStyle(.roundedBorder).labelsHidden()
+                }
+            }
+            Text("The amps are the bed's share of the adapter, which both strips may be on. The board restarts for "
+                 + "about 10 seconds. RX gives the board the least memory to spare, so keep strips there short.").hint()
+            Button("Apply and restart the board") { store.setupBed(leds: leds, amps: amps, pin: pin) }
+                .disabled(Int(leds) == nil || Double(amps) == nil)
+        }
+    }
+
+    private func choices(_ key: String, _ options: [(String, String)], current: String?) -> some View {
+        HStack(spacing: 4) {
+            ForEach(options, id: \.0) { value, title in
+                ChoiceButton(title: title, chosen: current == value) { store.set(key, value) }
+            }
+        }
+    }
+
+    /// The curated effects, plus the one in use if it is not among them.
+    private func effectChoices(current: Int) -> [Effect] {
+        store.effects.contains { $0.fx == current } ? store.effects : store.effects + [Effect(fx: current, name: "Effect \(current)")]
+    }
+
+    private func colour(_ status: HubStatus?) -> Binding<Color> {
+        Binding(get: { Color(hex: "#" + (status?.bedColour ?? "ffb060").replacingOccurrences(of: "#", with: "")) },
+                set: { store.setLater("bed_colour", String($0.rgb.hex.dropFirst())) })
+    }
+
+    private func fillForm() {
+        guard let status = store.status else { return }
+        leds = String(status.bedLeds ?? 0)
+        amps = String(format: "%.1f", Double(status.bedPowerMa ?? 2000) / 1000)
+        pin = status.bedPin ?? 5
+    }
+}
+
 struct ProfilesPage: View {
     @EnvironmentObject private var store: HubStore
     @State private var newName = ""

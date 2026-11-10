@@ -28,7 +28,7 @@ struct AmbilightHubApp: App {
 }
 
 enum Page: Hashable {
-    case strip, mouse, profiles, calibrate
+    case strip, mouse, bed, profiles, calibrate
 }
 
 struct ContentView: View {
@@ -44,6 +44,9 @@ struct ContentView: View {
                     DeviceRow(title: store.status?.mouse?.name.map(shortMouseName) ?? "Mouse", detail: mouseDetail,
                               symbol: "computermouse", lit: store.status?.mouse?.connected == true && store.status?.mouseSync == true,
                               alert: false).tag(Page.mouse)
+                    DeviceRow(title: "Bed strip", detail: bedDetail, symbol: "bed.double",
+                              lit: (store.status?.bedLeds ?? 0) > 0 && store.status?.bedMode != "off",
+                              alert: false).tag(Page.bed)
                 }
                 Section("Lighting") {
                     Label("Profiles", systemImage: "square.stack").tag(Page.profiles)
@@ -62,6 +65,7 @@ struct ContentView: View {
                 switch page ?? .strip {
                 case .strip: StripPage()
                 case .mouse: MousePage()
+                case .bed: BedPage()
                 case .profiles: ProfilesPage()
                 case .calibrate: CalibratePage()
                 }
@@ -82,6 +86,12 @@ struct ContentView: View {
         guard let mouse = store.status?.mouse, mouse.connected else { return "Not plugged in" }
         if let permission = mouse.permission, permission != "granted" { return "Needs Input Monitoring" }
         return store.status?.mouseSync == true ? "Following the screen" : "Own lighting"
+    }
+
+    private var bedDetail: String {
+        guard let status = store.status, let count = status.bedLeds, count > 0 else { return "Not set up" }
+        let what = ["screen": "Follows the screen", "effect": "Effect", "colour": "Colour", "off": "Off"]
+        return "\(count) LEDs · \(what[status.bedMode ?? "screen"] ?? "")"
     }
 
     private func shortMouseName(_ name: String) -> String {
@@ -141,6 +151,7 @@ struct Header: View {
         switch page {
         case .strip: return "LED strip"
         case .mouse: return store.status?.mouse?.name ?? "Mouse"
+        case .bed: return "Bed strip"
         case .profiles: return "Profiles"
         case .calibrate: return "Calibrate"
         }

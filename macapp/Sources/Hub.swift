@@ -50,6 +50,18 @@ struct HubStatus: Decodable {
     var zones: [Zone]
     var wledReachable: Bool?
     var wledIp: String
+    // Optional, so an older hub without a bed strip still decodes.
+    var bedLeds: Int?
+    var bedPin: Int?
+    var bedMode: String?
+    var bedLook: String?
+    var bedSide: String?
+    var bedColour: String?
+    var bedEffect: Int?
+    var bedSpeed: Double?
+    var bedBrightness: Double?
+    var bedPowerMa: Int?
+    var bedReverse: Bool?
     var safety: Safety?
     var lastError: String?
 
@@ -63,9 +75,20 @@ struct HubStatus: Decodable {
         case "saturation": return saturation
         case "immersion": return immersion
         case "blend": return blend
+        case "bed_brightness": return bedBrightness
+        case "bed_speed": return bedSpeed
         default: return nil
         }
     }
+}
+
+struct Effect: Decodable, Hashable {
+    var fx: Int
+    var name: String
+}
+
+struct EffectList: Decodable {
+    var effects: [Effect]
 }
 
 struct Camera: Decodable, Hashable {
@@ -126,6 +149,7 @@ final class HubStore: ObservableObject {
     @Published private(set) var status: HubStatus?
     @Published private(set) var online = false
     @Published var problem: String?
+    @Published private(set) var effects: [Effect] = []
     @Published private(set) var cameras: [Camera] = []
     @Published private(set) var camera: CameraJob?
     @Published var address: String {
@@ -192,11 +216,16 @@ final class HubStore: ObservableObject {
     /// Slider moves arrive many times a second; only the last one in a short
     /// pause is sent.
     func send(_ key: String, _ value: Double) {
+        setLater(key, String(format: "%.3f", value))
+    }
+
+    /// Same pause for values that are not numbers, such as a colour being dragged.
+    func setLater(_ key: String, _ value: String) {
         pending[key]?.cancel()
         pending[key] = Task {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            set(key, String(format: "%.3f", value))
+            set(key, value)
         }
     }
 
@@ -207,6 +236,25 @@ final class HubStore: ObservableObject {
     func saveProfile(_ name: String) { act("/api/profiles/save", ["name": name]) }
 
     func deleteProfile(_ name: String) { act("/api/profiles/delete", ["name": name]) }
+
+    // MARK: bed strip
+
+    func loadEffects() {
+        guard effects.isEmpty else { return }
+        Task {
+            do {
+                let list: EffectList = try await client.get("/api/effects")
+                effects = list.effects
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    /// Gives the board its second output for the bed strip, then restarts it.
+    func setupBed(leds: String, amps: String, pin: Int) {
+        act("/api/bed/setup", ["leds": leds, "amps": amps, "pin": String(pin)])
+    }
 
     // MARK: locked colours (solid zones on the hub)
 
