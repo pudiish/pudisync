@@ -6,11 +6,18 @@ read these registries.
 """
 from abc import ABC, abstractmethod
 
+PERMISSION_HINT = ("grant Screen Recording permission to the app that runs the hub "
+                   "(Terminal, or Python when it starts at login) in System Settings > "
+                   "Privacy & Security > Screen Recording, then restart it.")
+
 
 class CapturePlugin(ABC):
     """Grabs the screen as RGB arrays."""
 
     name = "abstract-capture"
+    # Captured pixels per screen pixel. Band heights and margins in the config
+    # are screen pixels; a plugin that delivers smaller frames sets this.
+    scale = 1.0
 
     @staticmethod
     def available():
@@ -79,9 +86,10 @@ class OutputPlugin(ABC):
 # Registries come last: the plugin modules import the base classes above.
 from .capture_mss import MSSCapture  # noqa: E402
 from .capture_quartz import QuartzCapture  # noqa: E402
+from .capture_sck import SCKCapture  # noqa: E402
 from .output_serial import SerialOutput  # noqa: E402
 from .output_wled_udp import WLEDUDPOutput  # noqa: E402
 
 # Order is preference: the engine uses the first one that is available.
-CAPTURES = {"quartz": QuartzCapture, "mss": MSSCapture}
+CAPTURES = {"screencapturekit": SCKCapture, "quartz": QuartzCapture, "mss": MSSCapture}
 OUTPUTS = {"udp": WLEDUDPOutput, "serial": SerialOutput}
