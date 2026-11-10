@@ -11,6 +11,8 @@ import time
 import urllib.error
 import urllib.request
 
+from . import hostcache
+
 TIMEOUT = 1.5
 META_TTL = 10.0  # effect/palette names never change at runtime; cache them
 
@@ -26,7 +28,7 @@ class WLEDClient:
 
     def _url(self, path):
         port = self.cfg.get("wled_http_port")
-        host = self.cfg.get("wled_ip")
+        host = hostcache.BOARD.address(self.cfg.get("wled_ip"))
         suffix = "" if port == 80 else f":{port}"
         return f"http://{host}{suffix}{path}"
 
@@ -42,12 +44,12 @@ class WLEDClient:
             self.last_error = f"WLED unreachable at {self.cfg.get('wled_ip')}: {exc}"
             return None
 
-    def _post(self, payload):
+    def _post(self, payload, path="/json/state"):
         body = json.dumps(payload).encode()
-        req = urllib.request.Request(
-            self._url("/json/state"), data=body,
-            headers={"Content-Type": "application/json"}, method="POST")
         try:
+            req = urllib.request.Request(
+                self._url(path), data=body,
+                headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
                 resp.read()
             self.reachable = True
@@ -64,6 +66,9 @@ class WLEDClient:
 
     def info(self):
         return self._get("/json/info")
+
+    def config(self):
+        return self._get("/json/cfg")
 
     def led_count(self):
         info = self.info()
@@ -144,5 +149,16 @@ class WLEDClient:
     def set_effect(self, index):
         return self._post({"seg": [{"id": 0, "fx": int(index)}]})
 
+    def apply(self, payload):
+        """Send an arbitrary state object (used by the effect runner)."""
+        return self._post(payload)
+
     def set_palette(self, index):
         return self._post({"seg": [{"id": 0, "pal": int(index)}]})
+
+    def set_config(self, payload):
+        """Change the board's stored settings (/json/cfg); outputs only take effect after a reboot."""
+        return self._post(payload, "/json/cfg")
+
+    def reboot(self):
+        return self._post({"rb": True})

@@ -20,11 +20,14 @@ ESPHome's reference implementation (improv_serial_component.cpp):
     RPC 0x01 send Wi-Fi settings    0x02 request current state
     state 0x02 ready   0x03 provisioning   0x04 provisioned
 """
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -62,12 +65,15 @@ IMPROV_ERRORS = {
 WLED_RELEASES = "https://api.github.com/repos/wled/WLED/releases/latest"
 # Chip id (as esptool reports it) -> the substring that marks the right binary.
 BINARY_FOR_CHIP = {
-    "esp8266": "ESP01",      # the generic 1MB+ ESP8266 build
     "esp32": "ESP32",
     "esp32-s2": "ESP32-S2",
     "esp32-s3": "ESP32-S3",
     "esp32-c3": "ESP32-C3",
 }
+# ESP8266 builds are split by flash layout instead: a 4MB image will not boot on
+# a 1MB ESP-01, and the 1MB image cripples a 4MB NodeMCU (tiny filesystem).
+ESP8266_BINARY_FOR_FLASH_MB = {1: "ESP01", 2: "ESP02", 4: "ESP8266",
+                               8: "ESP8266", 16: "ESP8266"}
 
 
 def _checksum(payload):
@@ -140,8 +146,11 @@ def _esptool_cmd():
 
 
 def detect_chip(port):
-    """Ask the ROM bootloader what it is. Returns (chip_id, raw_output)."""
-    cmd = _esptool_cmd() + ["--port", port, "chip_id"]
+    """Ask the ROM bootloader what it is. Returns (chip_id, raw_output).
+
+    flash-id rather than chip-id, so the output also carries the flash size.
+    """
+    cmd = _esptool_cmd() + ["--port", port, "flash-id"]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except Exception as exc:
@@ -153,26 +162,61 @@ def detect_chip(port):
     return (match.group(1).lower() if match else None), text
 
 
+def flash_size_mb(esptool_output):
+    match = re.search(r"Detected flash size:\s*(\d+)MB", esptool_output, re.I)
+    return int(match.group(1)) if match else None
+
+
 def list_firmware():
     """Official WLED release assets, newest release."""
     with urllib.request.urlopen(WLED_RELEASES, timeout=15, context=_SSL) as resp:
         release = json.loads(resp.read())
     builds = [
-        {"name": a["name"], "url": a["browser_download_url"], "size": a["size"]}
+        {"name": a["name"], "url": a["browser_download_url"], "size": a["size"],
+         "digest": a.get("digest")}
         for a in release.get("assets", [])
         if a["name"].endswith(".bin")
     ]
     return {"version": release.get("tag_name"), "builds": builds}
 
 
-def pick_binary(chip, builds):
-    """Choose the release asset matching this chip exactly.
+def download_firmware(binary):
+    """Fetch a release image into a private temp folder and verify it.
+
+    The board is erased right after this, so a truncated or altered image
+    must be caught here: the size must match the release, and so must the
+    SHA-256 digest whenever GitHub publishes one.
+    """
+    folder = tempfile.mkdtemp(prefix="wled-firmware-")
+    path = os.path.join(folder, os.path.basename(binary["name"]))
+    sha = hashlib.sha256()
+    with urllib.request.urlopen(binary["url"], timeout=120, context=_SSL) as src, \
+            open(path, "wb") as dst:
+        for chunk in iter(lambda: src.read(65536), b""):
+            sha.update(chunk)
+            dst.write(chunk)
+    size = os.path.getsize(path)
+    if size != binary["size"]:
+        raise RuntimeError(f"firmware download is incomplete ({size} of {binary['size']} bytes); "
+                           "nothing was erased -- try again")
+    digest = binary.get("digest") or ""
+    if digest.startswith("sha256:") and sha.hexdigest() != digest.split(":", 1)[1]:
+        raise RuntimeError("firmware download does not match the release checksum; "
+                           "nothing was erased")
+    return path
+
+
+def pick_binary(chip, builds, flash_mb=None):
+    """Choose the release asset matching this chip (and, for ESP8266, flash size) exactly.
 
     A plain substring match is unsafe here: "ESP32" also matches ESP32-C3 and
     ESP32-S3 assets, and flashing an S3 image to a plain ESP32 bricks it. So the
     chip token must be followed by a separator, never another variant suffix.
     """
-    want = BINARY_FOR_CHIP.get(chip)
+    if chip == "esp8266":
+        want = ESP8266_BINARY_FOR_FLASH_MB.get(flash_mb)
+    else:
+        want = BINARY_FOR_CHIP.get(chip)
     if not want:
         return None
     # WLED names assets like WLED_16.0.1_ESP32.bin / _ESP32-C3-QIO.bin. A plain
@@ -184,7 +228,7 @@ def pick_binary(chip, builds):
         return None
     # Prefer the plain build over compat/160MHz/ethernet/audio variants.
     plain = [b for b in matches
-             if not re.search(r"(compat|_160|eth|audioreactive|_4m|_16mb|opi|qio)",
+             if not re.search(r"(compat|_160|_min|eth|audioreactive|_4m|_16mb|opi|qio)",
                               b["name"], re.I)]
     return (plain or matches)[0]
 
@@ -247,22 +291,21 @@ class Provisioner:
 
                 self._set("Fetching the WLED firmware list", 22)
                 release = list_firmware()
-                binary = pick_binary(chip, release["builds"])
+                flash_mb = flash_size_mb(raw)
+                binary = pick_binary(chip, release["builds"], flash_mb)
                 if not binary:
-                    raise RuntimeError(f"No official WLED build matches {chip}")
-                self._set(f"Downloading {binary['name']}", 30)
-                path = f"/tmp/{binary['name']}"
-                with urllib.request.urlopen(binary["url"], timeout=120,
-                                            context=_SSL) as src:
-                    with open(path, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
+                    raise RuntimeError(
+                        f"No official WLED build matches {chip} "
+                        f"with {flash_mb or 'unknown'}MB flash")
+                self._set(f"Downloading and checking {binary['name']}", 30)
+                path = download_firmware(binary)
 
                 self._set("Erasing the board", 42)
-                self._run_esptool(["--port", port, "erase_flash"], timeout=120)
+                self._run_esptool(["--port", port, "erase-flash"], timeout=120)
 
                 self._set(f"Writing WLED {release['version']}", 55)
                 self._run_esptool(
-                    ["--port", port, "--baud", "460800", "write_flash", "0x0", path],
+                    ["--port", port, "--baud", "460800", "write-flash", "0x0", path],
                     timeout=300)
                 self._set("Firmware written, waiting for reboot", 75)
                 time.sleep(5)

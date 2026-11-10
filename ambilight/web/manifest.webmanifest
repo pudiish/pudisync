@@ -1,0 +1,14 @@
+{
+  "name": "Ambilight Hub",
+  "short_name": "Ambilight",
+  "description": "Control the LED light around your monitor.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c0c0b",
+  "theme_color": "#0c0c0b",
+  "icons": [
+    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

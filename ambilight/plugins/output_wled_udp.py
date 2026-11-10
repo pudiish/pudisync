@@ -11,6 +11,7 @@ Docs cap DNRGB at 489 LEDs per packet; we chunk at 400 for headroom.
 import socket
 
 from . import OutputPlugin
+from .. import hostcache
 
 DNRGB = 4
 MAX_LEDS_PER_PACKET = 400
@@ -24,12 +25,24 @@ class WLEDUDPOutput(OutputPlugin):
     def available():
         return True  # stdlib sockets only
 
+    @classmethod
+    def from_config(cls, cfg):
+        return cls(cfg["wled_ip"], cfg["wled_port"])
+
+    @staticmethod
+    def key(cfg):
+        return ("udp", cfg["wled_ip"], cfg["wled_port"])
+
     def __init__(self, host, port=21324):
         self.host = host
         self.port = port
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setblocking(False)
         self.last_error = None
+
+    def target(self):
+        """The controller's address; a slow or failing .local lookup never stalls a frame."""
+        return hostcache.BOARD.address(self.host), self.port
 
     def send(self, pixels, timeout_s=2):
         """Send pixels as one or more DNRGB packets. Returns True on success."""
@@ -53,11 +66,13 @@ class WLEDUDPOutput(OutputPlugin):
 
     def _sendto(self, packet):
         try:
-            self._sock.sendto(packet, (self.host, self.port))
+            self._sock.sendto(packet, self.target())
             self.last_error = None
             return True
         except OSError as exc:
-            # A dark or rebooting NodeMCU must not kill the frame loop.
+            # A dark or rebooting NodeMCU must not kill the frame loop. The
+            # address may be stale: look it up again in the background.
+            hostcache.BOARD.mark_stale(self.host)
             self.last_error = f"{self.host}:{self.port} {exc}"
             return False
 

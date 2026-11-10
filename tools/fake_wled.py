@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fake WLED: UDP realtime listener + JSON API stub. No hardware needed.
 
-    python fake_wled.py            # listen on 21324 (UDP) and 8081 (HTTP)
-    python fake_wled.py --quiet    # stats only, no per-packet lines
+    python tools/fake_wled.py            # listen on 21324 (UDP) and 8081 (HTTP)
+    python tools/fake_wled.py --quiet    # stats only, no per-packet lines
 """
 import argparse
 import json
@@ -114,6 +114,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         print(f"[http] POST {self.path} {json.dumps(patch)}")
+        # Like the real board: any change that is not itself loading a preset
+        # clears the active preset ("ps" goes back to -1).
+        if "ps" not in patch:
+            STATE["ps"] = -1
         for key, value in patch.items():
             if key == "seg" and isinstance(value, list):
                 for seg in value:

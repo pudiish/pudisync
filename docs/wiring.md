@@ -12,7 +12,7 @@ WLED, and an **SN74AHCT125** level shifter.
 ```
    ┌──────────────┐                           ┌──────────────┐
    │     Mac      │   Wi-Fi (UDP 21324)       │  NodeMCU     │
-   │ ambilight.py │ ────────────────────────▶ │  (WLED)      │
+   │ hub.py │ ────────────────────────▶ │  (WLED)      │
    │              │                           │              │
    │              │   ── or USB serial ──▶    │              │
    └──────────────┘                           └──────┬───────┘
@@ -135,13 +135,15 @@ once, at LED 0, and flows along the strip by itself.
 
 | Pin | Usable for LEDs? | Note |
 |---|---|---|
-| **D4 / GPIO2** | Yes — the usual choice | WLED's default |
-| D1, D2, D5, D6, D7 | Yes | Fine alternatives |
-| GPIO1 / GPIO3 (TX/RX) | Avoid | Assigning these **disables USB serial output** |
+| **D4 / GPIO2** | Yes — the monitor strip | Hardware-driven (UART1); WLED's default |
+| **TX / GPIO1** | Yes — the bed strip (section 7) | Hardware-driven (UART0); **turns off USB serial output** |
+| RX / GPIO3 | Only for a short strip | Uses 5× the memory per LED; WLED advises under ~50 LEDs |
+| D1, D2, D5, D6, D7 | Last resort | Bit-banged: slow, and can upset Wi-Fi on an ESP8266 |
 | D0 / GPIO16 | No | Cannot do the required timing |
 | D3, D8 | Avoid | Boot-mode pins; strip may stop the board booting |
 
-If you plan to use the **USB cable** output, keep GPIO1 and GPIO3 free.
+If you plan to use the **USB cable** output, keep GPIO1 and GPIO3 free. Source:
+[WLED multi-strip](https://kno.wled.ge/features/multi-strip/).
 
 ---
 
@@ -154,3 +156,65 @@ If you plan to use the **USB cable** output, keep GPIO1 and GPIO3 free.
 - [ ] Capacitor polarity correct (the striped leg is negative)
 - [ ] In WLED, set **Config ▸ LED Preferences ▸ Max current** to match your PSU
 - [ ] Start with brightness low and confirm before turning it up
+
+---
+
+## 7. A second strip round the bed (same board, same shifter, same adapter)
+
+The SN74AHCT125 has four channels and the monitor strip uses only channel 1,
+so the bed strip takes **channel 4**, driven from the board's **RX (GPIO3)**,
+a hardware-driven LED pin. The bed strip is powered from the **same 5V
+adapter** as the monitor strip.
+
+```
+                 ┌───────────────────────┐
+                 │       NodeMCU         │
+                 │ VIN ◀── +5V           │
+                 │ GND ◀── GND           │
+                 │ D4 GPIO2     RX GPIO3 │
+                 └─────┬───────────┬─────┘
+                       │ 3.3V      │ 3.3V
+                 ┌─────▼───────────▼─────┐
+                 │      SN74AHCT125      │   14 VCC ◀── +5V
+                 │ pin 2 1A   pin 12 4A  │    7 GND ◀── GND
+                 │ pin 3 1Y   pin 11 4Y  │    1 1OE, 13 4OE ◀── GND
+                 └─────┬───────────┬─────┘
+                       │ 5V        │ 5V
+                     330Ω        330Ω
+                       ▼           ▼
+            ┌──────────────┐   ┌──────────────┐
+            │ monitor strip│   │  bed strip   │◀── 1000µF across +5V/GND
+            │ DIN +5V GND  │   │ DIN +5V GND  │
+            └──────┬───┬───┘   └──────┬───┬───┘
+                   └───┴──────┬───────┴───┘   +5V and GND from the one adapter
+                       ┌──────▼───────┐
+                       │ 5V 4A adapter│
+                       └──────────────┘
+```
+
+### Connection table (new wires only)
+
+| From | To | Notes |
+|---|---|---|
+| NodeMCU RX (GPIO3) | SN74AHCT125 4A (pin 12) | 3.3V data in |
+| SN74AHCT125 4OE (pin 13) | GND | Enables channel 4 (active low) |
+| SN74AHCT125 4Y (pin 11) | 330Ω, then bed strip DIN | Resistor at the shifter end |
+| Adapter +5V / GND | Bed strip +5V / GND | Proper power wire; jumpers carry about 1 A |
+| Bed strip GND | Common GND | Same cable as the data wire |
+| 1000µF capacitor | Bed strip +5V / GND, at its start | Striped leg to GND |
+| 2A, 3A (pins 5, 9) | GND | Parks the unused channels |
+| 2OE, 3OE (pins 4, 10) | +5V | Switches the unused channels off |
+
+### RX notes
+
+- Unplug the USB cable while the bed is on RX: the NodeMCU's USB-serial chip
+  shares that pin and would fight the LED data.
+- With the bed on RX, USB serial output and Wi-Fi setup over USB are off.
+  Flashing over USB still works.
+- RX uses more memory per LED than other pins: set the bed's real LED count.
+- Another pin: `/api/bed/setup?pin=5` (D1), or 4, 12, 13, 14.
+
+### Current limits on one adapter
+
+The hub holds the monitor strip to 2.8 A and the bed to 1.0 A (3.8 A on a 4 A
+adapter), and sets the board to limit each output separately.

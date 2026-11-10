@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Ambilight Hub -- screen-synced LED lighting for WLED, controlled from a phone.
+
+    python hub.py                       # uses config.json next to this file
+    python hub.py --config other.json --port 8790 --no-bonjour
+    python hub.py --deploy-board        # install the phone page on the WLED board
+    python hub.py --camera-calibrate    # with the hub running: match the strip via webcam
+    python hub.py --camera-check 60     # ...score the match while a video plays
+
+Home LAN only. Never forward the web port to the internet.
+"""
+import argparse
+import logging
+import signal
+import sys
+import threading
+
+from ambilight import board
+from ambilight.config import CONFIG_PATH, Config
+from ambilight.discovery import Advertiser, hub_urls
+from ambilight.engine import Engine
+from ambilight.plugins import CAPTURES, OUTPUTS
+from ambilight.server import Hub, serve
+from ambilight.wizard import Wizard
+from ambilight.wled import WLEDClient
+
+
+def parse_args(argv):
+    ap = argparse.ArgumentParser(description="Screen-synced LED lighting for WLED.")
+    ap.add_argument("--config", default=str(CONFIG_PATH), help="config file to use")
+    ap.add_argument("--port", type=int, help="web port for this run (not saved)")
+    ap.add_argument("--no-bonjour", action="store_true",
+                    help="do not advertise the hub on the LAN (test instances)")
+    ap.add_argument("--deploy-board", action="store_true",
+                    help="install the control page and sync preset on the WLED board, then exit")
+    ap.add_argument("--camera-calibrate", action="store_true",
+                    help="with the hub running: fit the strip's colours from webcam pictures, then exit")
+    ap.add_argument("--camera-check", type=int, metavar="SECONDS",
+                    help="with the hub running and a video playing: score how well the wall "
+                         "matches the screen, then exit")
+    ap.add_argument("--camera", metavar="NAME",
+                    help="part of the webcam's name, e.g. Lenovo (default: the first external "
+                         "webcam; the built-in camera is never used)")
+    return ap.parse_args(argv)
+
+
+def camera(args, config):
+    """The webcam calibration and check talk to the running hub."""
+    from ambilight import camrun
+
+    port = args.port or config.get("http_port")
+    try:
+        if args.camera_check:
+            camrun.run_check(port, args.camera, args.camera_check)
+            return 0
+        result = camrun.run_calibration(port, args.camera)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"Camera calibration stopped: {exc}")
+        return 1
+    print(f"Mismatch {result['before']:.3f} before, {result['after']:.3f} after: "
+          f"kept {result['chosen']}.")
+    print(f"What the camera saw: {result['view']}")
+    return 0
+
+
+def deploy_board(config):
+    """Put the phone page on the board. Needs the screen stream off."""
+    host = config.get("wled_ip")
+    try:
+        result = board.deploy(host, config.get("sync_preset"))
+    except (OSError, RuntimeError) as exc:
+        print(f"Could not install the page on {host}: {exc}")
+        return 1
+    print(f"Installed on {host}: page {result['bytes']} bytes "
+          f"({result['plain_bytes']} before compression), "
+          f"{'verified' if result['page_ok'] else 'NOT verified'}; "
+          f"sync preset {'saved' if result['preset_ok'] else 'NOT saved'}.")
+    return 0 if result["page_ok"] and result["preset_ok"] else 1
+
+
+def one_shot(args, config):
+    """Run a task that exits instead of starting the hub; None when there is none."""
+    if args.deploy_board:
+        return deploy_board(config)
+    if args.camera_calibrate or args.camera_check:
+        return camera(args, config)
+    return None
+
+
+def compatibility_check():
+    """Report which plugins are usable; without a capture source nothing can run."""
+    print("Plugin check:")
+    for kind, registry in (("capture", CAPTURES), ("output", OUTPUTS)):
+        for key, plugin in registry.items():
+            print(f"  [{'x' if plugin.available() else ' '}] {kind:<8} {key:<8} {plugin.name}")
+    if not any(plugin.available() for plugin in CAPTURES.values()):
+        print("\nFATAL: no capture source. Run: python3 -m pip install -r requirements.txt")
+        sys.exit(1)
+
+
+def main():
+    sys.stdout.reconfigure(line_buffering=True)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    args = parse_args(sys.argv[1:])
+    config = Config(args.config)
+    exit_code = one_shot(args, config)
+    if exit_code is not None:
+        sys.exit(exit_code)
+    compatibility_check()
+
+    engine = Engine(config)
+    wled = WLEDClient(config)
+    wizard = Wizard(config, engine)
+    port = args.port or config.get("http_port")
+    hub = Hub(config, engine, wled, wizard, port)
+
+    try:
+        server = serve(hub, port)
+    except OSError as exc:
+        print(f"\nFATAL: cannot bind port {port}: {exc}")
+        print("Another copy may already be running, or pick a different port.")
+        sys.exit(1)
+
+    advertiser = None if args.no_bonjour else Advertiser.start(port)
+    print("\n  Open the control page from any device on this network:")
+    for url in hub_urls(port):
+        print(f"    {url}")
+    print(f"  WLED target: {config.get('wled_ip')}:{config.get('wled_port')}")
+    if config.get("pin"):
+        print("  PIN is on -- the page will ask for it")
+    print("\nHome LAN only. Ctrl-C to stop.\n")
+
+    if config.get("sync_on_start"):
+        engine.start()
+
+    stopping = threading.Event()
+    hub.intent.start(stopping)      # follow the board's "Monitor sync" choice
+
+    def shutdown(signum, frame):
+        if stopping.is_set():
+            return
+        stopping.set()
+        print("\nStopping -- releasing LEDs back to WLED…")
+        engine.stop()
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
+    try:
+        server.serve_forever()
+    finally:
+        if not stopping.is_set():
+            engine.stop()
+        if advertiser is not None:
+            advertiser.stop()
+        server.server_close()
+        print("Stopped.")
+
+
+if __name__ == "__main__":
+    main()
