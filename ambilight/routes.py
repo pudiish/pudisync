@@ -4,11 +4,13 @@ Every handler takes the hub and the request's query, and returns
 (payload, status code). Adding an endpoint is one function plus one entry.
 A ValueError raised anywhere becomes a 400 in the server.
 """
+import time
 import urllib.parse
 from pathlib import Path
 
 import numpy as np
 
+from . import bed
 from .config import DEFAULTS, PROFILES
 from .effects import catalogue as effect_catalogue, state_for
 from .plugins.output_serial import list_ports, required_baud
@@ -16,6 +18,7 @@ from .provision import esptool_available, known_networks
 from .recorder import RECORDINGS_DIR, replay
 
 OK = 200
+CONFIG_SAVE_S = 1.0     # the board writes new settings to flash in its next loop; reboot after that
 
 
 class Query:
@@ -55,6 +58,7 @@ def sync_on(hub, q):
     hub.intent.resume()
     hub.wled.set_preset(hub.cfg.get("sync_preset"))
     hub.engine.start()
+    hub.intent.nudge()      # the preset may have dropped the bed's segment
     return hub.status(), OK
 
 
@@ -94,6 +98,8 @@ def set_values(hub, q):
     if "new_pin" in q.parsed:
         changes["pin"] = q.one("new_pin")
     changed = hub.cfg.update(changes)
+    if any(key.startswith("bed_") for key in changed):
+        hub.intent.nudge()
     return {"changed": changed, **hub.status()}, OK
 
 
@@ -206,7 +212,8 @@ def hex_colour(text):
 # --- setup wizard ----------------------------------------------------------------
 def count_start(hub, q):
     take_over_strip(hub)
-    reported = hub.wled.led_count() or hub.cfg.get("led_count")
+    total = hub.wled.led_count()     # the board counts the bed strip's LEDs too
+    reported = total - hub.cfg.get("bed_leds") if total else hub.cfg.get("led_count")
     return hub.wizard.count_start(reported), OK
 
 
@@ -286,6 +293,29 @@ def flash_start(hub, q):
     return hub.provisioner.status(), OK
 
 
+def bed_setup(hub, q):
+    """Give the board a second output for the bed strip (0 LEDs removes it), then restart it."""
+    try:
+        leds, milliamps = int(q.one("leds", "0")), round(float(q.one("amps", "2")) * 1000)
+        pin = int(q.one("pin", hub.cfg.get("bed_pin")))
+    except ValueError:
+        return {"error": "leds must be a whole number and amps a number"}, 400
+    if hub.cfg.validate("bed_leds", leds) != leds or hub.cfg.validate("bed_power_ma", milliamps) != milliamps \
+            or hub.cfg.validate("bed_pin", pin) != pin:
+        return {"error": "the bed strip takes 0-600 LEDs on a 0.2-20 A adapter, on GPIO 1-16"}, 400
+    board = hub.wled.config()
+    if not board:
+        return {"error": "the board is not answering; try again once it is back"}, 503
+    payload = bed.bus_config(board["hw"]["led"], hub.cfg.get("led_count"), hub.cfg.get("power_limit_ma"),
+                             leds, milliamps, pin)
+    if not hub.wled.set_config(payload):
+        return {"error": "the board did not take the new output; nothing changed"}, 502
+    time.sleep(CONFIG_SAVE_S)
+    hub.wled.reboot()
+    hub.cfg.update({"bed_leds": leds, "bed_pin": pin, "bed_power_ma": milliamps, "bed_start": board["hw"]["led"]["ins"][0]["len"]})
+    return {"rebooting": True, **hub.status()}, OK
+
+
 def camera_list(hub, q):
     try:
         listed = hub.camera.cameras()
@@ -350,6 +380,7 @@ ROUTES = {
     "/api/wizard/stop": wizard_stop,
     "/api/calibrate/paint": calibrate_paint,
     "/api/calibrate/done": calibrate_done,
+    "/api/bed/setup": bed_setup,
     "/api/camera/list": camera_list,
     "/api/camera/start": camera_start,
     "/api/camera/status": camera_status,

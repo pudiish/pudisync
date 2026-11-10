@@ -22,6 +22,9 @@ class SyncIntent:
         self.engine = engine
         self.clock = clock
         self.paused_until = 0.0
+        # Also shown every state read here, on this thread (bed.Keeper).
+        self.watchers = []
+        self.woken = threading.Event()
 
     def pause(self, seconds=600):
         """Hold off while something else owns the strip (setup wizard, flashing)."""
@@ -38,17 +41,28 @@ class SyncIntent:
         if state is None:       # an unreachable board says nothing about intent
             return None
         wanted = state.get("ps") == self.cfg.get("sync_preset")
+        change = None
         if wanted and not self.engine.running:
             self.engine.start()
-            return "started"
-        if not wanted and self.engine.running:
+            change = "started"
+        elif not wanted and self.engine.running:
             self.engine.stop()
-            return "stopped"
-        return None
+            change = "stopped"
+        for watch in self.watchers:
+            watch(state)
+        return change
+
+    def nudge(self):
+        """Look at the board now rather than at the next poll (a setting changed)."""
+        self.woken.set()
 
     def run(self, stop):
         """Watch until `stop` is set; one bad poll never ends the watch."""
-        while not stop.wait(POLL_S):
+        while not stop.is_set():
+            self.woken.wait(POLL_S)
+            self.woken.clear()
+            if stop.is_set():
+                break
             try:
                 self.tick()
             except Exception:

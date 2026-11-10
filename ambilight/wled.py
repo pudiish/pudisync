@@ -44,11 +44,11 @@ class WLEDClient:
             self.last_error = f"WLED unreachable at {self.cfg.get('wled_ip')}: {exc}"
             return None
 
-    def _post(self, payload):
+    def _post(self, payload, path="/json/state"):
         body = json.dumps(payload).encode()
         try:
             req = urllib.request.Request(
-                self._url("/json/state"), data=body,
+                self._url(path), data=body,
                 headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
                 resp.read()
@@ -66,6 +66,9 @@ class WLEDClient:
 
     def info(self):
         return self._get("/json/info")
+
+    def config(self):
+        return self._get("/json/cfg")
 
     def led_count(self):
         info = self.info()
@@ -152,3 +155,10 @@ class WLEDClient:
 
     def set_palette(self, index):
         return self._post({"seg": [{"id": 0, "pal": int(index)}]})
+
+    def set_config(self, payload):
+        """Change the board's stored settings (/json/cfg); outputs only take effect after a reboot."""
+        return self._post(payload, "/json/cfg")
+
+    def reboot(self):
+        return self._post({"rb": True})

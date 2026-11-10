@@ -22,7 +22,9 @@ PROFILES = {
 }
 # What a profile of your own saves: the whole look, not the strip's setup.
 PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
-                "colour_weight", "spread", "black_level", "mouse_sync")
+                "colour_weight", "spread", "black_level", "mouse_sync",
+                "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect", "bed_speed",
+                "bed_brightness")
 PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
 MAX_PROFILES = 20
 
@@ -101,6 +103,30 @@ DEFAULTS = {
     "user_profiles": {},
     # A Logitech LIGHTSYNC mouse follows the screen while sync runs.
     "mouse_sync": False,
+    # A second strip (round a bed) on the board's second output (bed.py).
+    # 0 LEDs = none. Its adapter is separate, so it has its own current limit.
+    "bed_leds": 0,
+    # The board's GPIO for the bed strip's data (5 = D1). 1 and 3 are the ESP8266's
+    # TX and RX; other pins are driven in software by WLED.
+    "bed_pin": 5,
+    # The bed's first LED on the board: the end of the board's monitor output,
+    # which may run past the LEDs the hub uses round the screen.
+    "bed_start": 0,
+    "bed_power_ma": 2000,
+    # screen: follows the screen while sync runs (and the monitor strip's look
+    # otherwise); effect / colour: the board runs it; off.
+    "bed_mode": "screen",
+    # mood: one colour, the scene's strongest; side: one edge of the screen
+    # stretched along the bed, as Hue and Ambilight+Hue map off-screen lights;
+    # blend: that edge where the bed meets the monitor, easing into the mood.
+    "bed_look": "mood",
+    # The bed's first LED is the end nearest the monitor; true when it is the far one.
+    "bed_reverse": False,
+    "bed_side": "whole",
+    "bed_colour": "ffb060",
+    "bed_effect": 9,
+    "bed_speed": 128,
+    "bed_brightness": 0.6,
 }
 
 
@@ -278,6 +304,13 @@ _LIMITS = {
     "wled_port": (1, 65535),
     "wled_http_port": (1, 65535),
     "serial_baud": (9600, 2000000),
+    "bed_leds": (0, 600),
+    "bed_pin": (1, 16),
+    "bed_start": (0, 1500),
+    "bed_power_ma": (200, 20000),
+    "bed_effect": (0, 255),
+    "bed_speed": (0, 255),
+    "bed_brightness": (0.0, 1.0),
 }
 
 
@@ -285,6 +318,9 @@ _LIMITS = {
 CHOICES = {
     "layout": ("strip", "frame"),
     "output": ("udp", "serial"),
+    "bed_mode": ("screen", "effect", "colour", "off"),
+    "bed_look": ("mood", "side", "blend"),
+    "bed_side": ("whole", "bottom", "right", "top", "left"),
 }
 
 # Free-text settings and the shape they must have. The controller address
@@ -294,6 +330,7 @@ PATTERNS = {
     "serial_port": re.compile(r"^(/dev/[A-Za-z0-9._-]+)?$"),
     "pin": re.compile(r"^[A-Za-z0-9]{0,16}$"),
     "profile": re.compile(r"^([A-Za-z0-9][A-Za-z0-9 _-]{0,23})?$"),
+    "bed_colour": re.compile(r"^#?[0-9A-Fa-f]{6}$"),
 }
 
 

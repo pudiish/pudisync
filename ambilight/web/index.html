@@ -58,7 +58,7 @@ h2,h3,.label{font-size:11px;letter-spacing:.16em;color:var(--dim)}
   padding:calc(14px + env(safe-area-inset-top)) 16px 12px}
 .brand{margin:0;display:flex;align-items:center;gap:10px;font:700 13px/1 var(--mono);letter-spacing:.24em;color:var(--amber)}
 .brand span{color:var(--dim)}
-.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(5,1fr);
+.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(6,1fr);
   background:var(--panel);border-top:1px solid var(--rule-hi);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
@@ -246,6 +246,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
     <button class="tab" type="button" data-action="tab" data-value="home">Home</button>
     <button class="tab" type="button" data-action="tab" data-value="effects">Effects</button>
     <button class="tab" type="button" data-action="tab" data-value="override">Override</button>
+    <button class="tab" type="button" data-action="tab" data-value="bed">Bed</button>
     <button class="tab" type="button" data-action="tab" data-value="setup">Setup</button>
     <button class="tab" type="button" data-action="tab" data-value="advanced">Advanced</button>
   </nav>
@@ -374,6 +375,71 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
       <ol class="locks" id="locks"></ol>
       <p class="hint" id="locks-empty">Nothing locked: the whole strip follows the screen.</p>
       <button class="btn" type="button" data-action="locks-clear" id="locks-clear" hidden>Unlock everything</button>
+    </div>
+  </section>
+
+  <section class="screen" id="tab-bed" aria-label="Bed strip" hidden>
+    <div class="panel" id="bed-none" hidden>
+      <h2>Bed strip</h2>
+      <p class="hint">No bed strip is set up yet. Wire it as in docs/wiring.md, then enter its details under Strip below.</p>
+    </div>
+    <div class="panel" id="bed-controls">
+      <h2>Bed strip</h2>
+      <p class="label" id="bed-state" aria-live="polite"></p>
+      <div class="seg" role="group" aria-label="What the bed shows">
+        <button type="button" data-action="bed-mode" data-value="screen" aria-pressed="false">Follow screen</button>
+        <button type="button" data-action="bed-mode" data-value="effect" aria-pressed="false">Effect</button>
+        <button type="button" data-action="bed-mode" data-value="colour" aria-pressed="false">Colour</button>
+        <button type="button" data-action="bed-mode" data-value="off" aria-pressed="false">Off</button>
+      </div>
+      <div class="stack" id="bed-screen" hidden>
+        <div class="seg" role="group" aria-label="How the bed follows the screen">
+          <button type="button" data-action="bed-look" data-value="blend" aria-pressed="false">Blend</button>
+          <button type="button" data-action="bed-look" data-value="mood" aria-pressed="false">Mood</button>
+          <button type="button" data-action="bed-look" data-value="side" aria-pressed="false">Edge</button>
+        </div>
+        <p class="hint" id="bed-look-hint"></p>
+        <div class="seg" id="bed-sides" role="group" aria-label="Which part of the screen" hidden>
+          <button type="button" data-action="bed-side" data-value="whole" aria-pressed="false">All round</button>
+          <button type="button" data-action="bed-side" data-value="bottom" aria-pressed="false">Bottom</button>
+          <button type="button" data-action="bed-side" data-value="right" aria-pressed="false">Right</button>
+          <button type="button" data-action="bed-side" data-value="top" aria-pressed="false">Top</button>
+          <button type="button" data-action="bed-side" data-value="left" aria-pressed="false">Left</button>
+        </div>
+      </div>
+      <div class="stack" id="bed-effect-box" hidden>
+        <div class="field"><label for="bed-effect">Effect</label><select id="bed-effect"></select></div>
+        <div class="fader" data-fader="bed_speed"></div>
+      </div>
+      <div class="stack" id="bed-colour-box" hidden>
+        <div class="colour-row"><input type="color" id="bed-colour" value="#ffb060">
+          <label for="bed-colour" class="hint">Pick the bed's colour</label></div>
+      </div>
+      <div class="fader" data-fader="bed_brightness"></div>
+    </div>
+    <div class="panel">
+      <details id="bed-strip">
+        <summary>Strip</summary>
+        <div class="stack">
+          <button class="switch" type="button" role="switch" aria-checked="false" data-switch="bed_reverse"
+            aria-describedby="bed-reverse-hint">First LED is the far end<span class="toggle" aria-hidden="true"></span></button>
+          <p class="hint" id="bed-reverse-hint">Leave off when the strip starts next to the monitor.</p>
+          <form class="stack" id="form-bed">
+            <div class="field"><label for="bed-leds">LEDs</label>
+              <input type="number" id="bed-leds" min="0" max="600" inputmode="numeric"></div>
+            <div class="field"><label for="bed-pin">Data pin on the board</label>
+              <select id="bed-pin">
+                <option value="5">D1</option><option value="4">D2</option><option value="14">D5</option>
+                <option value="12">D6</option><option value="13">D7</option><option value="3">RX</option>
+              </select></div>
+            <div class="field"><label for="bed-amps">Power limit (amps)</label>
+              <input type="number" id="bed-amps" min="0.2" max="20" step="0.1" inputmode="decimal"></div>
+            <p class="hint">The bed's share of the adapter, which both strips may be on. The board restarts for
+              about 10 seconds. RX gives the board the least memory to spare, so keep strips there short.</p>
+            <button class="btn primary" type="submit">Apply and restart the board</button>
+          </form>
+        </div>
+      </details>
     </div>
   </section>
 
@@ -603,7 +669,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 <script>
 "use strict";
 const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, PIN_KEY = "ambilight-pin";
-const TABS = ["home", "effects", "override", "setup", "advanced"];
+const TABS = ["home", "effects", "override", "bed", "setup", "advanced"];
 const EDGE_KEYS = ["edge_bottom", "edge_right", "edge_top", "edge_left"];
 const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g", "wb_b",
   "led_gamma", "contrast", "black_level", "colour_weight", "spread"];
@@ -635,6 +701,8 @@ const FADERS = {
   fade_leds: {label: "Spill past the screen", min: 0, max: 120, fmt: v => v ? `${v} LEDs` : "Hard edge"},
   fx_speed: {label: "Speed", min: 0, max: 255, fmt: String, apply: () => runEffect()},
   fx_intensity: {label: "Intensity", min: 0, max: 255, fmt: String, apply: () => runEffect()},
+  bed_brightness: {label: "Brightness", min: 0, max: 100, scale: 100, fmt: pct},
+  bed_speed: {label: "Speed", min: 0, max: 255, fmt: String},
   fx_brightness: {label: "Effect brightness", min: 0, max: 255, fmt: v => `${Math.round(v / 2.55)}%`,
     apply: v => act("/api/wled/brightness", {value: v})},
 };
@@ -808,6 +876,7 @@ function render(s) {
   renderProfiles(s);
   $$("[data-action=profile]").forEach(b => press(b, b.dataset.value === s.profile));
   renderMouse(s);
+  renderBed(s);
   $$("[data-switch]").forEach(b => { if (!recent(editedAt[b.dataset.switch])) press(b, s[b.dataset.switch], "aria-checked"); });
   $("engine-banner").hidden = !s.last_error;
   if (s.last_error) setText($("engine-error"), friendly(s.last_error));
@@ -942,7 +1011,7 @@ async function loadEffects() {
     const body = await api("/api/effects");
     effects = Array.isArray(body) ? body : body.effects || [];
     $("fx-tiles").replaceChildren(...effects.map(effectTile));
-    if (state) renderEffectsState(state);
+    if (state) { renderEffectsState(state); renderBed(state); }
   } catch (err) {
     $("fx-tiles").replaceChildren(make("p", {className: "hint", textContent: `Couldn't load effects. ${err.message}`}));
   }
@@ -1427,6 +1496,51 @@ function renderMouse(s) {
       : `${m.name}: its lights take the colours along the bottom of the screen while sync runs.`);
 }
 
+/* ---------- bed strip ---------- */
+const BED_LOOKS = {
+  blend: "For a strip low on the wall beside the monitor: the bottom-right corner of the screen next to it, easing into the scene's colour along the strip.",
+  mood: "One slowly changing colour for the whole strip: the scene's strongest.",
+  side: "One part of the screen stretched along the strip.",
+};
+
+function renderBed(s) {
+  if (s.bed_leds == null) return;
+  const has = s.bed_leds > 0;
+  $("bed-none").hidden = has;
+  $("bed-controls").hidden = !has;
+  $$("[data-action=bed-mode]").forEach(b => press(b, b.dataset.value === s.bed_mode));
+  $$("[data-action=bed-look]").forEach(b => press(b, b.dataset.value === s.bed_look));
+  $$("[data-action=bed-side]").forEach(b => press(b, b.dataset.value === s.bed_side));
+  $("bed-screen").hidden = s.bed_mode !== "screen";
+  $("bed-sides").hidden = s.bed_look !== "side";
+  $("bed-effect-box").hidden = s.bed_mode !== "effect";
+  $("bed-colour-box").hidden = s.bed_mode !== "colour";
+  setText($("bed-look-hint"), BED_LOOKS[s.bed_look] || "");
+  setText($("bed-state"), `${s.bed_leds} LEDs · up to ${(s.bed_power_ma / 1000).toFixed(1)} A`
+    + (s.bed_mode === "screen" && modeOf(s) !== "sync" ? " · follows the screen once sync is on" : ""));
+  fillInput($("bed-colour"), `#${String(s.bed_colour).replace("#", "").toLowerCase()}`);
+  bedEffectOptions(s.bed_effect);
+  fillInput($("bed-leds"), s.bed_leds);
+  fillInput($("bed-pin"), s.bed_pin);
+  fillInput($("bed-amps"), s.bed_power_ma / 1000);
+}
+
+function bedEffectOptions(current) {
+  const pick = $("bed-effect"), want = effects.map(fx => [fx.fx, fx.name]);
+  if (!want.some(([fx]) => fx === current)) want.push([current, `Effect ${current}`]);
+  const key = want.map(w => w.join(":")).join(",");
+  if (pick.dataset.options !== key) {
+    pick.replaceChildren(...want.map(([fx, name]) => make("option", {value: fx, textContent: name})));
+    pick.dataset.options = key;
+  }
+  if (pick !== document.activeElement) pick.value = String(current);
+}
+
+function bedSetup() {
+  return act("/api/bed/setup", {leds: $("bed-leds").value, amps: $("bed-amps").value, pin: $("bed-pin").value},
+    "Bed output saved. The board restarts for a few seconds.");
+}
+
 /* ---------- override: locked colours ---------- */
 const locked = () => zones.map((z, i) => ({...z, i})).filter(z => z.mode === "solid");
 
@@ -1595,6 +1709,7 @@ function showTab(name) {
   if (name === "home") { previewKey = ""; renderPreview(); }
   if (name === "effects") { if (!effects.length) loadEffects(); loadMeta(); }
   if (name === "override") drawPaint();
+  if (name === "bed" && !effects.length) loadEffects();
   if (name === "advanced") { loadMonitors(); loadPorts(); loadHealth(); }
 }
 
@@ -1610,6 +1725,9 @@ const ACTIONS = {
   "lock-all": () => select(0, ledTotal() - 1),
   "lock": lockSelection,
   "locks-clear": clearLocks,
+  "bed-mode": b => setKey("bed_mode", b.dataset.value),
+  "bed-look": b => setKey("bed_look", b.dataset.value),
+  "bed-side": b => setKey("bed_side", b.dataset.value),
   "webcam": b => startWebcam(b.dataset.value),
   "layout": b => setKey("layout", b.dataset.value),
   "count-start": () => countStep("/api/wizard/count/start"),
@@ -1684,6 +1802,9 @@ function wire() {
     $("flash-go").textContent = $("flash-erase").checked ? "Erase and install WLED" : "Connect to Wi-Fi";
   });
   $("colour").addEventListener("input", debounce(() => runSolid($("colour").value), 200));
+  onChange("bed-effect", v => setKey("bed_effect", v));
+  $("bed-colour").addEventListener("change", () => setKey("bed_colour", $("bed-colour").value.slice(1)));
+  onSubmit("form-bed", bedSetup);
   onChange("wled-fx", v => runLook($("wled-fx").selectedOptions[0].textContent, "/api/wled/effect", {index: v}));
   onChange("monitor_index", v => setKey("monitor_index", v));
   onChange("serial_port", v => setKey("serial_port", v));

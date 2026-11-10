@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import routes
 from .access import PinGate, allowed_fetch_site, allowed_host
+from .bed import Keeper
 from .camrun import CameraJob
 from .discovery import hub_urls
 from .intent import SyncIntent
@@ -125,6 +126,8 @@ class Hub:
         self.wled = wled
         self.wizard = wizard
         self.intent = SyncIntent(config, wled, engine)
+        self.bed = Keeper(config, wled, self.intent)
+        self.intent.watchers.append(self.bed.tick)
         self.port = port or config.get("http_port")
         self.provisioner = Provisioner()
         self.camera = CameraJob(self.port)

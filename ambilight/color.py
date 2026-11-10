@@ -187,21 +187,37 @@ def immerse(perceptual, amount):
     hsv[:, 1] = 1.0 - (1.0 - sat) ** (1.0 + IMMERSE_PURITY * amount * colourful)
     lifted = hsv_to_rgb(hsv)
 
-    # The theme is the strongest colour family, not the average of all of
-    # them: half red, half blue is a red or a blue scene, never a purple one.
     presence = colourful * level
+    colour, strength = theme(lifted, hue, presence)
+    if colour is None:
+        return lifted
+    pull = IMMERSE_FLOOD * amount * strength * (1.0 - presence)
+    return np.clip(lifted + (colour - lifted) * pull[:, None], 0.0, 1.0)
+
+
+def colourful_presence(perceptual):
+    """(hue, how much each LED shows a real colour): saturated and lit, skin excluded."""
+    hsv = rgb_to_hsv(perceptual)
+    hue, sat, level = hsv[:, 0], hsv[:, 1], hsv[:, 2]
+    return hue, smoothstep(0.15, 0.5, sat) * (1.0 - skin(hue, sat)) * level
+
+
+def theme(colours, hue, presence):
+    """The scene's colour: (mean of its strongest colour family, 0..1 strength), or (None, 0).
+
+    The strongest family, not the average of all of them: half red, half blue
+    is a red or a blue scene, never a purple one. The strength stays low unless
+    the family is a real share of the frame, not one small light in the dark.
+    """
     family = (hue * HUE_FAMILIES).astype(np.int64) % HUE_FAMILIES
     mass = np.bincount(family, weights=presence, minlength=HUE_FAMILIES)
     peak = int(np.argmax(mass + np.roll(mass, 1) + np.roll(mass, -1)))
     apart = (family - peak + HUE_FAMILIES // 2) % HUE_FAMILIES - HUE_FAMILIES // 2
     members = presence * (np.abs(apart) <= 1)
     if members.sum() <= 0:
-        return lifted
-    theme = (lifted * members[:, None]).sum(axis=0) / members.sum()
-    # The theme must be a real share of the frame, not one small light in the dark.
-    strength = smoothstep(0.05, 0.25, members.mean())
-    pull = IMMERSE_FLOOD * amount * strength * (1.0 - presence)
-    return np.clip(lifted + (theme - lifted) * pull[:, None], 0.0, 1.0)
+        return None, 0.0
+    colour = (colours * members[:, None]).sum(axis=0) / members.sum()
+    return colour, float(smoothstep(0.05, 0.25, members.mean()))
 
 
 def contrast_curve(level, amount):

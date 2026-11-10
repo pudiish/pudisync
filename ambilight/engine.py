@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-from . import color, mouse, processing, zones as zonelib
+from . import bed, color, mouse, processing, zones as zonelib
 from .plugins import CAPTURES, OUTPUTS
 from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
@@ -132,6 +132,7 @@ class OutputStage:
         self.quantizer = Quantizer()
         self.guard = Guard()
         self.last_target = None
+        self.bed = bed.BedStage()
 
     def set_target(self, target, now):
         with self.lock:
@@ -147,13 +148,18 @@ class OutputStage:
             # A frozen or lost capture must not hold the last bright frame on
             # the wall indefinitely.
             age = now - self.last_target
-            levels = color.to_led(shown, cfg) * max(0.0, 1.0 - (age - self.STALE_S) / self.FADE_S
-                                                    if age > self.STALE_S else 1.0)
+            fade = max(0.0, 1.0 - (age - self.STALE_S) / self.FADE_S if age > self.STALE_S else 1.0)
+            levels = color.to_led(shown, cfg) * fade
             # Zones paint over the sync layer after smoothing, so a solid zone
             # is not dragged toward screen colour.
             composed = zonelib.composite(levels, cfg["zones"], cfg["led_count"])
             safe = self.guard.apply(composed * cfg["brightness"], now, cfg)
-            return self.quantizer.apply(safe)
+            pixels = self.quantizer.apply(safe)
+            if not bed.streams(cfg):
+                return pixels
+            # Board LEDs between the hub's and the bed's (a monitor strip longer than its frame) stay dark.
+            gap = np.zeros((bed.first_led(cfg) - len(pixels), 3), dtype=np.uint8)
+            return np.concatenate([pixels, gap, self.bed.frame(self.smoother.target, now, cfg, fade)])
 
     def safety(self):
         with self.lock:
@@ -566,13 +572,14 @@ class Engine:
         return list(self._preview)
 
     def _push(self, pixels, hold_s=FRAME_TIMEOUT_S):
-        self._set_preview(pixels)
+        monitor = pixels[:self.cfg.get("led_count")]   # the bed's pixels, if any, follow
+        self._set_preview(monitor)
         out = self._output()
         if not out.send(pixels, hold_s):
             self.errors["output"] = f"could not reach the lights: {out.last_error}"
         elif self.errors["output"] and "could not reach" in self.errors["output"]:
             self.errors["output"] = None
-        self.follow_mouse(pixels)
+        self.follow_mouse(monitor)
 
     def follow_mouse(self, pixels):
         cfg = self.cfg.snapshot()

@@ -298,6 +298,21 @@ def test_api(base):
           f"{s['measured_fps']} fps")
     check("status carries a preview for the UI", len(s.get("preview", [])) > 0)
     check("status never leaks the PIN", "pin" not in s)
+    bed_keys = ("bed_leds", "bed_pin", "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect",
+                "bed_speed", "bed_brightness", "bed_power_ma", "bed_reverse")
+    check("status carries every bed setting the web page and the Mac app read",
+          all(k in s for k in bed_keys), [k for k in bed_keys if k not in s])
+    changed = get("/api/set?bed_mode=colour&bed_colour=2040ff&bed_brightness=0.4&bed_effect=63&bed_speed=200&bed_look=side&bed_side=bottom&bed_reverse=1")
+    check("the bed's controls change what the status reports",
+          (changed["bed_mode"], changed["bed_colour"], changed["bed_effect"], changed["bed_speed"], changed["bed_look"],
+           changed["bed_side"], changed["bed_reverse"]) == ("colour", "2040ff", 63, 200, "side", "bottom", True), changed["changed"])
+    try:
+        get("/api/set?bed_mode=disco")
+        refused_mode = False
+    except urllib.error.HTTPError as exc:
+        refused_mode = exc.code == 400
+    check("an unknown bed mode is refused", refused_mode)
+    get("/api/set?bed_mode=screen&bed_look=blend&bed_side=whole&bed_reverse=0")
 
     s = get("/api/profile/movie")
     check("/api/profile/movie applies", s["profile"] == "movie")
@@ -1121,7 +1136,7 @@ def test_safety():
     stage = OutputStage()
     live = {"blend": 1.0, "led_gamma": 1.0, "contrast": 1.0, "black_level": 0.0, "colour_match": False,
             "zones": [], "led_count": 4, "brightness": 1.0, "power_limit_ma": 3800, "sustained_ma": 3000,
-            "wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0}
+            "wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "bed_leds": 0}
     stage.set_target(np.full((4, 3), 0.8, np.float32), 0.0)
     fresh = stage.frame(0.5, live)
     stale = stage.frame(6.0, live)
@@ -2258,6 +2273,307 @@ def test_colour_locks():
     check("after a restart only the kept lock remains", [z["color"] for z in after] == ["#ff0000"], after)
 
 
+class FakeBedBoard:
+    """The parts of WLED the bed strip uses: live state, presets, config, reboot."""
+
+    def __init__(self, ps=1):
+        self.live = {"ps": ps, "mainseg": 0, "seg": [{"id": 0, "start": 0, "stop": 180, "on": True}]}
+        self.sent, self.configs, self.reboots = [], [], 0
+        self.hw = {"hw": {"led": {"total": 180, "maxpwr": 4000, "ins": [
+            {"start": 0, "len": 180, "pin": [2], "order": 0, "type": 22, "maxpwr": 4000, "ledma": 55}]}}}
+        self.paused_while_writing = []
+
+    def state(self):
+        return self.live
+
+    def apply(self, payload):
+        self.sent.append(payload)
+        return True
+
+    def set_preset(self, pid):
+        self.sent.append({"ps": pid})
+        return True
+
+    def config(self):
+        return self.hw
+
+    def set_config(self, payload):
+        self.configs.append(payload)
+        return True
+
+    def reboot(self):
+        self.reboots += 1
+        return True
+
+
+def test_bed_strip():
+    print("\n39. A bed strip on the board's second output: screen, effect, colour or off")
+    from urllib.parse import parse_qs
+    from ambilight import bed, board, routes
+    from ambilight.engine import OutputStage
+    from ambilight.intent import SyncIntent
+    from ambilight.safety import estimate_ma
+
+    path = os.path.join(tempfile.mkdtemp(prefix="ambilight-bed-"), "config.json")
+    cfg = Config(path)
+    cfg.update({"led_count": 180, "sync_preset": 1})
+
+    def refused(changes):
+        try:
+            cfg.update(changes)
+        except ValueError as exc:
+            return str(exc)
+        return ""
+
+    check("bed settings are checked like any other",
+          refused({"bed_mode": "disco"}) and refused({"bed_colour": "red"}) and refused({"bed_side": "under"}))
+    check("bed settings start off: no bed strip until it is set up", cfg.get("bed_leds") == 0)
+
+    # --- the segment layout the board should have --------------------------
+    snap = cfg.snapshot()
+    check("without a bed strip the hub never touches the board's segments", bed.layout(snap) is None)
+    cfg.update({"bed_leds": 60, "bed_mode": "screen"})
+    check("following the screen, one segment spans both strips so the stream reaches the bed",
+          bed.layout(cfg.snapshot()) == [{"id": 0, "start": 0, "stop": 240}, {"id": 1, "stop": 0}])
+    cfg.update({"bed_mode": "effect", "bed_effect": 9, "bed_speed": 200, "bed_brightness": 0.5})
+    seg0, seg1 = bed.layout(cfg.snapshot())
+    check("an effect gets a segment of its own, after the monitor strip",
+          seg0 == {"id": 0, "start": 0, "stop": 180} and (seg1["start"], seg1["stop"]) == (180, 240))
+    check("running the chosen effect at the chosen speed and brightness",
+          (seg1["fx"], seg1["sx"], seg1["bri"], seg1["on"]) == (9, 200, 128, True), seg1)
+    check("and is never selected, so the board's own page only changes the monitor strip", seg1["sel"] is False)
+    cfg.update({"bed_mode": "colour", "bed_colour": "ff8000"})
+    seg1 = bed.layout(cfg.snapshot())[1]
+    check("a picked colour is a solid segment in that colour", seg1["fx"] == 0 and seg1["col"] == [[255, 128, 0]])
+    cfg.update({"bed_mode": "off"})
+    check("off turns just the bed segment off", bed.layout(cfg.snapshot())[1]["on"] is False)
+
+    cfg.update({"bed_mode": "colour"})
+    want = bed.layout(cfg.snapshot())
+    right = {"ps": 1, "mainseg": 0, "seg": [
+        {"id": 0, "start": 0, "stop": 180, "on": True, "fx": 0},
+        {"id": 1, "start": 180, "stop": 240, "on": True, "fx": 0, "sx": 128, "bri": 128,
+         "col": [[255, 128, 0], [0, 0, 0], [0, 0, 0]]}]}
+    check("a board already in the wanted layout matches", bed.matches(right, want))
+    wrong = json.loads(json.dumps(right))
+    wrong["seg"][1]["col"][0] = [0, 0, 255]
+    check("a different bed colour does not", not bed.matches(wrong, want))
+    check("nor does a missing bed segment (a preset wiped it)", not bed.matches({**right, "seg": right["seg"][:1]}, want))
+    check("nor a moved main segment, which the stream would follow",
+          not bed.matches({**right, "mainseg": 1}, want))
+    spanning = bed.layout({**cfg.snapshot(), "bed_mode": "screen"})
+    check("a left-over bed segment does not match the spanning layout",
+          not bed.matches({**right, "seg": [{"id": 0, "start": 0, "stop": 240}, right["seg"][1]]}, spanning))
+    check("and the spanning layout matches once it is gone",
+          bed.matches({"mainseg": 0, "seg": [{"id": 0, "start": 0, "stop": 240}]}, spanning))
+
+    # --- keeping the board in that layout ------------------------------------
+    now = [100.0]
+    boardfake = FakeBedBoard(ps=-1)
+
+    class Engine:
+        running = False
+
+        def start(self):
+            self.running = True
+
+        def stop(self):
+            self.running = False
+
+    intent = SyncIntent(cfg, boardfake, Engine(), clock=lambda: now[0])
+    keeper = bed.Keeper(cfg, boardfake, intent, clock=lambda: now[0])
+    original_apply = boardfake.apply
+
+    def watching_apply(payload):
+        boardfake.paused_while_writing.append(intent.paused_until > now[0])
+        return original_apply(payload)
+
+    boardfake.apply = watching_apply
+    check("outside sync a wrong layout is fixed live, without saving anything",
+          keeper.tick(boardfake.live) == "applied" and "psave" not in boardfake.sent[-1]
+          and boardfake.sent[-1]["seg"] == want and boardfake.sent[-1]["mainseg"] == 0, boardfake.sent)
+
+    boardfake.sent.clear()
+    boardfake.live = {**boardfake.live, "ps": 1}
+    check("during sync the sync preset is rewritten with the bed in it", keeper.tick(boardfake.live) == "saved")
+    saved, reapplied = boardfake.sent
+    check("as a stored command (the board cannot snapshot its state while streaming)",
+          saved["psave"] == 1 and saved["o"] is True and saved["n"] == board.SYNC_NAME, saved)
+    check("keeping the board's sync look on the monitor segment",
+          {k: saved["seg"][0][k] for k in ("fx", "col")} == {k: board.SYNC_LOOK[k] for k in ("fx", "col")}
+          and (saved["seg"][0]["start"], saved["seg"][0]["stop"]) == (0, 180))
+    check("with the bed segment as wanted", saved["seg"][1] == want[1] and saved["mainseg"] == 0)
+    check("then sync is marked active again", reapplied == {"ps": 1})
+    check("and the watcher is held off meanwhile, so it cannot read a gap as 'sync stopped'",
+          boardfake.paused_while_writing[-1] is True and intent.paused_until == 0.0)
+    boardfake.sent.clear()
+    check("a second change right away waits (dragging a colour must not wear the flash)",
+          keeper.tick(boardfake.live) is None and not boardfake.sent)
+    now[0] += bed.SAVE_GAP_S + 0.1
+    check("and goes through a moment later", keeper.tick(boardfake.live) == "saved")
+    boardfake.sent.clear()
+    check("a board in the wanted layout is left alone", keeper.tick(right) is None and not boardfake.sent)
+    check("an unreachable board is left alone", keeper.tick(None) is None)
+
+    intent.watchers.append(keeper.tick)
+    now[0] += bed.SAVE_GAP_S + 0.1
+    boardfake.live = {**right, "seg": right["seg"][:1]}
+    intent.tick()
+    check("the sync watcher hands every look at the board to the keeper", boardfake.sent, boardfake.sent)
+
+    # --- the board's second output --------------------------------------------
+    hw_led = boardfake.hw["hw"]["led"]
+    payload = bed.bus_config(hw_led, 180, 2800, 60, 2500, 5)
+    monitor, second = payload["hw"]["led"]["ins"]
+    check("the monitor output keeps its pin and LEDs", {k: v for k, v in monitor.items() if k != "maxpwr"}
+          == {k: v for k, v in hw_led["ins"][0].items() if k != "maxpwr"})
+    check("the bed is a second output on the chosen pin (D1 = GPIO5), right after the monitor strip",
+          (second["pin"], second["start"], second["len"], second["type"]) == ([5], 180, 60, 22), second)
+    check("and the pin can be another, such as RX",
+          bed.bus_config(hw_led, 180, 2800, 60, 2500, 3)["hw"]["led"]["ins"][1]["pin"] == [3])
+    check("each strip is limited to its own adapter (WLED's per-output limiter)",
+          payload["hw"]["led"]["maxpwr"] == 0 and second["maxpwr"] == 2500 and monitor["maxpwr"] == 2800)
+    check("realtime data drives only the main segment, so a bed effect keeps running",
+          payload["if"]["live"]["mso"] is True and payload["hw"]["led"]["total"] == 240)
+    single = bed.bus_config(hw_led, 180, 3800, 0, 2500, 5)["hw"]["led"]
+    check("no bed: back to one output under one limit", len(single["ins"]) == 1 and single["maxpwr"] == 3800)
+    try:
+        bed.bus_config(hw_led, 200, 2800, 60, 2500, 5)
+        mismatch = ""
+    except ValueError as exc:
+        mismatch = str(exc)
+    check("a board whose first output is shorter than the monitor strip is refused", "monitor" in mismatch, mismatch)
+    longer = bed.bus_config(hw_led, 97, 2800, 60, 2500, 5)["hw"]["led"]
+    check("a monitor output longer than the LEDs round the screen is kept, and the bed starts after it",
+          longer["ins"][0]["len"] == 180 and longer["ins"][1]["start"] == 180 and longer["total"] == 240)
+
+    class Hub:
+        wled = boardfake
+
+        def __init__(self):
+            self.cfg = cfg
+
+        def status(self):
+            return {}
+
+    hub = Hub()
+    hub.intent = intent
+    body, code = routes.handle(hub, "/api/bed/setup", parse_qs("leds=72&amps=3"))
+    check("setting up the bed strip writes the board's outputs and restarts it",
+          code == 200 and boardfake.configs[-1]["hw"]["led"]["ins"][1]["len"] == 72 and boardfake.reboots == 1,
+          (code, body))
+    check("and remembers the strip and its adapter", cfg.get("bed_leds") == 72 and cfg.get("bed_power_ma") == 3000)
+    check("the board holds the monitor strip to the hub's own power limit",
+          boardfake.configs[-1]["hw"]["led"]["ins"][0]["maxpwr"] == cfg.get("power_limit_ma"))
+    check("and remembers where the bed starts on the board", cfg.get("bed_start") == 180)
+    body, code = routes.handle(hub, "/api/bed/setup", parse_qs("leds=5000&amps=3"))
+    check("an impossible LED count is refused", code == 400 or "error" in body, (code, body))
+
+    class Wizard:
+        def count_start(self, reported):
+            return {"reported": reported}
+
+    class CountHub(Hub):
+        wizard = Wizard()
+
+        class wled:
+            @staticmethod
+            def led_count():
+                return 252
+
+    count_hub = CountHub()
+    count_hub.intent = intent
+    count_hub.engine = Engine()
+    body, _ = routes.handle(count_hub, "/api/wizard/count/start", parse_qs(""))
+    check("the LED-count wizard counts the monitor strip, not the bed", body["reported"] == 180, body)
+
+    # --- what the bed shows while following the screen --------------------
+    cfg.update({"bed_leds": 30, "bed_mode": "screen", "bed_look": "mood", "bed_brightness": 1.0,
+                "bed_power_ma": 20000, "black_level": 0.0})
+    red_scene = np.array([[0.8, 0.05, 0.05]] * 120 + [[0.1, 0.1, 0.6]] * 40 + [[0.5, 0.5, 0.5]] * 20, np.float32)
+    mood = bed.mood(red_scene)
+    check("the mood is the scene's strongest colour, not a muddy average", mood[0] > 3 * mood[2], mood)
+    grey = bed.mood(np.full((180, 3), 0.4, np.float32))
+    check("a grey scene gives a grey mood", np.ptp(grey) < 0.02, grey)
+
+    frame_cfg = {**cfg.snapshot(), "layout": "frame", "edge_bottom": 60, "edge_right": 30,
+                 "edge_top": 60, "edge_left": 30, "bed_look": "side"}
+    ring = np.zeros((180, 3), np.float32)
+    ring[:60] = [1, 0, 0]
+    ring[60:90] = [0, 1, 0]
+    ring[90:150] = [0, 0, 1]
+    ring[150:] = [1, 1, 0]
+    for side, colour in (("bottom", [1, 0, 0]), ("right", [0, 1, 0]), ("top", [0, 0, 1]), ("left", [1, 1, 0])):
+        got = bed.side_colours(ring, {**frame_cfg, "bed_side": side}, 30)
+        check(f"'{side}' spreads that edge of the screen along the bed", np.allclose(got, colour), got[:2])
+    whole = bed.side_colours(ring, {**frame_cfg, "bed_side": "whole"}, 30)
+    check("'whole' stretches the full ring along the bed", len(whole) == 30 and np.allclose(whole[0], [1, 0, 0])
+          and np.allclose(whole[-1], [1, 1, 0]))
+    strip = bed.side_colours(ring, {**frame_cfg, "layout": "strip", "bed_side": "left"}, 30)
+    check("a strip under the screen has only one side, so any side means all of it", np.allclose(strip, whole))
+
+    low = ring.copy()
+    low[:30] = [1, 0, 0]        # bottom edge, left half red
+    low[30:60] = [0, 0, 1]      # bottom edge, right half blue
+    blend_cfg = {**frame_cfg, "bed_look": "blend", "bed_reverse": False}
+    blended = bed.blend_colours(low, blend_cfg, 30)
+    check("the bed sits low, so it starts as the screen's bottom-right corner beside the monitor",
+          np.allclose(blended[0], [0, 0, 1]), blended[0])
+    check("and eases into the scene's mood colour at the far end",
+          np.allclose(blended[-1], bed.mood(low), atol=1e-4), (blended[-1], bed.mood(low)))
+    check("it never takes its colours from the top of the screen",
+          all(not np.allclose(px, [0, 1, 0]) for px in blended))
+    even_edge = low.copy()
+    even_edge[:60] = [0, 0, 1]
+    ramp_steps = np.abs(np.diff(bed.blend_colours(even_edge, blend_cfg, 30), axis=0)).max()
+    check("the hand-over from the screen's edge to the mood has no jump", ramp_steps < 0.25, ramp_steps)
+    flipped = bed.blend_colours(low, {**blend_cfg, "bed_reverse": True}, 30)
+    check("a strip laid the other way round starts from its other end",
+          np.allclose(flipped[-1], [0, 0, 1]) and np.allclose(flipped[0], bed.mood(low), atol=1e-4))
+    check("the look is a valid setting", cfg.validate("bed_look", "blend") == "blend"
+          and cfg.validate("bed_reverse", "1") is True)
+
+    stage = OutputStage()
+    stage.set_target(red_scene, 0.0)
+    live = cfg.snapshot()
+    out = stage.frame(0.0, live)
+    check("following the screen, each frame carries the monitor strip and then the bed",
+          out.shape == (210, 3) and out.dtype == np.uint8)
+    check("the whole bed glows one mood colour", len({tuple(p) for p in out[180:]}) == 1 and out[180][0] > out[180][2])
+    blue_edge_scene = red_scene.copy()
+    blue_edge_scene[:3] = [0.05, 0.05, 0.9]     # the first LED is blue; the scene is red
+    blend_stage = OutputStage()
+    blend_stage.set_target(blue_edge_scene, 0.0)
+    blend_out = blend_stage.frame(0.0, {**live, "bed_look": "blend"})
+    check("the blend look fills the bed after the monitor strip, and the bed's two ends differ",
+          blend_out.shape == (210, 3) and not np.array_equal(blend_out[180], blend_out[-1]), blend_out[[180, -1]])
+    check("an effect or colour on the bed is the board's job: frames stay monitor-only",
+          stage.frame(0.1, {**live, "bed_mode": "effect"}).shape == (180, 3))
+    dim = OutputStage()
+    dim.set_target(red_scene, 0.0)
+    slow, fast = OutputStage(), OutputStage()
+    for stage_under_test, response in ((slow, 0.1), (fast, 0.9)):
+        stage_under_test.set_target(np.full((180, 3), 0.2, np.float32), 0.0)
+        stage_under_test.frame(0.0, {**live, "bed_look": "side", "blend": response})
+        stage_under_test.set_target(np.full((180, 3), 0.35, np.float32), 0.05)     # a move too small to count as a cut
+    quick_bed = fast.frame(0.1, {**live, "bed_look": "side", "blend": 0.9})[180:].astype(int).sum()
+    gentle_bed = slow.frame(0.1, {**live, "bed_look": "side", "blend": 0.1})[180:].astype(int).sum()
+    check("the bed moves at the monitor's Response, not at a pace of its own", quick_bed > gentle_bed, (quick_bed, gentle_bed))
+    check("bed brightness scales only the bed",
+          np.array_equal(dim.frame(0.0, {**live, "bed_brightness": 0.0})[180:], np.zeros((30, 3), np.uint8)))
+    bright = OutputStage()
+    bright.set_target(np.ones((180, 3), np.float32), 0.0)
+    limited = bright.frame(0.0, {**live, "bed_power_ma": 400})[180:]
+    check("the bed keeps to its own adapter's current", estimate_ma(limited) <= 400 * 1.02, estimate_ma(limited))
+    short = OutputStage()
+    short.set_target(red_scene[:97], 0.0)
+    padded = short.frame(0.0, {**live, "led_count": 97, "bed_start": 180})
+    check("with 97 LEDs round the screen on a 180-LED output, the rest stay dark and the bed follows at 180",
+          padded.shape == (210, 3) and not padded[97:180].any() and padded[180:].any())
+    check("and the bed's segments start there too",
+          bed.layout({**live, "led_count": 97, "bed_start": 180, "bed_mode": "colour"})[1]["start"] == 180)
+
+
 class FakeProcess:
     """A finished child process: its output lines, then an exit code."""
 
@@ -2501,6 +2817,7 @@ def main():
     test_user_profiles()
     test_colour_locks()
     test_webcam_job()
+    test_bed_strip()
     test_engine_parts()
     with sandbox_hub() as base:
         test_api(base)

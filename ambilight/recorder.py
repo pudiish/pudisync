@@ -48,9 +48,9 @@ def replay(path, cfg):
     data = np.load(path)
     times, frames = data["times"], data["frames"]
     stage = OutputStage()
-    # The real output path, safety layer included; zones do not apply to a
-    # recording of the sync layer alone.
-    replay_cfg = dict(cfg, zones=[], led_count=frames.shape[1] if frames.ndim == 3 else 0)
+    # The real output path, safety layer included; zones and the bed strip do
+    # not apply to a recording of the monitor's sync layer alone.
+    replay_cfg = dict(cfg, zones=[], bed_leds=0, led_count=frames.shape[1] if frames.ndim == 3 else 0)
     out = []
     for now, linear in zip(times, frames):
         stage.set_target(color.grade(linear, cfg), now)
