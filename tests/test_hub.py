@@ -2890,6 +2890,16 @@ def test_telemetry_api(base):
     check("frames are delivered to the board", t["delivered_fps"] > 20, t["delivered_fps"])
     check("diagnostics carries the same block", set(get("/api/diagnostics")["telemetry"]) == set(t))
 
+    import re
+    html = open("ambilight/web/index.html").read()
+    script = re.search(r"function renderTiming\(s\) \{.*?\n\}", html, re.S).group(0)
+    stages = re.search(r"const TIMING_STAGES = (\[.*?\]);", html, re.S).group(1)
+    check("the page has a Timing panel", 'id="timing"' in html and "renderTiming(s);" in html)
+    check("every timing figure the page reads is in the status",
+          set(re.findall(r"\bt\.(\w+)", script)) <= set(t) and "measured_fps" in s,
+          set(re.findall(r"\bt\.(\w+)", script)) - set(t))
+    check("the page shows every stage the hub times", set(re.findall(r'\["(\w+)", "', stages)) == set(STAGES))
+
 
 @contextmanager
 def sandbox_hub():

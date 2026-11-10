@@ -644,6 +644,12 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
         <p class="hint">Takes effect when the hub restarts.</p></form>
     </div>
     <div class="panel">
+      <h2>Timing</h2>
+      <p class="hint">How fast the light follows the screen. Fresh frames are new pictures of the screen;
+        delivered frames include the smooth steps between them. Times are the median and the slowest 5%.</p>
+      <dl class="kv" id="timing"></dl>
+    </div>
+    <div class="panel">
       <h2>Health</h2>
       <dl class="kv" id="health"></dl>
       <button class="btn" type="button" data-action="health">Refresh</button>
@@ -884,6 +890,7 @@ function render(s) {
   renderSetup(s);
   renderZonesFromStatus(s);
   renderAdvanced(s);
+  renderTiming(s);
   if (currentTab === "override") drawPaint();
 }
 
@@ -1374,6 +1381,24 @@ function renderAdvanced(s) {
   setText($("pin-state"), s.has_pin ? "A PIN is set. Each device asks for it once."
     : "No PIN: anyone on your Wi-Fi can control the lights.");
   $("pin-remove").hidden = !s.has_pin;
+}
+
+const TIMING_STAGES = [["capture", "Screen capture"], ["process", "Edges to LEDs"], ["colour", "Colour"],
+  ["smooth", "Smoothing"], ["send", "Send"]];
+
+function renderTiming(s) {
+  const t = s.running ? s.telemetry : null;
+  const ms = v => `${Number(v).toFixed(1)} ms`;
+  const spread = p => p && p.p50 != null ? `${ms(p.p50)} · ${ms(p.p95)}` : "—";
+  const rows = [
+    ["Fresh frames", t ? `${Number(s.measured_fps).toFixed(1)} fps` : "—"],
+    ["Delivered", t ? `${Number(t.delivered_fps).toFixed(1)} fps` : "—"],
+    ["Dropped", t ? String(t.dropped) : "—"],
+    ["Screen to send", t ? spread(t.latency_ms) : "—"],
+    ...TIMING_STAGES.map(([key, name]) => [name, t ? spread(t.stages_ms[key]) : "—"]),
+  ];
+  $("timing").replaceChildren(...rows.flatMap(([name, value]) =>
+    [make("dt", {textContent: name}), make("dd", {textContent: value})]));
 }
 
 function loadMonitors() {
