@@ -1686,6 +1686,69 @@ api("/api/status").then(
           result and result.get("kind") == "offline", result)
     check("...within five seconds", result and result.get("kind") == "offline" and result["ms"] < 5000, result)
 
+    answers = run_node(constants + "\n" + timed + "\n" + plumbing + r"""
+let pin = "";
+const pinHeaders = () => ({});
+function showLocked() {}
+const replies = [[403, {error: "PIN required or incorrect"}],
+                 [429, {error: "too many wrong PINs from this device; try again in a minute"}],
+                 [500, {error: "the hub hit an internal error; see its log"}]];
+(async () => {
+  const kinds = [];
+  for (const [code, body] of replies) {
+    globalThis.fetch = async () => new Response(JSON.stringify(body), {status: code});
+    try { await api("/api/status"); kinds.push("answered"); } catch (err) { kinds.push(err.kind); }
+  }
+  console.log(JSON.stringify(kinds));
+})();
+""")
+    check("a PIN refusal, a lockout and a hub error are told apart",
+          answers == ["locked", "throttled", "failed"], answers)
+
+    views = run_node("\n".join(js_block(script, start) for start in
+                               ("function ago", "function linkView", "function friendly")) + r"""
+const now = 1000000;
+const out = {
+  asleep: linkView({kind: "offline", lastSeen: now - 12000, now}),
+  never: linkView({kind: "offline", lastSeen: 0, now}),
+  long: linkView({kind: "offline", lastSeen: now - 3 * 60000, now}),
+  throttled: linkView({kind: "throttled", lastSeen: now, now}),
+  boardDown: linkView({kind: "ok", lastSeen: now, now, wledReachable: false, syncing: false}),
+  boardDownSyncing: linkView({kind: "ok", lastSeen: now, now, wledReachable: false, syncing: true}),
+  fine: linkView({kind: "ok", lastSeen: now, now, wledReachable: true, syncing: true}),
+  locked: linkView({kind: "locked", lastSeen: now, now}),
+  screenAsleep: friendly("no display to capture -- the screen is asleep or the lid is closed. Sync resumes on its own when it wakes."),
+  boardGone: friendly("could not reach the lights: 192.168.29.40:21324 [Errno 64] Host is down"),
+};
+console.log(JSON.stringify(out));
+""")
+    if views and "error" not in views:
+        check("an unreachable hub says when it was last seen",
+              "last seen 12 s ago" in views["asleep"]["offline"], views["asleep"])
+        check("...in minutes once it has been a while", "last seen 3 min ago" in views["long"]["offline"])
+        check("...and leaves the time out when it was never seen", "last seen" not in views["never"]["offline"])
+        check("it says the hub only answers at home, for a phone that is out",
+              "home Wi-Fi" in views["asleep"]["offline"])
+        check("a PIN lockout says to wait a minute instead of going quiet",
+              "Wait a minute" in (views["throttled"]["throttled"] or ""))
+        check("a board that stops answering gets its own banner",
+              "isn't answering" in (views["boardDown"]["board"] or ""))
+        check("...except while syncing, where NO LINK and the engine's error say it",
+              views["boardDownSyncing"]["board"] is None)
+        check("all well, or a PIN to enter, shows no connection banner",
+              all(v is None for key in ("fine", "locked") for v in views[key].values()), views["fine"])
+        check("a sleeping screen is not blamed on the display choice",
+              "asleep" in views["screenAsleep"] and "Pick another display" not in views["screenAsleep"],
+              views["screenAsleep"])
+        check("a send that fails with 'Host is down' is explained as the LED board",
+              "LED controller" in views["boardGone"], views["boardGone"])
+    else:
+        check("the connection states run under node", False, views)
+
+    check("Wi-Fi coming back retries at once", 'addEventListener("online", poll)' in script)
+    check("a page restored from the back-forward cache refreshes", '"pageshow"' in script)
+    check("the page still never builds markup from strings", "innerHTML" not in script)
+
 
 def test_fake_wled_presets():
     print("\n26. The fake WLED clears the active preset on a manual change, like the real board")

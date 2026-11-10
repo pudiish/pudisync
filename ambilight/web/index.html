@@ -254,7 +254,9 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 
 <main>
   <div role="status" aria-live="polite">
-    <div class="banner" id="offline-banner" hidden><p>Hub offline — retrying.</p></div>
+    <div class="banner" id="offline-banner" hidden><p id="offline-text">Hub offline — retrying.</p></div>
+    <div class="banner fault" id="throttled-banner" hidden><p id="throttled-text"></p></div>
+    <div class="banner fault" id="board-banner" hidden><p id="board-text"></p></div>
     <div class="banner" id="locked-banner" hidden><p>This hub is protected by a PIN.</p>
       <button class="btn small" type="button" data-action="unlock">Enter PIN</button></div>
     <div class="banner fault" id="engine-banner" hidden><p id="engine-error"></p></div>
@@ -710,7 +712,7 @@ const FADERS = {
 const $ = id => document.getElementById(id);
 const $$ = sel => [...document.querySelectorAll(sel)];
 const faders = {}, editedAt = {};
-let state = null, pin = readPin(), offline = false, pinDismissed = false, currentTab = "";
+let state = null, pin = readPin(), offline = false, pinDismissed = false, currentTab = "", lastSeen = 0;
 let wizardLive = false, markerAt = null, effects = [], activeFx = null, lookName = "";
 let metaLoadedAt = 0, zones = [], zonesJson = "", previewKey = "", urlsKey = "", flashLogSize = -1;
 let profilesKey = "", selection = null, dragFrom = null, lockKeep = true, webcamTimer = 0;
@@ -756,6 +758,7 @@ async function api(path, params) {
   const body = await res.json().catch(() => ({}));
   showLocked(res.status === 403);
   if (res.status === 403) throw new HubError("locked", "Enter the hub's PIN to continue.");
+  if (res.status === 429) throw new HubError("throttled", body.error || "Too many wrong PINs; wait a minute.");
   if (!res.ok || body.error) throw new HubError("failed", body.error || `The hub answered ${res.status}.`);
   if (body.ok === false) throw new HubError("failed", "The controller didn't respond. Is it powered and on Wi-Fi?");
   return body;
@@ -825,10 +828,12 @@ function toast(message, kind = "info", action) {
 function friendly(error) {
   if (/screen recording|not permitted|permission/i.test(error))
     return "macOS is blocking screen capture. Open System Settings › Privacy & Security › Screen Recording, allow the hub, then restart it.";
-  if (/udp send failed|unreachable|timed out|no route/i.test(error))
+  if (/udp send failed|could not reach the lights|host is down|unreachable|timed out|no route/i.test(error))
     return "Can't reach the LED controller. Check it's powered on and joined to Wi-Fi.";
   if (/serial/i.test(error))
     return "The USB link to the controller failed. Check the cable, or switch output to Wi-Fi in Advanced.";
+  if (/asleep|lid is closed/i.test(error))
+    return "Your Mac's screen is asleep or its lid is closed. Sync resumes on its own when it wakes.";
   if (/display|monitor/i.test(error))
     return "The display being captured isn't available. Pick another display in Advanced.";
   return `The hub reported a problem: ${error}`;
@@ -840,12 +845,49 @@ let pollTimer = 0, pollBusy = false;
 async function refresh() {
   try {
     render(await api("/api/status"));
-    setOffline(false);
+    lastSeen = Date.now();
+    showLink("ok");
     return true;
   } catch (err) {
-    if (err.kind === "offline") setOffline(true);
+    showLink(err.kind);
     return false;
   }
+}
+
+function ago(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 5) return "just now";
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  return `${Math.round(s / 3600)} h ago`;
+}
+
+/* Everything the page says about its links to the hub and the board. Pure, so
+   the tests can run it for each situation. While syncing, a lost board shows
+   as NO LINK plus the engine's own error instead. */
+function linkView({kind, lastSeen, now, wledReachable, syncing}) {
+  const view = {offline: null, throttled: null, board: null};
+  if (kind === "offline") {
+    view.offline = `Can't reach the hub${lastSeen ? ` · last seen ${ago(now - lastSeen)}` : ""}. Retrying. ` +
+      "If your Mac is asleep or the hub is stopped, wake or start it. " +
+      "Away from home? The hub only answers on your home Wi-Fi.";
+  } else if (kind === "throttled") {
+    view.throttled = "Too many wrong PINs from this device. Wait a minute, then try again.";
+  } else if (kind === "ok" && wledReachable === false && !syncing) {
+    view.board = "The LED board isn't answering. It may be restarting or off Wi-Fi; the hub keeps trying.";
+  }
+  return view;
+}
+
+function showLink(kind) {
+  const view = linkView({kind, lastSeen, now: Date.now(), wledReachable: state && state.wled_reachable,
+    syncing: !!state && modeOf(state) === "sync"});
+  setOffline(!!view.offline);
+  setText($("offline-text"), view.offline || "");
+  $("throttled-banner").hidden = !view.throttled;
+  setText($("throttled-text"), view.throttled || "");
+  $("board-banner").hidden = !view.board;
+  setText($("board-text"), view.board || "");
 }
 
 async function poll() {
@@ -1831,6 +1873,8 @@ function wire() {
   $("unlock").addEventListener("cancel", () => { pinDismissed = true; });
   window.addEventListener("resize", debounce(() => { previewKey = ""; renderPreview(); drawPaint(); }, 150));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+  window.addEventListener("online", poll);   // Wi-Fi is back: don't wait for the slow offline retry
+  window.addEventListener("pageshow", event => { if (event.persisted) poll(); });
   window.addEventListener("pagehide", () => {
     if (wizardLive) fetch("/api/wizard/stop", {keepalive: true, cache: "no-store", headers: pinHeaders()});
   });
