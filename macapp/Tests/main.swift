@@ -52,5 +52,40 @@ check("the left zone takes the bottom left's colour", zones[0].r > 0.4 && zones[
 check("the right zone takes the bottom right's colour", zones[2].b > 0.4 && zones[2].r == 0, zones)
 check("no preview, no zones", mouseZones(preview: [], ledCount: 97, bottomEdge: 35, frame: true).isEmpty)
 
+print("Ambient choices")
+let tablesJSON = """
+{"modes": [{"name": "movie", "label": "Cinema", "about": "Glides gently."},
+           {"name": "game", "label": "Gaming", "about": "Follows the action."}],
+ "glows": [{"name": "deep-sea", "label": "Deep sea", "about": "Blues.", "fx": 101, "color": null,
+            "speed": 100, "intensity": 128},
+           {"name": "ember", "label": "Ember", "about": "Reds.", "fx": 88, "color": "ff4010",
+            "speed": 96, "intensity": 224}],
+ "bed": [{"name": "exactly", "label": "Exactly", "about": "Edges.",
+          "set": {"bed_mode": "screen", "bed_look": "side", "bed_side": "whole"}}]}
+"""
+let tables = try? JSONDecoder().decode(AmbientTables.self, from: Data(tablesJSON.utf8))
+check("the hub's tables decode", tables?.modes.map(\.name) == ["movie", "game"] && tables?.glows.count == 2,
+      String(describing: tables))
+let exactly = tables!.bed[0]
+check("a glow without a colour decodes", tables!.glows[0].color == nil && tables!.glows[1].color == "ff4010")
+check("words decode", exactly.set["bed_look"] == .text("side"))
+check("a choice becomes one /api/set query", exactly.query == ["bed_mode": "screen", "bed_look": "side", "bed_side": "whole"],
+      exactly.query)
+var current: [String: PresetValue] = ["bed_mode": .text("screen"), "bed_look": .text("side"), "bed_side": .text("whole"),
+                                      "bed_brightness": .number(0.6)]
+check("a choice is lit while its settings match", ambientMatches(exactly) { current[$0] })
+current["bed_side"] = .text("bottom")
+check("one word off and it no longer matches", !ambientMatches(exactly) { current[$0] })
+let dim = AmbientPreset(name: "dim", label: "Dim", about: "", set: ["bed_brightness": .number(0.6)])
+check("a number in a choice reads back as a number", dim.query == ["bed_brightness": "0.6"], dim.query)
+current["bed_brightness"] = .number(0.604)
+check("numbers match to within 0.005, as on the phone", ambientMatches(dim) { current[$0] })
+current["bed_brightness"] = .number(0.65)
+check("a moved fader means it no longer matches", !ambientMatches(dim) { current[$0] })
+check("a setting the app cannot read never matches", !ambientMatches(exactly) { _ in nil })
+check("Cinema's 0.3 settles in 0.37 s and Gaming's 0.7 in 0.13 s, as the hub works it out",
+      abs(settleSeconds(blend: 0.3) - 0.37) < 0.005 && abs(settleSeconds(blend: 0.7) - 0.13) < 0.005,
+      (settleSeconds(blend: 0.3), settleSeconds(blend: 0.7)))
+
 print("\n\(passed) passed, \(failed.count) failed")
 exit(failed.isEmpty ? 0 : 1)

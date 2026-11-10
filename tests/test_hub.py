@@ -2717,32 +2717,29 @@ def test_board_address_cache():
 
 
 def test_ambient_tables():
-    print("\n40. Ambient presets: named looks made of existing settings")
+    print("\n40. Ambient choices: sync modes, room glows and the bed, made of what the hub has")
     from ambilight import ambient, routes
     from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
     from ambilight.effects import EFFECTS
 
     cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-ambient-"), "config.json"))
     tables = ambient.tables()
-    check("the tables hold styles, paces, glows and the bed's choices",
-          sorted(tables) == ["bed", "glows", "paces", "styles"] and all(tables.values()))
+    check("the tables hold the sync modes, the glows and the bed's choices",
+          sorted(tables) == ["bed", "glows", "modes"] and all(tables.values()))
     for group, presets in tables.items():
         names = [p["name"] for p in presets]
         check(f"{group}: every choice has its own name, a label and a line about it",
               len(names) == len(set(names)) and all(p["label"] and p["about"] for p in presets), names)
-    setters = tables["styles"] + tables["paces"] + tables["bed"]
+    modes = tables["modes"]
+    check("the sync modes are exactly the built-in profiles, Cinema then Gaming",
+          [m["name"] for m in modes] == list(PROFILES) == ["movie", "game"]
+          and [m["label"] for m in modes] == ["Cinema", "Gaming"], modes)
+    check("a sync mode carries no settings of its own: the profile owns every value",
+          all(set(m) == {"name", "label", "about"} for m in modes))
+    setters = tables["bed"]
     bad = [(p["name"], k, v) for p in setters for k, v in p["set"].items()
            if k not in DEFAULTS or cfg.validate(k, v) != v]
-    check("every preset sets real settings to values they accept as they are", not bad, bad)
-    balanced = next(p for p in tables["styles"] if p["name"] == "balanced")["set"]
-    check("Balanced is the hub's default look, so a fresh install shows it chosen",
-          all(DEFAULTS[k] == v for k, v in balanced.items()), balanced)
-    styles = [tuple(sorted(p["set"].items())) for p in tables["styles"]]
-    check("no two styles are the same look", len(styles) == len(set(styles)))
-    paces = {p["name"]: p["set"]["blend"] for p in tables["paces"]}
-    check("Smooth is Cinema's pace and Instant is Gaming's",
-          paces["smooth"] == PROFILES["movie"]["blend"] and paces["instant"] == PROFILES["game"]["blend"], paces)
-    check("the paces run from slowest to fastest", list(paces.values()) == sorted(set(paces.values())), paces)
+    check("every bed choice sets real settings to values they accept as they are", not bad, bad)
     offered = {fx for fx, *_ in EFFECTS} | {0}
     glows = tables["glows"]
     check("every glow runs an effect the board offers, or a plain colour",
@@ -2750,7 +2747,7 @@ def test_ambient_tables():
     check("every glow colour is six hex digits", all(g["color"] is None or routes.hex_colour(g["color"]) for g in glows))
     check("glow speed and intensity are in WLED's 0-255",
           all(0 <= g[k] <= 255 for g in glows for k in ("speed", "intensity")))
-    check("a profile of your own keeps everything the Ambient screen sets",
+    check("a profile of your own keeps how the bed follows",
           all(k in PROFILE_KEYS for p in setters for k in p["set"]))
     check("the tables survive JSON unchanged", json.loads(json.dumps(tables)) == tables)
 
@@ -2936,9 +2933,12 @@ def test_ambient_api(base):
             return json.loads(r.read())
 
     tables = get("/api/ambient")
-    check("/api/ambient serves the presets", sorted(tables) == ["bed", "glows", "paces", "styles"])
+    check("/api/ambient serves the choices", sorted(tables) == ["bed", "glows", "modes"])
     before = get("/api/config")
-    for group in ("styles", "paces", "bed"):
+    for mode in tables["modes"]:
+        s = get(f"/api/profile/{mode['name']}")
+        check(f"sync mode {mode['label']}: applies the {mode['name']} profile", s["profile"] == mode["name"])
+    for group in ("bed",):
         for preset in tables[group]:
             start = get("/api/config")
             after = get("/api/set", preset["set"])
@@ -2999,8 +2999,7 @@ def test_ambient_api(base):
     check("the fade time is kept to 0-10 s", get("/api/set", {"off_fade_s": 99})["off_fade_s"] == 10.0
           and get("/api/set", {"off_fade_s": -2})["off_fade_s"] == 0.0)
 
-    restore = {k: before[k] for k in ("saturation", "immersion", "blend", "bed_mode", "bed_look", "bed_side",
-                                      "off_fade_s")}
+    restore = {k: before[k] for k in ("bed_mode", "bed_look", "bed_side", "off_fade_s")}
     get("/api/set", restore)
 
 
@@ -3036,7 +3035,8 @@ def test_ambient_browser(base):
     get("/api/set", {"bed_leds": 30})       # the bed's controls only show with a bed strip
     get("/api/sync/on")
     # The default look, so every size shows the same choices lit.
-    get("/api/set", {"saturation": 1.2, "immersion": 0.0, "blend": 0.3, "bed_mode": "screen", "bed_look": "mood"})
+    get("/api/profile/movie")
+    get("/api/set", {"bed_mode": "screen", "bed_look": "mood"})
     sizes = [("iphone-se", 375, 667), ("iphone", 390, 844), ("ipad", 820, 1180), ("mac-narrow", 860, 700),
              ("mac", 1280, 800)]
     with sync_playwright() as pw:
@@ -3050,7 +3050,7 @@ def test_ambient_browser(base):
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=2)
             page.on("pageerror", lambda exc: errors.append(str(exc)))
             page.goto(base + "/#ambient")
-            page.wait_for_selector("#amb-styles .tile", timeout=8000)
+            page.wait_for_selector("#amb-modes .tile", timeout=8000)
             page.wait_for_function("document.querySelector('[data-action=ambient-follow][data-value=screen]')"
                                    ".getAttribute('aria-pressed') === 'true'", timeout=8000)
             return page
@@ -3068,8 +3068,8 @@ def test_ambient_browser(base):
                   not fit["sideways"] and not fit["header"] and not fit["clipped"], fit)
             lit = page.evaluate("[...document.querySelectorAll('#tab-ambient [aria-pressed=true]')]"
                                 ".map(b => b.dataset.preset || b.dataset.value)")
-            check(f"{name}: the default look shows Screen, Balanced, Smooth and Loosely lit",
-                  sorted(lit) == ["balanced", "loosely", "screen", "smooth"], lit)
+            check(f"{name}: the default look shows Screen, Cinema and Loosely lit",
+                  sorted(lit) == ["loosely", "movie", "screen"], lit)
             check(f"{name}: the page runs without script errors", not errors, errors[:2])
             if shots:
                 page.screenshot(path=os.path.join(shots, f"web-{name}.png"))
@@ -3091,7 +3091,15 @@ def test_ambient_browser(base):
               input.dispatchEvent(new Event('input', {bubbles: true}));
             }""", [key, value])
 
-        for group, holder in (("styles", "#amb-styles"), ("paces", "#amb-paces"), ("bed", "#amb-bed-follow")):
+        for mode in tables["modes"]:
+            click(f'#amb-modes [data-preset="{mode["name"]}"]')
+            s = settles(lambda st: st["profile"] == mode["name"])
+            lit = page.wait_for_function(
+                f"""document.querySelector('#amb-modes [data-preset="{mode["name"]}"]')"""
+                ".getAttribute('aria-pressed') === 'true'", timeout=4000) is not None
+            check(f"tapping sync mode {mode['label']} applies the {mode['name']} profile, and lights it",
+                  s["profile"] == mode["name"] and lit)
+        for group, holder in (("bed", "#amb-bed-follow"),):
             for preset in tables[group]:
                 click(f'{holder} [data-preset="{preset["name"]}"]')
                 s = settles(lambda st: all(st[k] == v for k, v in preset["set"].items()))
@@ -3109,9 +3117,6 @@ def test_ambient_browser(base):
             slide(key, value)
             s = settles(lambda st: abs(st[setting] - expect) < 1e-6)
             check(f"the {setting} fader sets {setting}", abs(s[setting] - expect) < 1e-6, s[setting])
-        check("after a fader moves, no style claims the look",
-              page.evaluate("[...document.querySelectorAll('#amb-styles .tile')]"
-                            ".every(t => t.getAttribute('aria-pressed') === 'false')"))
         mouse_was = get("/api/status")["mouse_sync"]
         click("#tab-ambient [data-switch=mouse_sync]")
         s = settles(lambda st: st["mouse_sync"] != mouse_was)

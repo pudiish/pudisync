@@ -64,6 +64,12 @@ struct HubStatus: Decodable {
     var bedReverse: Bool?
     var safety: Safety?
     var lastError: String?
+    // Read by the Ambient page; optional, so an older hub still decodes.
+    var whiteKelvin: Double?
+    var offFadeS: Double?
+    var ledMatrix: [Double]?
+    var fading: Bool?
+    var wledBri: Double?
 
     var syncing: Bool { mode == "sync" }
     var edges: [Int] { [edgeBottom, edgeRight, edgeTop, edgeLeft] }
@@ -77,6 +83,8 @@ struct HubStatus: Decodable {
         case "blend": return blend
         case "bed_brightness": return bedBrightness
         case "bed_speed": return bedSpeed
+        case "white_kelvin": return whiteKelvin
+        case "off_fade_s": return offFadeS
         default: return nil
         }
     }
@@ -236,6 +244,53 @@ final class HubStore: ObservableObject {
     func saveProfile(_ name: String) { act("/api/profiles/save", ["name": name]) }
 
     func deleteProfile(_ name: String) { act("/api/profiles/delete", ["name": name]) }
+
+    // MARK: ambient
+
+    @Published private(set) var ambient: AmbientTables?
+    @Published private(set) var glowName = ""
+
+    func loadAmbient() {
+        guard ambient == nil else { return }
+        Task {
+            do {
+                ambient = try await client.get("/api/ambient")
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    /// A preset's settings, all in one request.
+    func apply(preset: AmbientPreset) { act("/api/set", preset.query) }
+
+    func run(glow: AmbientGlow) {
+        glowName = glow.name
+        var query = ["fx": String(glow.fx), "speed": String(glow.speed), "intensity": String(glow.intensity)]
+        if let color = glow.color { query["color"] = color }
+        act("/api/effect/run", query)
+    }
+
+    /// Lights off, faded over the hub's off_fade_s; the status says "fading" meanwhile.
+    func switchOff() { act("/api/ambient/off") }
+
+    /// The board's own brightness (what a glow runs at), after the same pause as a slider.
+    func sendBoardBrightness(_ value: Double) {
+        pending["wled_bri"]?.cancel()
+        pending["wled_bri"] = Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            do {
+                let reply: [String: Bool] = try await client.get("/api/wled/brightness",
+                                                                  ["value": String(Int(value.rounded()))])
+                if reply["ok"] == false {
+                    report(HubError(message: "The controller didn't respond. Is it powered and on Wi-Fi?"))
+                }
+            } catch {
+                report(error)
+            }
+        }
+    }
 
     // MARK: bed strip
 

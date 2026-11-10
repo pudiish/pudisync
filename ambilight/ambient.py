@@ -1,34 +1,21 @@
-"""The Ambient screen's presets: looks picked by feel, made of existing settings.
+"""The Ambient screen's choices: picked by feel, made of what the hub already has.
 
-TV ambient lighting and light-sync apps offer a few named looks instead of
-sliders: how colourful the light is, how fast it follows the picture, a glow
-for the room when the screen is not followed, and how closely lights round
-the room follow. These tables give the phone page and the Mac app the same
-choices. Applying one goes through the ordinary /api/set and /api/effect/run,
-so nothing here is a setting of its own; docs/AMBIENT.md maps each to its source.
+TV ambient lighting and light-sync apps offer a few named choices instead of
+sliders: a mode for following the picture, a glow for the room when the screen
+is not followed, and how closely lights round the room follow. These tables
+give the phone page and the Mac app the same choices. A sync mode is one of
+the built-in profiles (config.PROFILES, applied by /api/profile/<name>); the
+rest go through the ordinary /api/set and /api/effect/run, so nothing here is
+a setting of its own. docs/AMBIENT.md maps each to its source.
 """
+from .config import PROFILES
 
-# How colourful the light is while it follows the screen. Balanced is the
-# hub's own default (config.DEFAULTS), so a fresh install shows it as chosen.
-STYLES = (
-    {"name": "true", "label": "True", "about": "The screen's colours as they are.",
-     "set": {"saturation": 1.0, "immersion": 0.0}},
-    {"name": "balanced", "label": "Balanced", "about": "A little richer than the screen.",
-     "set": {"saturation": 1.2, "immersion": 0.0}},
-    {"name": "bold", "label": "Bold", "about": "Strong colour for daylight and cartoons.",
-     "set": {"saturation": 1.6, "immersion": 0.3}},
-    {"name": "immersive", "label": "Immersive", "about": "Floods the room with the scene's colour.",
-     "set": {"saturation": 1.3, "immersion": 0.8}},
-)
-
-# How fast the light follows ("blend", the Response setting). Smooth is the
-# Cinema profile's pace and Instant is Gaming's, so those profiles light them too.
-PACES = (
-    {"name": "gentle", "label": "Gentle", "about": "Drifts slowly between colours.", "set": {"blend": 0.15}},
-    {"name": "smooth", "label": "Smooth", "about": "Glides with the picture.", "set": {"blend": 0.3}},
-    {"name": "quick", "label": "Quick", "about": "Keeps up with cuts.", "set": {"blend": 0.5}},
-    {"name": "instant", "label": "Instant", "about": "Follows every flash.", "set": {"blend": 0.7}},
-)
+# The two ways of following the screen are the built-in profiles themselves;
+# only their names on screen live here, so the profiles own every value.
+MODE_TEXT = {
+    "movie": ("Cinema", "Glides gently between colours, for films and series."),
+    "game": ("Gaming", "Follows the action quickly, for games and sport."),
+}
 
 # Light for the room when the screen is not followed, run on the board itself,
 # so it keeps going while the Mac sleeps. Effect ids are from effects.EFFECTS
@@ -59,6 +46,11 @@ BED_FOLLOW = (
 )
 
 
+def modes():
+    """The sync modes, one per built-in profile, in the profiles' order."""
+    return [{"name": name, "label": MODE_TEXT[name][0], "about": MODE_TEXT[name][1]} for name in PROFILES]
+
+
 def tables():
-    """Every preset, as the clients read them."""
-    return {"styles": list(STYLES), "paces": list(PACES), "glows": list(GLOWS), "bed": list(BED_FOLLOW)}
+    """Every choice, as the clients read them."""
+    return {"modes": modes(), "glows": list(GLOWS), "bed": list(BED_FOLLOW)}

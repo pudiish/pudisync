@@ -343,11 +343,9 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
     </div>
     <div class="panel">
       <h2>Screen</h2>
-      <p class="label" id="amb-style-label">Style</p>
-      <div class="tiles" id="amb-styles" role="group" aria-labelledby="amb-style-label"><p class="hint">Loading looks…</p></div>
-      <p class="label" id="amb-pace-label">Pace</p>
-      <div class="seg" id="amb-paces" role="group" aria-labelledby="amb-pace-label"></div>
-      <p class="hint" id="amb-pace-hint"></p>
+      <p class="label" id="amb-mode-label">Sync mode</p>
+      <div class="tiles" id="amb-modes" role="group" aria-labelledby="amb-mode-label"><p class="hint">Loading…</p></div>
+      <p class="hint" id="amb-settle-hint"></p>
       <div class="fader" data-fader="amb_brightness"></div>
       <div class="fader" data-fader="amb_saturation"></div>
       <div class="fader" data-fader="amb_white_kelvin"></div>
@@ -1162,8 +1160,9 @@ function runLook(name, path, params) {
 }
 
 /* ---------- ambient ---------- */
-// Presets come from the hub (/api/ambient), so the Mac app offers the same ones.
-// A choice is lit while the settings still match it; after a fader moves, none is.
+// The choices come from the hub (/api/ambient), so the Mac app offers the same ones.
+// A sync mode is lit while it is the active profile, a glow while it runs, and a
+// bed choice while the settings still match it.
 let ambient = null, ambientGlow = "", ambientChoices = [];
 const sameSetting = (want, have) => typeof want === "number" ? Math.abs(have - want) < 0.005 : have === want;
 const ambientMatches = (preset, s) => Object.entries(preset.set).every(([k, v]) => sameSetting(v, s[k]));
@@ -1173,19 +1172,20 @@ async function loadAmbient() {
   try {
     ambient = await api("/api/ambient");
   } catch (err) {
-    $("amb-styles").replaceChildren(make("p", {className: "hint", textContent: `Couldn't load the looks. ${err.message}`}));
+    $("amb-modes").replaceChildren(make("p", {className: "hint", textContent: `Couldn't load the choices. ${err.message}`}));
     return;
   }
   ambientChoices = [];
-  const choose = preset => () => act("/api/set", preset.set);
-  $("amb-styles").replaceChildren(...ambient.styles.map(p => ambientTile(p, choose(p))));
-  $("amb-glows").replaceChildren(...ambient.glows.map(g => ambientTile(g, () => runGlow(g), g.color)));
-  $("amb-paces").replaceChildren(...ambient.paces.map(p => ambientKey(p, choose(p))));
-  $("amb-bed-follow").replaceChildren(...ambient.bed.map(p => ambientKey(p, choose(p))));
+  $("amb-modes").replaceChildren(...ambient.modes.map(m => ambientTile(m,
+    () => act(`/api/profile/${encodeURIComponent(m.name)}`), s => s.profile === m.name)));
+  $("amb-glows").replaceChildren(...ambient.glows.map(g => ambientTile(g, () => runGlow(g),
+    () => ambientGlow === g.name, g.color)));
+  $("amb-bed-follow").replaceChildren(...ambient.bed.map(p => ambientKey(p,
+    () => act("/api/set", p.set), s => ambientMatches(p, s))));
   if (state) renderAmbient(state);
 }
 
-function ambientTile(preset, onClick, chip) {
+function ambientTile(preset, onClick, isLit, chip) {
   const tile = button("", "tile", onClick);
   tile.dataset.preset = preset.name;
   if (chip !== undefined) {
@@ -1195,15 +1195,15 @@ function ambientTile(preset, onClick, chip) {
   }
   tile.append(make("span", {className: "tile-name", textContent: preset.label}),
     make("span", {className: "tile-about", textContent: preset.about}));
-  ambientChoices.push([tile, preset]);
+  ambientChoices.push([tile, isLit]);
   return tile;
 }
 
-function ambientKey(preset, onClick) {
+function ambientKey(preset, onClick, isLit) {
   const key = button(preset.label, "", onClick);
   key.dataset.preset = preset.name;
   key.title = preset.about;
-  ambientChoices.push([key, preset]);
+  ambientChoices.push([key, isLit]);
   return key;
 }
 
@@ -1228,7 +1228,7 @@ function renderAmbient(s) {
   $$("[data-action=ambient-follow]").forEach(b => press(b, b.dataset.value === follow));
   setText($("amb-follow-hint"), s.fading ? "Fading out…" : mode === "sync" ? "The light follows your screen."
     : mode === "effect" ? `Glowing: ${lookName || "an effect or colour"}.` : "The lights are off.");
-  setText($("amb-pace-hint"), `Settles on a new colour in ${two(settle(s.blend))} s.`);
+  setText($("amb-settle-hint"), `Settles on a new colour in ${two(settle(s.blend))} s.`);
   setFader("amb_glow_bri", s.wled_bri);
   const hasBed = s.bed_leds > 0;
   $("amb-bed").hidden = !hasBed;
@@ -1239,7 +1239,7 @@ function renderAmbient(s) {
   setText($("amb-wall"), (s.led_matrix || []).length === 9
     ? "Your wall is measured: the webcam calibration already allows for its colour."
     : "Your wall isn't measured yet. A coloured wall tints the light; the webcam calibration in Setup measures it and corrects for it.");
-  ambientChoices.forEach(([el, p]) => press(el, p.set ? ambientMatches(p, s) : p.name === ambientGlow));
+  ambientChoices.forEach(([el, isLit]) => press(el, isLit(s)));
   if (!ambient) return;
   const bedNow = ambient.bed.find(p => ambientMatches(p, s));
   setText($("amb-bed-hint"), bedNow ? bedNow.about : "Set on the Bed tab: its own effect, colour or one edge.");

@@ -27,13 +27,15 @@ struct AmbilightHubApp: App {
     }
 }
 
-enum Page: Hashable {
-    case strip, mouse, bed, profiles, calibrate
+enum Page: String, Hashable {
+    case strip, mouse, bed, ambient, profiles, calibrate
 }
 
 struct ContentView: View {
     @EnvironmentObject private var store: HubStore
-    @State private var page: Page? = .strip
+    // `-openPage ambient` on the command line opens on that page (for screenshots);
+    // the argument is never stored, so a normal launch opens on the LED strip.
+    @State private var page: Page? = Page(rawValue: UserDefaults.standard.string(forKey: "openPage") ?? "") ?? .strip
 
     var body: some View {
         NavigationSplitView {
@@ -49,6 +51,7 @@ struct ContentView: View {
                               alert: false).tag(Page.bed)
                 }
                 Section("Lighting") {
+                    Label("Ambient", systemImage: "sun.haze").tag(Page.ambient)
                     Label("Profiles", systemImage: "square.stack").tag(Page.profiles)
                     Label("Calibrate", systemImage: "camera.viewfinder").tag(Page.calibrate)
                 }
@@ -66,6 +69,7 @@ struct ContentView: View {
                 case .strip: StripPage()
                 case .mouse: MousePage()
                 case .bed: BedPage()
+                case .ambient: AmbientPage(openCalibrate: { page = .calibrate })
                 case .profiles: ProfilesPage()
                 case .calibrate: CalibratePage()
                 }
@@ -152,6 +156,7 @@ struct Header: View {
         case .strip: return "LED strip"
         case .mouse: return store.status?.mouse?.name ?? "Mouse"
         case .bed: return "Bed strip"
+        case .ambient: return "Ambient"
         case .profiles: return "Profiles"
         case .calibrate: return "Calibrate"
         }
