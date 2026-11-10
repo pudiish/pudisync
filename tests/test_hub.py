@@ -103,6 +103,72 @@ def test_packets():
     out.close()
 
 
+def test_ddp_packets():
+    print("\n1b. DDP packet format (as WLED 16.0.1 parses it)")
+    from ambilight import hostcache
+    from ambilight.plugins import OUTPUTS
+    from ambilight.plugins.output_wled_ddp import MAX_LEDS_PER_PACKET as DDP_CHUNK, WLEDDDPOutput
+
+    check("DDP is a registered output", OUTPUTS.get("ddp") is WLEDDDPOutput and WLEDDDPOutput.available())
+    out = WLEDDDPOutput("127.0.0.1", SNIFF_UDP, SNIFF_UDP)
+
+    def fields(p):
+        return {"flags": p[0], "seq": p[1], "type": p[2], "dest": p[3],
+                "offset": int.from_bytes(p[4:8], "big"), "length": int.from_bytes(p[8:10], "big"),
+                "body": p[10:]}
+
+    px = np.zeros((240, 3), np.uint8)
+    px[0] = (255, 0, 0)
+    pkts = [fields(p) for p in sniff(SNIFF_UDP, 1, lambda: out.send(px, 2))]
+    check("240 LEDs -> exactly 1 packet", len(pkts) == 1, f"got {len(pkts)}")
+    if pkts:
+        p = pkts[0]
+        check("version 1 with push on a one-packet frame", p["flags"] == 0x41, hex(p["flags"]))
+        check("data type is RGB24 (0x0B)", p["type"] == 0x0B)
+        check("destination is the display (1)", p["dest"] == 1)
+        check("offset 0, length 720 bytes", (p["offset"], p["length"]) == (0, 720))
+        check("payload matches the length field", len(p["body"]) == p["length"])
+        check("first LED RGB preserved", tuple(p["body"][:3]) == (255, 0, 0))
+
+    big = np.full((1000, 3), 9, np.uint8)
+    pkts = [fields(p) for p in sniff(SNIFF_UDP, 3, lambda: out.send(big, 2))]
+    check("1000 LEDs -> 3 packets", len(pkts) == 3, f"got {len(pkts)}")
+    check("chunks are 480/480/40 LEDs", [p["length"] // 3 for p in pkts] == [DDP_CHUNK, DDP_CHUNK, 40],
+          [p["length"] // 3 for p in pkts])
+    check("offsets count bytes: 0/1440/2880", [p["offset"] for p in pkts] == [0, 1440, 2880])
+    check("push only on the frame's last packet", [p["flags"] & 1 for p in pkts] == [0, 0, 1])
+    check("no packet exceeds WLED's 1440 data bytes", all(p["length"] <= 1440 for p in pkts))
+    check("one sequence number for the whole frame", len({p["seq"] for p in pkts}) == 1)
+
+    seqs = []
+    for _ in range(16):
+        got = sniff(SNIFF_UDP, 1, lambda: out.send(px, 2))
+        seqs.append(got[0][1] if got else None)
+    check("the sequence runs 1-15 and wraps, never 0",
+          None not in seqs and 0 not in seqs and all(b == a % 15 + 1 for a, b in zip(seqs, seqs[1:])), seqs)
+
+    pkts = sniff(SNIFF_UDP, 1, lambda: out.send(px, 255))
+    check("a held frame goes out as DNRGB with timeout 255 (DDP cannot hold)",
+          pkts and pkts[0][0] == 4 and pkts[0][1] == 255)
+    pkts = sniff(SNIFF_UDP, 1, out.release)
+    check("release goes out as DNRGB timeout 0, ending live mode at once",
+          pkts and pkts[0][0] == 4 and pkts[0][1] == 0)
+    out.close()
+
+    saved = hostcache.lookup
+    try:
+        def no_dns(host):
+            raise OSError("mDNS down")
+        hostcache.lookup = no_dns
+        dark = WLEDDDPOutput("board-missing.local", SNIFF_UDP, SNIFF_UDP)
+        check("a failed send is reported, not raised",
+              dark.send(px, 2) is False and "mDNS down" in (dark.last_error or ""), dark.last_error)
+        dark.close()
+    finally:
+        hostcache.lookup = saved
+        hostcache.BOARD.known.clear()
+
+
 def test_mapping():
     print("\n2. Mapping: normal and reversed strips")
     W = 1920
@@ -1187,6 +1253,12 @@ def test_config():
     check("layout is case-insensitive", recovered.update({"layout": "Frame"}) == ["layout"]
           and recovered.get("layout") == "frame")
     check("an output that does not exist is refused", rejects({"output": "laser"}))
+    check("DDP is an output choice", recovered.update({"output": "DDP"}) == ["output"]
+          and recovered.get("output") == "ddp")
+    check("the DDP port is a setting with a range",
+          recovered.update({"ddp_port": "4049"}) == ["ddp_port"] and recovered.get("ddp_port") == 4049
+          and rejects({"ddp_port": 0}) is False and recovered.get("ddp_port") == 1)
+    recovered.update({"output": "udp", "ddp_port": 4048})
     check("a controller address cannot carry a URL", rejects({"wled_ip": "evil.example/x"}))
     check("an mDNS controller name is accepted", recovered.update({"wled_ip": "wled-6b0bc6.local"}) == ["wled_ip"])
     check("an IP controller address is accepted", recovered.update({"wled_ip": "192.168.29.57"}) == ["wled_ip"])
@@ -2797,6 +2869,7 @@ def main():
     print("AMBILIGHT HUB -- ACCEPTANCE TESTS")
     print("=" * 62)
     test_packets()
+    test_ddp_packets()
     test_mapping()
     test_fade()
     test_zones()
