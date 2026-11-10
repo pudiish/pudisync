@@ -14,7 +14,7 @@ own git worktree. Camera work comes last, on one day, with you.
 ```mermaid
 flowchart LR
     setup["Setup<br/>roadmap · CLAUDE.md · test ports"]
-    subgraph agents ["Five sessions in parallel, each in its own worktree"]
+    subgraph agents ["Five sessions in parallel"]
         direction TB
         w1["1 · capture"]
         w2["2 · transport"]
