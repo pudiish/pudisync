@@ -27,6 +27,8 @@ PAGES = {
     "/calibrate": ("calibrate.html", "text/html; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icon.svg": ("icon.svg", "image/svg+xml"),
+    # iOS ignores SVG Home Screen icons; without a PNG it shows a screenshot.
+    "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
 }
 
 

@@ -3086,6 +3086,17 @@ def test_connect_api(base):
         get("/api/set?new_pin=", a)
     check("the PIN is cleared again", get("/api/status")[0] == 200)
 
+    import struct
+    code, ctype, png = get("/apple-touch-icon.png")
+    width, height = struct.unpack(">II", png[16:24]) if png[:8] == b"\x89PNG\r\n\x1a\n" else (0, 0)
+    check("the Home Screen gets a 180 px PNG icon, which iOS needs (it ignores SVG)",
+          code == 200 and ctype == "image/png" and (width, height) == (180, 180), (code, ctype, width, height))
+    page = get("/")[2].decode()
+    manifest = json.loads(get("/manifest.webmanifest")[2])
+    check("the page and the manifest both point to it",
+          'rel="apple-touch-icon" href="/apple-touch-icon.png"' in page
+          and any(i["src"] == "/apple-touch-icon.png" and i["type"] == "image/png" for i in manifest["icons"]))
+
 
 def main():
     print("=" * 62)
