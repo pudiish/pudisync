@@ -44,7 +44,8 @@ pipeline, a way of controlling it, or a one-off setup tool.
 | `ambilight/plugins/__init__.py` | 87 | Plugin interfaces and the registry that picks one. |
 | `plugins/capture_quartz.py` | 75 | Screen capture via macOS CoreGraphics (the fast, native one). |
 | `plugins/capture_mss.py` | 99 | Baseline screen capture (portable, not Mac-specific). |
-| `plugins/output_wled_udp.py` | 80 | Sends colours to WLED over UDP (the normal output). |
+| `plugins/output_wled_udp.py` | 87 | Sends colours to WLED over UDP (the normal output). |
+| `plugins/output_wled_ddp.py` | 108 | Sends colours to WLED over DDP: each frame drawn once, whole. |
 | `plugins/output_serial.py` | 107 | Sends colours over a USB cable (Adalight protocol). |
 
 ### D. Extra lights
@@ -87,8 +88,8 @@ pipeline, a way of controlling it, or a one-off setup tool.
 ### H. Dev tooling
 | File | Lines | What it is for |
 |---|---|---|
-| `tests/test_hub.py` | 2842 | 41 test functions, 578 checks. Starts a fake board and a sandbox hub. |
-| `tools/fake_wled.py` | 151 | Pretend WLED board for tests. |
+| `tests/test_hub.py` | 2964 | 43 test functions, 608 checks. Starts a fake board and a sandbox hub. |
+| `tools/fake_wled.py` | 227 | Pretend WLED board for tests; checks DNRGB and DDP packets. |
 | `tools/hardware_sim.py` | 356 | Puts a hub through failures (reboot, drops) against the fake board. |
 | `Makefile`, `launchd/`, `requirements.txt` | | Commands, start-at-login, dependencies. |
 
