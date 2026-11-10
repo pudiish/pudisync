@@ -99,6 +99,11 @@ the hub also advertises itself over Bonjour as **Ambilight Hub**:
 `--config other.json` and `--port 8790` run a second, independent hub (tests use
 this); `--no-bonjour` skips the advertisement.
 
+**Pair a phone or iPad with a QR code:** in the Mac app, Lighting ▸ Pair a Phone
+or iPad…; on a device that is already paired, Advanced ▸ Access ▸ Add a phone or
+tablet. What happens when the Mac sleeps, the board reboots or Wi-Fi drops, and
+the manual steps, are in [docs/CONNECT.md](docs/CONNECT.md).
+
 ### Grant Screen Recording permission
 
 macOS blocks screen capture until you allow it. If the lights stay dark and the
