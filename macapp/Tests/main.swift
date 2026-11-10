@@ -52,5 +52,30 @@ check("the left zone takes the bottom left's colour", zones[0].r > 0.4 && zones[
 check("the right zone takes the bottom right's colour", zones[2].b > 0.4 && zones[2].r == 0, zones)
 check("no preview, no zones", mouseZones(preview: [], ledCount: 97, bottomEdge: 35, frame: true).isEmpty)
 
+print("Connection to the hub")
+let t0 = Date(timeIntervalSince1970: 1_000_000)
+check("a hub that answers is online", LinkState.connecting.after(nil, at: t0) == .online)
+check("an error answer still means the hub is reachable", LinkState.online.after(.failed, at: t0) == .online)
+check("a PIN refusal is not reported as the hub being down",
+      LinkState.online.after(.locked, at: t0) == .locked
+      && LinkState.locked.banner(address: "127.0.0.1:8080", now: t0)?.contains("PIN") == true
+      && LinkState.locked.banner(address: "127.0.0.1:8080", now: t0)?.contains("Can't reach") == false)
+check("a PIN lockout says to wait", LinkState.online.after(.throttled, at: t0)
+      .banner(address: "x", now: t0)?.contains("Wait a minute") == true)
+let quiet = LinkState.online.after(.unreachable, at: t0)
+check("going quiet records when", quiet == .offline(since: t0))
+check("staying quiet keeps the first time", quiet.after(.unreachable, at: t0.addingTimeInterval(30)) == quiet)
+check("the banner says for how long",
+      quiet.banner(address: "127.0.0.1:8080", now: t0.addingTimeInterval(12))?.contains("for 12 s") == true,
+      quiet.banner(address: "127.0.0.1:8080", now: t0.addingTimeInterval(12)) ?? "")
+check("...in minutes after a while", LinkState.ago(185) == "for 3 min" && LinkState.ago(2) == "just now")
+check("the hub coming back clears it", quiet.after(nil, at: t0.addingTimeInterval(40)) == .online
+      && LinkState.online.banner(address: "x", now: t0) == nil)
+
+print("Pairing codes")
+check("a square of 0s and 1s reads", QRMatrix(rows: ["101", "010", "111"])?.dark[1] == [false, true, false])
+check("a ragged or foreign matrix is refused",
+      QRMatrix(rows: ["10", "0"]) == nil && QRMatrix(rows: ["1x", "01"]) == nil && QRMatrix(rows: []) == nil)
+
 print("\n\(passed) passed, \(failed.count) failed")
 exit(failed.isEmpty ? 0 : 1)

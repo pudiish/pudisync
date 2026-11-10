@@ -57,10 +57,8 @@ struct ContentView: View {
         } detail: {
             VStack(spacing: 0) {
                 Header(page: page ?? .strip)
-                if !store.online || store.problem != nil {
-                    Banner(text: store.online ? store.problem ?? "" : "Can't reach the hub at \(store.address). "
-                           + "It starts at login; check it is running, or change the address in Settings.",
-                           fault: !store.online)
+                if let text = store.link.banner(address: store.address, now: Date()) ?? store.problem {
+                    Banner(text: text, fault: store.link != .online)
                 }
                 switch page ?? .strip {
                 case .strip: StripPage()
@@ -72,6 +70,7 @@ struct ContentView: View {
             }
             .background(Theme.bg)
         }
+        .sheet(isPresented: $store.showingPair) { PairSheet().environmentObject(store) }
     }
 
     private var stripLit: Bool { store.status?.syncing == true && store.status?.wledReachable != false }
@@ -248,6 +247,8 @@ struct LightingCommands: Commands {
             .keyboardShortcut("m", modifiers: [.command, .shift])
             Button("Unlock All Colours") { store.unlockAll() }
                 .disabled(store.locks.isEmpty)
+            Divider()
+            Button("Pair a Phone or iPad…") { store.showingPair = true }
         }
     }
 }
@@ -256,6 +257,7 @@ struct SettingsView: View {
     @EnvironmentObject private var store: HubStore
     @State private var address = ""
     @State private var pin = ""
+    @State private var pairing = false
 
     var body: some View {
         Form {
@@ -264,6 +266,7 @@ struct SettingsView: View {
             Text("The hub runs on this Mac and starts at login. Use another address only for a hub on another computer.")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
             HStack {
+                Button("Pair a Phone or iPad…") { pairing = true }
                 Spacer()
                 Button("Save") {
                     store.address = address.trimmingCharacters(in: .whitespaces)
@@ -275,6 +278,7 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 420)
+        .sheet(isPresented: $pairing) { PairSheet().environmentObject(store) }
         .onAppear {
             address = store.address
             pin = store.pin
