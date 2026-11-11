@@ -37,6 +37,7 @@ if PORT_BASE in (8079, 8080):
 SANDBOX_PORT, FAKE_WLED_HTTP, FAKE_WLED_UDP = PORT_BASE, PORT_BASE + 1, PORT_BASE + 12601
 SNIFF_UDP = PORT_BASE + 12609   # 21399 by default; bases 10 apart never overlap
 FAKE_WLED_DDP = PORT_BASE + 12602
+SILENT_PORT = PORT_BASE + 2     # accepts connections and never answers
 from ambilight import processing
 from ambilight.config import Config
 from ambilight.plugins.output_wled_udp import MAX_LEDS_PER_PACKET, WLEDUDPOutput
@@ -1343,6 +1344,95 @@ def test_access():
     check("the lockout expires", gate.check("1234", "1234", "10.0.0.2", now=70) == "ok")
 
 
+def test_board_answering():
+    print("\n41. Clients are told when the LED board stops answering")
+    from ambilight.server import board_answering
+
+    check("syncing with frames getting through: answering", board_answering(False, True, None))
+    check("syncing while sends fail: not answering, so the page can say NO LINK",
+          not board_answering(True, True, "could not reach the lights: [Errno 64] Host is down"))
+    check("not syncing: the board's JSON API decides",
+          board_answering(True, False, None) and not board_answering(False, False, None))
+    check("an output error from an earlier sync does not count once sync is off",
+          board_answering(True, False, "release failed: [Errno 65] No route to host"))
+
+
+def test_board_urls():
+    print("\n42. Where the board's own page is, for when the hub is out of reach")
+    from ambilight.discovery import board_urls
+    from ambilight.hostcache import HostCache
+
+    check("a named board lists its name, then the address it last answered on",
+          board_urls("wled-6b0bc6.local", 80, "192.168.29.40")
+          == ["http://wled-6b0bc6.local", "http://192.168.29.40"])
+    check("a board set by address is listed once", board_urls("192.168.29.40", 80, "192.168.29.40")
+          == ["http://192.168.29.40"])
+    check("a name never resolved is still offered", board_urls("wled.local", 80, None) == ["http://wled.local"])
+    check("a non-standard web port is kept", board_urls("127.0.0.1", 8821, "127.0.0.1") == ["http://127.0.0.1:8821"])
+
+    cache = HostCache(resolve=lambda host: "10.0.0.7")
+    check("nothing is known about a name before its first lookup", cache.last_known("wled.local") is None)
+    cache.address("wled.local")
+    check("after a lookup, its address is known without asking again", cache.last_known("wled.local") == "10.0.0.7")
+    check("an address is its own last-known address", cache.last_known("10.0.0.9") == "10.0.0.9")
+
+
+def decode_qr(rows, scale=8, quiet=4):
+    """Read a module matrix back the way a phone camera would, with CoreImage's detector."""
+    import Quartz
+    from Foundation import NSData
+
+    side = (len(rows) + 2 * quiet) * scale
+    dark = [((x + quiet) * scale, (y + quiet) * scale, scale, scale)
+            for y, row in enumerate(rows) for x, bit in enumerate(row) if bit == "1"]
+    return decode_rects(side, dark)
+
+
+def decode_rects(side, dark):
+    """Decode a white square of `side` pixels with black (x, y, w, h) rectangles on it."""
+    import Quartz
+    from Foundation import NSData
+
+    pixels = bytearray(b"\xff" * (side * side))
+    for x, y, w, h in dark:
+        for row in range(y, y + h):
+            pixels[row * side + x:row * side + x + w] = bytes(w)
+    provider = Quartz.CGDataProviderCreateWithCFData(NSData.dataWithBytes_length_(bytes(pixels), len(pixels)))
+    image = Quartz.CGImageCreate(side, side, 8, 8, side, Quartz.CGColorSpaceCreateDeviceGray(),
+                                 Quartz.kCGImageAlphaNone, provider, None, False,
+                                 Quartz.kCGRenderingIntentDefault)
+    detector = Quartz.CIDetector.detectorOfType_context_options_(
+        Quartz.CIDetectorTypeQRCode, None, {Quartz.CIDetectorAccuracy: Quartz.CIDetectorAccuracyHigh})
+    return [feature.messageString() for feature in detector.featuresInImage_(Quartz.CIImage.imageWithCGImage_(image))]
+
+
+def test_pairing_qr():
+    print("\n44. QR codes for pairing a phone or tablet")
+    from ambilight import qr
+
+    url = "http://ishwars-macbook-air.local:8080"
+    rows = qr.modules(url)
+    check("the code is square, 21 + 4n modules a side",
+          len(rows) == len(rows[0]) and (len(rows) - 21) % 4 == 0 and all(len(r) == len(rows) for r in rows),
+          (len(rows), len(rows[0])))
+    check("it holds only dark and light modules", set("".join(rows)) <= {"0", "1"})
+    check("the finder squares sit top-left, top-right and bottom-left, so it reads the right way up",
+          rows[0].startswith("1111111") and rows[0].endswith("1111111")
+          and rows[-1].startswith("1111111") and not rows[-1].endswith("1111111"))
+    check("a camera reads back exactly the address", decode_qr(rows) == [url], decode_qr(rows))
+    check("the same address is drawn once and then remembered", qr.modules(url) is rows)
+
+    saved = sys.modules.get("Quartz")
+    sys.modules["Quartz"] = None    # what an install without pyobjc looks like
+    try:
+        qr.modules("http://elsewhere.local:1")
+        check("without CoreImage it says what is missing", False)
+    except RuntimeError as exc:
+        check("without CoreImage it says what is missing", "pyobjc" in str(exc), str(exc))
+    finally:
+        sys.modules["Quartz"] = saved
+
+
 def test_frame_wizard():
     print("\n19. Setup test pattern for a strip round the monitor")
     from ambilight.wizard import Wizard
@@ -1638,8 +1728,13 @@ def test_board_ui():
     script = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
 
     check("it is small enough for the board's flash and slow Wi-Fi", len(html) < 30000, f"{len(html)} bytes")
-    check("it fetches only WLED's own state endpoints",
-          set(re.findall(r'fetch\("([^"]+)"', script)) == {"/json/state", "/json/si"})
+    check("it fetches only WLED's own state endpoints, all through one wrapper",
+          set(re.findall(r'ask\("([^"]+)"', script)) == {"/json/state", "/json/si"}
+          and script.count("fetch(") == 1)
+    check("a board that drops off Wi-Fi is noticed within a few seconds",
+          "abort.abort()" in script and "TIMEOUT_MS = 4000" in script)
+    check("Wi-Fi coming back refreshes at once",
+          'addEventListener("online", poll)' in script and '"pageshow"' in script)
     check("it loads nothing from outside the board", not re.search(r"(src|href)=\"https?://|url\(https?://", html))
     check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
     check("its sync preset matches the hub's", f"SYNC_PRESET = {DEFAULTS['sync_preset']};" in script)
@@ -1692,6 +1787,181 @@ console.log(JSON.stringify(out));
     run = subprocess.run([node, str(folder / "wheel.js")], capture_output=True, text=True)
     results = json.loads(run.stdout) if run.returncode == 0 else []
     check("the colour wheel maps angle and distance to the right colours", results and all(results), run.stderr[:200] or results)
+
+    constants = re.search(r"^const POLL_MS.*$", script, re.M).group(0)
+    with silent_server() as silent:
+        result = run_node(constants + "\n" + js_block(script, "async function ask") + f"""
+const started = Date.now();
+ask("{silent}/json/si").then(() => console.log(JSON.stringify({{kind: "answered"}})),
+  () => console.log(JSON.stringify({{kind: "gave up", ms: Date.now() - started}})));
+""")
+    check("a board that accepts but never answers is given up on within five seconds",
+          result and result.get("kind") == "gave up" and result["ms"] < 5000, result)
+
+
+def page_script(path):
+    import pathlib, re
+    return re.search(r"<script>(.*?)</script>", pathlib.Path(path).read_text(), re.S).group(1)
+
+
+def js_block(script, start):
+    """One top-level declaration of the page, from `start` to its closing brace."""
+    import re
+    return re.search(rf"^{re.escape(start)}.*?\n}};?$", script, re.S | re.M).group(0)
+
+
+@contextmanager
+def silent_server():
+    """A port that accepts connections and never answers: a sleeping Mac, as a phone sees it."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", SILENT_PORT))
+    sock.listen(8)
+    try:
+        yield f"http://127.0.0.1:{SILENT_PORT}"
+    finally:
+        sock.close()
+
+
+def run_node(code, timeout=12):
+    """Run page JavaScript under node; None when node is missing or the code never finishes."""
+    import pathlib, shutil
+    node = shutil.which("node")
+    if not node:
+        return None
+    path = pathlib.Path(tempfile.mkdtemp()) / "probe.js"
+    path.write_text(code)
+    try:
+        run = subprocess.run([node, str(path)], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"hung": True}
+    if run.returncode != 0:
+        return {"error": run.stderr[-400:]}
+    return json.loads(run.stdout)
+
+
+def test_phone_page_connection():
+    print("\n40. The phone page notices a hub that stops answering")
+    import re, shutil
+    if not shutil.which("node"):
+        print("    (skipped: node not installed, so the page's script was not run)")
+        return
+    script = page_script("ambilight/web/index.html")
+    plumbing = "\n".join(js_block(script, start) for start in
+                         ("class HubError", "async function api"))
+    timed = js_block(script, "async function timedFetch") if "async function timedFetch" in script else ""
+    constants = re.search(r"^const POLL_MS.*$", script, re.M).group(0)
+
+    with silent_server() as silent:
+        result = run_node(constants + "\n" + timed + "\n" + plumbing + f"""
+const realFetch = fetch;
+globalThis.fetch = (path, options) => realFetch("{silent}" + path, options);
+let pin = "";
+const pinHeaders = () => ({{}});
+function showLocked() {{}}
+const started = Date.now();
+api("/api/status").then(
+  () => console.log(JSON.stringify({{kind: "answered", ms: Date.now() - started}})),
+  err => console.log(JSON.stringify({{kind: err.kind, ms: Date.now() - started}})));
+""")
+    check("a hub that accepts but never answers is reported offline, not waited on forever",
+          result and result.get("kind") == "offline", result)
+    check("...within five seconds", result and result.get("kind") == "offline" and result["ms"] < 5000, result)
+
+    answers = run_node(constants + "\n" + timed + "\n" + plumbing + r"""
+let pin = "";
+const pinHeaders = () => ({});
+function showLocked() {}
+const replies = [[403, {error: "PIN required or incorrect"}],
+                 [429, {error: "too many wrong PINs from this device; try again in a minute"}],
+                 [500, {error: "the hub hit an internal error; see its log"}]];
+(async () => {
+  const kinds = [];
+  for (const [code, body] of replies) {
+    globalThis.fetch = async () => new Response(JSON.stringify(body), {status: code});
+    try { await api("/api/status"); kinds.push("answered"); } catch (err) { kinds.push(err.kind); }
+  }
+  console.log(JSON.stringify(kinds));
+})();
+""")
+    check("a PIN refusal, a lockout and a hub error are told apart",
+          answers == ["locked", "throttled", "failed"], answers)
+
+    views = run_node("\n".join(js_block(script, start) for start in
+                               ("function ago", "function linkView", "function friendly")) + r"""
+const now = 1000000;
+const out = {
+  asleep: linkView({kind: "offline", lastSeen: now - 12000, now}),
+  withBoard: linkView({kind: "offline", lastSeen: now, now,
+                       boardUrls: ["http://wled-6b0bc6.local", "http://192.168.29.40"]}),
+  never: linkView({kind: "offline", lastSeen: 0, now}),
+  long: linkView({kind: "offline", lastSeen: now - 3 * 60000, now}),
+  throttled: linkView({kind: "throttled", lastSeen: now, now}),
+  boardDown: linkView({kind: "ok", lastSeen: now, now, wledReachable: false, syncing: false}),
+  boardDownSyncing: linkView({kind: "ok", lastSeen: now, now, wledReachable: false, syncing: true}),
+  fine: linkView({kind: "ok", lastSeen: now, now, wledReachable: true, syncing: true}),
+  locked: linkView({kind: "locked", lastSeen: now, now}),
+  screenAsleep: friendly("no display to capture -- the screen is asleep or the lid is closed. Sync resumes on its own when it wakes."),
+  boardGone: friendly("could not reach the lights: 192.168.29.40:21324 [Errno 64] Host is down"),
+};
+console.log(JSON.stringify(out));
+""")
+    if views and "error" not in views:
+        check("an unreachable hub says when it was last seen",
+              "last seen 12 s ago" in views["asleep"]["offline"], views["asleep"])
+        check("...in minutes once it has been a while", "last seen 3 min ago" in views["long"]["offline"])
+        check("...and leaves the time out when it was never seen", "last seen" not in views["never"]["offline"])
+        check("it says the hub only answers at home, for a phone that is out",
+              "home Wi-Fi" in views["asleep"]["offline"])
+        check("with the board's address remembered, it offers the strip's own page",
+              "strip's own page" in views["withBoard"]["offline"], views["withBoard"])
+        check("...at the address the board last answered on",
+              views["withBoard"]["boardUrl"] == "http://192.168.29.40", views["withBoard"]["boardUrl"])
+        check("...and offers no link it doesn't have",
+              views["asleep"]["boardUrl"] is None and "strip's own page" not in views["asleep"]["offline"])
+        check("a PIN lockout says to wait a minute instead of going quiet",
+              "Wait a minute" in (views["throttled"]["throttled"] or ""))
+        check("a board that stops answering gets its own banner",
+              "isn't answering" in (views["boardDown"]["board"] or ""))
+        check("...except while syncing, where NO LINK and the engine's error say it",
+              views["boardDownSyncing"]["board"] is None)
+        check("all well, or a PIN to enter, shows no connection banner",
+              all(v is None for key in ("fine", "locked") for v in views[key].values()), views["fine"])
+        check("a sleeping screen is not blamed on the display choice",
+              "asleep" in views["screenAsleep"] and "Pick another display" not in views["screenAsleep"],
+              views["screenAsleep"])
+        check("a send that fails with 'Host is down' is explained as the LED board",
+              "LED controller" in views["boardGone"], views["boardGone"])
+    else:
+        check("the connection states run under node", False, views)
+
+    check("Wi-Fi coming back retries at once", 'addEventListener("online", poll)' in script)
+    check("a page restored from the back-forward cache refreshes", '"pageshow"' in script)
+    check("the page still never builds markup from strings", "innerHTML" not in script)
+
+    from ambilight import qr
+    url = "http://ishwars-macbook-air.local:8080"
+    drawn = run_node("\n".join(js_block(script, start) for start in ("function qrLayout", "function drawQr")) +
+                     f"\nconst modules = {json.dumps(list(qr.modules(url)))};" + r"""
+const rects = [];
+let fill = "";
+const ctx = {set fillStyle(v) { fill = v; }, fillRect(x, y, w, h) { if (fill === "#000") rects.push([x, y, w, h]); }};
+drawQr({width: 264, height: 264, getContext: () => ctx}, modules);
+console.log(JSON.stringify({rects, layout: qrLayout(264, modules.length)}));
+""")
+    if drawn and "rects" in drawn:
+        layout = drawn["layout"]
+        check("the code is drawn in whole pixels with a four-module margin",
+              layout["cell"] == 7 and layout["offset"] >= 4 * layout["cell"], layout)
+        check("a phone camera reads back what the page draws", decode_rects(264, drawn["rects"]) == [url])
+    else:
+        check("the pairing code is drawn", False, drawn)
+
+    origins = run_node(re.search(r"^const ipOrigin.*$", script, re.M).group(0).replace("const ipOrigin", "const f") + r"""
+console.log(JSON.stringify(["192.168.29.53", "[fe80::1]", "ishwars-macbook-air.local", "localhost"].map(f)));
+""") if "const ipOrigin" in script else None
+    check("a page opened by IP address is told to use the stable name instead",
+          origins == [True, True, False, False], origins)
 
 
 def test_fake_wled_presets():
@@ -3208,6 +3478,58 @@ def test_security_api(base):
           and call("/api/status")[0] == 200)
 
 
+def test_connect_api(base):
+    print("\n43. Connecting phones, tablets and the Mac")
+
+    def get(path, headers=None):
+        req = urllib.request.Request(base + path, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.headers.get("Content-Type"), r.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, None, b""
+
+    status = json.loads(get("/api/status")[2])
+    check("status says where the board's own page is",
+          status.get("board_urls") == [f"http://127.0.0.1:{FAKE_WLED_HTTP}"], status.get("board_urls"))
+
+    code, _, body = get("/api/pair")
+    targets = json.loads(body)["targets"] if code == 200 else []
+    urls = [t["url"] for t in targets]
+    check("pairing offers the hub by name, by address, and the board's page",
+          [t["label"] for t in targets] == ["Hub", "Hub by IP address", "Strip's own page"], urls)
+    check("the hub's .local name comes first, because it survives an address change",
+          bool(urls) and urls[0].endswith(f".local:{SANDBOX_PORT}"), urls[:1])
+    check("the board's page is where the hub reaches the board",
+          urls[2:] == [f"http://127.0.0.1:{FAKE_WLED_HTTP}"], urls[2:])
+    check("every code is square", all(len(t["modules"]) == len(t["modules"][0]) for t in targets))
+    check("a phone camera reads the first code as the hub's address",
+          bool(targets) and decode_qr(targets[0]["modules"]) == [urls[0]])
+
+    a = {"X-Ambilight-Pin": "2468"}
+    get("/api/set?new_pin=2468")
+    try:
+        check("a hub with a PIN shows its pairing codes only to a device that knows it",
+              get("/api/pair")[0] == 403 and get("/api/pair", a)[0] == 200)
+        get("/api/set?brightness=0.42", a)
+        seen_by_b = json.loads(get("/api/status", a)[2])["brightness"]
+        check("a change from one device shows on another's next poll", seen_by_b == 0.42, seen_by_b)
+    finally:
+        get("/api/set?new_pin=", a)
+    check("the PIN is cleared again", get("/api/status")[0] == 200)
+
+    import struct
+    code, ctype, png = get("/apple-touch-icon.png")
+    width, height = struct.unpack(">II", png[16:24]) if png[:8] == b"\x89PNG\r\n\x1a\n" else (0, 0)
+    check("the Home Screen gets a 180 px PNG icon, which iOS needs (it ignores SVG)",
+          code == 200 and ctype == "image/png" and (width, height) == (180, 180), (code, ctype, width, height))
+    page = get("/")[2].decode()
+    manifest = json.loads(get("/manifest.webmanifest")[2])
+    check("the page and the manifest both point to it",
+          'rel="apple-touch-icon" href="/apple-touch-icon.png"' in page
+          and any(i["src"] == "/apple-touch-icon.png" and i["type"] == "image/png" for i in manifest["icons"]))
+
+
 def main():
     print("=" * 62)
     print("AMBILIGHT HUB -- ACCEPTANCE TESTS")
@@ -3227,6 +3549,9 @@ def main():
     test_safety()
     test_config()
     test_access()
+    test_board_answering()
+    test_board_urls()
+    test_pairing_qr()
     test_frame_wizard()
     test_firmware_download()
     test_quartz_capture()
@@ -3234,6 +3559,7 @@ def main():
     test_sync_routes()
     test_board_deploy()
     test_board_ui()
+    test_phone_page_connection()
     test_fake_wled_presets()
     test_fake_wled_ddp()
     test_display_follow()
@@ -3262,6 +3588,7 @@ def main():
         test_serial_api(base)
         test_provision_api(base)
         test_security_api(base)
+        test_connect_api(base)
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")

@@ -8,11 +8,11 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import routes
+from . import hostcache, routes
 from .access import PinGate, allowed_fetch_site, allowed_host
 from .bed import Keeper
 from .camrun import CameraJob
-from .discovery import hub_urls
+from .discovery import board_urls, hub_urls
 from .intent import SyncIntent
 from .plugins import CAPTURES, OUTPUTS
 from .provision import Provisioner
@@ -27,6 +27,8 @@ PAGES = {
     "/calibrate": ("calibrate.html", "text/html; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icon.svg": ("icon.svg", "image/svg+xml"),
+    # iOS ignores SVG Home Screen icons; without a PNG it shows a screenshot.
+    "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
 }
 
 
@@ -114,6 +116,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "this page is missing from the install"}, 500)
 
 
+def board_answering(reachable, running, output_error):
+    """Whether the LED board is answering, as the clients are told.
+
+    While syncing, the stream's own sends are the freshest evidence, so a
+    failed send means the board is gone even if its last JSON reply was fine.
+    Otherwise the last JSON API call decides.
+    """
+    if running:
+        return output_error is None
+    return reachable
+
+
 class Hub:
     """Ties config, engine, WLED client and wizard together for the handler."""
 
@@ -161,9 +175,15 @@ class Hub:
                 "preview": self.engine.preview(),
                 "wled_bri": wled_state.get("bri"),
                 "wled_on": wled_state.get("on"),
-                "wled_reachable": self.wled.reachable or self.engine.running,
+                "wled_reachable": board_answering(self.wled.reachable, self.engine.running,
+                                                  self.engine.errors["output"]),
                 "mode": mode,
-                "urls": hub_urls(self.port)}
+                "urls": hub_urls(self.port),
+                "board_urls": self.board_urls()}
+
+    def board_urls(self):
+        host = self.cfg.get("wled_ip")
+        return board_urls(host, self.cfg.get("wled_http_port"), hostcache.BOARD.last_known(host))
 
     def diagnostics(self):
         cfg = self.cfg.snapshot()

@@ -10,8 +10,9 @@ from pathlib import Path
 
 import numpy as np
 
-from . import bed
+from . import bed, qr
 from .config import DEFAULTS, PROFILES
+from .discovery import hub_urls
 from .effects import catalogue as effect_catalogue, state_for
 from .plugins.output_serial import list_ports, required_baud
 from .provision import esptool_available, known_networks
@@ -105,6 +106,25 @@ def set_values(hub, q):
 
 def config(hub, q):
     return hub.public_config(), OK
+
+
+def pair(hub, q):
+    """QR codes another device can scan to open the hub, or the board's own page.
+
+    The hub's .local name comes first: it survives the Mac's address changing,
+    which matters most for a page added to a Home Screen. The codes hold only
+    addresses; a hub with a PIN still asks each new device for it once.
+    """
+    by_name, by_address = hub_urls(hub.port)
+    board_named, *board_by_address = hub.board_urls()
+    targets = [("Hub", by_name), ("Hub by IP address", by_address),
+               ("Strip's own page", board_named)]
+    targets += [("Strip's own page by IP address", url) for url in board_by_address]
+    try:
+        return {"targets": [{"label": label, "url": url, "modules": qr.modules(url)}
+                            for label, url in targets]}, OK
+    except RuntimeError as exc:
+        return {"error": str(exc)}, 503
 
 
 def defaults(hub, q):
@@ -360,6 +380,7 @@ ROUTES = {
     "/api/profiles/delete": profile_delete,
     "/api/set": set_values,
     "/api/config": config,
+    "/api/pair": pair,
     "/api/defaults": defaults,
     "/api/monitors": displays,
     "/api/diagnostics": diagnostics,

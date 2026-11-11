@@ -106,7 +106,19 @@ struct CameraJob: Decodable {
 
 struct HubError: LocalizedError {
     let message: String
+    var kind: HubFailure = .failed
     var errorDescription: String? { message }
+}
+
+/// One QR code another device can scan, from /api/pair.
+struct PairTarget: Decodable, Hashable {
+    var label: String
+    var url: String
+    var modules: [String]
+}
+
+struct PairList: Decodable {
+    var targets: [PairTarget]
 }
 
 /// Plain GETs against the hub's HTTP API; every action is a URL there.
@@ -128,10 +140,13 @@ struct HubClient {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
-            throw HubError(message: "Can't reach the hub at \(address). Is it running?")
+            throw HubError(message: "Can't reach the hub at \(address). Is it running?", kind: .unreachable)
         }
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if code == 403 { throw HubError(message: "The hub has a PIN. Enter it in Settings.") }
+        if code == 403 { throw HubError(message: "The hub has a PIN. Enter it in Settings.", kind: .locked) }
+        if code == 429 {
+            throw HubError(message: "Too many wrong PINs from this Mac. Wait a minute, then try again.", kind: .throttled)
+        }
         if !(200..<300).contains(code) {
             let said = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw HubError(message: said ?? "The hub answered \(code).")
@@ -147,8 +162,10 @@ final class HubStore: ObservableObject {
     static let builtinProfiles = [("movie", "Cinema"), ("game", "Gaming")]
 
     @Published private(set) var status: HubStatus?
-    @Published private(set) var online = false
+    @Published private(set) var link = LinkState.connecting
     @Published var problem: String?
+    @Published private(set) var pairing: [PairTarget] = []
+    @Published var showingPair = false
     @Published private(set) var effects: [Effect] = []
     @Published private(set) var cameras: [Camera] = []
     @Published private(set) var camera: CameraJob?
@@ -170,6 +187,8 @@ final class HubStore: ObservableObject {
 
     private var client: HubClient { HubClient(address: address, pin: pin) }
 
+    var online: Bool { link == .online }
+
     private func poll() async {
         while !Task.isCancelled {
             await refresh()
@@ -181,9 +200,23 @@ final class HubStore: ObservableObject {
         do {
             status = try await client.get("/api/status")
             if !online { problem = nil }
-            online = true
+            link = link.after(nil, at: Date())
         } catch {
-            online = false
+            let kind = (error as? HubError)?.kind ?? .failed
+            if kind == .failed { report(error) }    // the hub answered, but not with a status
+            link = link.after(kind, at: Date())
+        }
+    }
+
+    /// The QR codes for pairing a phone or tablet.
+    func loadPairing() {
+        Task {
+            do {
+                let list: PairList = try await client.get("/api/pair")
+                pairing = list.targets
+            } catch {
+                report(error)
+            }
         }
     }
 

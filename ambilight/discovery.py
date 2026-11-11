@@ -36,6 +36,19 @@ def hub_urls(port):
     return [f"http://{local_name()}:{port}", f"http://{lan_ip()}:{port}"]
 
 
+def board_urls(host, port, known_ip=None):
+    """Addresses of the LED board's own page, which works with the Mac off.
+
+    The configured name comes first; the last address it resolved to follows,
+    because the board's own .local name stops answering now and then.
+    """
+    suffix = "" if port == 80 else f":{port}"
+    urls = [f"http://{host}{suffix}"]
+    if known_ip and known_ip != host:
+        urls.append(f"http://{known_ip}{suffix}")
+    return urls
+
+
 class Advertiser:
     """Advertises the web page as a Bonjour _http._tcp service while running."""
 

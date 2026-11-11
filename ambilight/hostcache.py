@@ -55,6 +55,14 @@ class HostCache:
                              daemon=True, name="hostcache").start()
         return entry[0]
 
+    def last_known(self, host):
+        """The last address a lookup of `host` gave, without looking it up; None if never."""
+        if is_ip(host):
+            return host
+        with self.lock:
+            entry = self.known.get(host)
+        return entry[0] if entry else None
+
     def mark_stale(self, host):
         """A send failed: look the name up again soon, but keep using the old address."""
         with self.lock:

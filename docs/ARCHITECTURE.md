@@ -61,21 +61,25 @@ pipeline, a way of controlling it, or a one-off setup tool.
 |---|---|---|
 | `ambilight/wled.py` | 164 | Client for WLED's JSON API (power, presets, segments). |
 | `ambilight/board.py` | 88 | Puts the control page onto the board itself. |
-| `ambilight/hostcache.py` | 82 | Remembers the board's IP because `.local` names are flaky. |
+| `ambilight/hostcache.py` | 90 | Remembers the board's IP because `.local` names are flaky. |
 | `ambilight/intent.py` | 74 | Rule: the board decides whether sync is on; the Mac follows. |
-| `board/index.htm` | 423 | The page that lives on the board. |
+| `board/index.htm` | 434 | The page that lives on the board. |
 
 ### F. Control surface: how you drive it
 | File | Lines | What it is for |
 |---|---|---|
-| `ambilight/server.py` | 211 | HTTP server and the `Hub` object that owns the engine and config. |
-| `ambilight/routes.py` | 404 | One small function per URL (the API). |
+| `ambilight/server.py` | 231 | HTTP server and the `Hub` object that owns the engine and config. |
+| `ambilight/routes.py` | 425 | One small function per URL (the API). |
 | `ambilight/access.py` | 68 | Only home-LAN devices may call it. |
 | `ambilight/config.py` | 427 | All settings, their defaults and valid ranges, saved to `config.json`. |
-| `ambilight/discovery.py` | 61 | Bonjour name and addresses to open on the phone. |
-| `ambilight/web/index.html` | 1836 | The phone web page (6 tabs: Home, Effects, Override, Bed, Setup, Advanced). HTML, CSS and JS in one file. |
+| `ambilight/discovery.py` | 74 | Bonjour name, the hub's addresses, and where the board's own page is. |
+| `ambilight/qr.py` | 42 | QR codes for pairing a phone, drawn by macOS's CoreImage. |
+| `ambilight/web/index.html` | 1978 | The phone web page (6 tabs: Home, Effects, Override, Bed, Setup, Advanced). HTML, CSS and JS in one file. |
 | `ambilight/web/calibrate.html` | 231 | Calibration page. |
-| `macapp/` | about 1,400 Swift | Native Mac app. A client of the same HTTP API. |
+| `macapp/` | about 1,550 Swift | Native Mac app. A client of the same HTTP API. `Connection.swift` holds its link states, `PairSheet.swift` the pairing QR. |
+
+How each device connects, what happens when something drops out, and the
+manual steps: `docs/CONNECT.md`.
 
 ### G. Setup and calibration (run rarely)
 | File | Lines | What it is for |
@@ -89,7 +93,7 @@ pipeline, a way of controlling it, or a one-off setup tool.
 ### H. Dev tooling
 | File | Lines | What it is for |
 |---|---|---|
-| `tests/test_hub.py` | 2964 | 43 test functions, 608 checks. Starts a fake board and a sandbox hub. |
+| `tests/test_hub.py` | 3603 | 54 test functions, 720 checks. Starts a fake board and a sandbox hub. |
 | `tools/fake_wled.py` | 227 | Pretend WLED board for tests; checks DNRGB and DDP packets. |
 | `tools/hardware_sim.py` | 356 | Puts a hub through failures (reboot, drops) against the fake board. |
 | `tools/soak.py` | 256 | Runs a sandbox hub for hours; checks memory stays flat and fps steady. `--dry-run` for one minute. |

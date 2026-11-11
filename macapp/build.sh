@@ -10,7 +10,7 @@ FLAGS=(-O -swift-version 5 -target "$TARGET")
 mkdir -p build
 
 if [[ "${1:-}" == "test" ]]; then
-  swiftc "${FLAGS[@]}" Sources/Layout.swift Tests/main.swift -o build/layout-tests
+  swiftc "${FLAGS[@]}" Sources/Layout.swift Sources/Connection.swift Tests/main.swift -o build/layout-tests
   exec build/layout-tests
 fi
 
