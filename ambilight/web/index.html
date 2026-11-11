@@ -58,7 +58,7 @@ h2,h3,.label{font-size:11px;letter-spacing:.16em;color:var(--dim)}
   padding:calc(14px + env(safe-area-inset-top)) 16px 12px}
 .brand{margin:0;display:flex;align-items:center;gap:10px;font:700 13px/1 var(--mono);letter-spacing:.24em;color:var(--amber)}
 .brand span{color:var(--dim)}
-.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(6,1fr);
+.tabs{position:fixed;z-index:20;inset:auto 0 0;display:grid;grid-template-columns:repeat(4,1fr);
   background:var(--panel);border-top:1px solid var(--rule-hi);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
@@ -245,10 +245,8 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 <header class="top">
   <h1 class="brand"><i class="lamp" id="head-lamp" aria-hidden="true"></i>AMBILIGHT <span>HUB</span></h1>
   <nav class="tabs" aria-label="Sections">
-    <button class="tab" type="button" data-action="tab" data-value="home">Home</button>
-    <button class="tab" type="button" data-action="tab" data-value="effects">Effects</button>
-    <button class="tab" type="button" data-action="tab" data-value="override">Override</button>
-    <button class="tab" type="button" data-action="tab" data-value="bed">Bed</button>
+    <button class="tab" type="button" data-action="tab" data-value="lights">Lights</button>
+    <button class="tab" type="button" data-action="tab" data-value="picture">Picture</button>
     <button class="tab" type="button" data-action="tab" data-value="setup">Setup</button>
     <button class="tab" type="button" data-action="tab" data-value="advanced">Advanced</button>
   </nav>
@@ -265,7 +263,7 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
     <div class="banner fault" id="engine-banner" hidden><p id="engine-error"></p></div>
   </div>
 
-  <section class="screen" id="tab-home" aria-label="Home">
+  <section class="screen" id="tab-lights" aria-label="Lights">
     <div class="panel">
       <button class="rocker" id="power" type="button" role="switch" aria-checked="false"
               aria-label="Screen sync" aria-describedby="power-hint" data-action="power">
@@ -298,65 +296,19 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
       <h2>Live preview</h2>
       <canvas class="preview" id="preview" role="img" aria-label="Live preview of the colours on the LED strip"></canvas>
     </div>
-    <div class="panel">
-      <h2>Picture</h2>
-      <div class="seg" role="group" aria-label="Mood">
-        <button type="button" data-action="profile" data-value="movie" aria-pressed="false">Cinema</button>
-        <button type="button" data-action="profile" data-value="game" aria-pressed="false">Gaming</button>
+    <div class="panel device" id="dev-monitor">
+      <h2>Monitor strip</h2>
+      <p class="banner" id="fx-serial" hidden>Effects need the controller on Wi-Fi. Switch output in Advanced.</p>
+      <div class="seg" id="monitor-modes" role="group" aria-label="What the monitor strip shows">
+        <button type="button" data-action="monitor-mode" data-value="sync" aria-pressed="false">Screen sync</button>
+        <button type="button" data-action="monitor-mode" data-value="colour" aria-pressed="false">Colour</button>
+        <button type="button" data-action="monitor-mode" data-value="effect" aria-pressed="false">Effect</button>
+        <button type="button" data-action="monitor-mode" data-value="off" aria-pressed="false">Off</button>
       </div>
-      <div class="seg" id="my-profiles" role="group" aria-label="Your profiles" hidden></div>
-      <p class="hint">Cinema glides and fills the room with the film's colour; Gaming reacts in a tenth of a second with punchier colour. Brightness and warmth stay yours. Your own profiles keep the whole look.</p>
-      <div class="row">
-        <button class="btn small" type="button" data-action="profile-save">Save this look</button>
-        <button class="btn small" type="button" data-action="profile-delete" id="profile-delete" hidden>Delete</button>
-      </div>
-      <form class="inline" id="form-profile" hidden>
-        <input type="text" id="profile-name" maxlength="24" autocomplete="off" spellcheck="false"
-          placeholder="Name, e.g. Late night" aria-label="Profile name">
-        <button class="btn primary" type="submit">Save</button>
-      </form>
-      <div class="fader" data-fader="brightness"></div>
-      <div class="fader" data-fader="saturation"></div>
-      <div class="fader" data-fader="immersion"
-        data-hint="Lifts deep colours and floods the room with the scene's colour. Skin and greys stay true."></div>
-      <div class="fader" data-fader="blend" data-hint="How long the light takes to settle on a new colour."></div>
-    </div>
-
-    <div class="panel">
-      <h2>Mouse</h2>
-      <button class="switch" type="button" role="switch" aria-checked="false" data-switch="mouse_sync"
-        aria-describedby="mouse-hint">Follow the screen<span class="toggle" aria-hidden="true"></span></button>
-      <p class="hint" id="mouse-hint"></p>
-    </div>
-  </section>
-
-  <section class="screen" id="tab-effects" aria-label="Effects and colour" hidden>
-    <p class="banner" id="fx-serial" hidden>Effects need the controller on Wi-Fi. Switch output in Advanced.</p>
-    <div class="panel">
-      <h2>Effects</h2>
-      <div class="tiles" id="fx-tiles"><p class="hint">Loading effects…</p></div>
-      <div class="fader" data-fader="fx_speed"></div>
-      <div class="fader" data-fader="fx_intensity"></div>
-    </div>
-    <div class="panel">
-      <h2>Colour</h2>
-      <div class="colour-row"><input type="color" id="colour" value="#ffb46b">
-        <label for="colour" class="hint">Pick any colour, or tap a swatch</label></div>
-      <div class="swatches" id="swatches" role="group" aria-label="Quick colours"></div>
-      <div class="fader" data-fader="fx_brightness"></div>
-    </div>
-    <div class="panel">
-      <h2>Saved looks</h2>
-      <div class="chips" id="presets"></div>
-      <p class="hint" id="presets-hint"></p>
-      <div class="field"><label for="wled-fx">More effects</label><select id="wled-fx" disabled><option>Loading from the controller…</option></select></div>
-    </div>
-    <button class="btn primary wide" type="button" data-action="sync-on">Back to screen sync</button>
-  </section>
-
-  <section class="screen" id="tab-override" aria-label="Override" hidden>
-    <div class="panel">
-      <h2>Lock colours</h2>
+      <div class="stack" id="mon-sync">
+        <details id="lock-box">
+          <summary>Lock part of the strip</summary>
+          <div class="stack">
       <p class="hint">Drag along the LEDs to pick a stretch, choose a colour and lock it. The rest keeps
         following the screen.</p>
       <canvas class="paint" id="paint" role="img"
@@ -374,27 +326,40 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
         <button class="btn" type="button" data-action="lock-all">Select all</button>
         <button class="btn primary" type="button" data-action="lock" id="lock-go" disabled>Lock colour</button>
       </div>
-    </div>
-    <div class="panel">
-      <h2>Locked</h2>
+      <h3 class="label">Locked</h3>
       <ol class="locks" id="locks"></ol>
       <p class="hint" id="locks-empty">Nothing locked: the whole strip follows the screen.</p>
       <button class="btn" type="button" data-action="locks-clear" id="locks-clear" hidden>Unlock everything</button>
+          </div>
+        </details>
+      </div>
+      <div class="stack" id="mon-colour" hidden>
+      <div class="colour-row"><input type="color" id="colour" value="#ffb46b">
+        <label for="colour" class="hint">Pick any colour, or tap a swatch</label></div>
+      <div class="swatches" id="swatches" role="group" aria-label="Quick colours"></div>
+      <div class="fader" data-fader="fx_brightness"></div>
+      </div>
+      <div class="stack" id="mon-effect" hidden>
+      <div class="tiles" id="fx-tiles"><p class="hint">Loading effects…</p></div>
+      <div class="fader" data-fader="fx_speed"></div>
+      <div class="fader" data-fader="fx_intensity"></div>
+      <h3 class="label">Saved looks</h3>
+      <div class="chips" id="presets"></div>
+      <p class="hint" id="presets-hint"></p>
+      <div class="field"><label for="wled-fx">More effects</label><select id="wled-fx" disabled><option>Loading from the controller…</option></select></div>
+      </div>
     </div>
-  </section>
-
-  <section class="screen" id="tab-bed" aria-label="Bed strip" hidden>
     <div class="panel" id="bed-none" hidden>
       <h2>Bed strip</h2>
-      <p class="hint">No bed strip is set up yet. Wire it as in docs/wiring.md, then enter its details under Strip below.</p>
+      <p class="hint">No bed strip is set up yet. Wire it as in docs/wiring.md, then enter its details under Setup → Bed strip wiring.</p>
     </div>
     <div class="panel" id="bed-controls">
       <h2>Bed strip</h2>
       <p class="label" id="bed-state" aria-live="polite"></p>
       <div class="seg" role="group" aria-label="What the bed shows">
-        <button type="button" data-action="bed-mode" data-value="screen" aria-pressed="false">Follow screen</button>
-        <button type="button" data-action="bed-mode" data-value="effect" aria-pressed="false">Effect</button>
+        <button type="button" data-action="bed-mode" data-value="screen" aria-pressed="false">Screen sync</button>
         <button type="button" data-action="bed-mode" data-value="colour" aria-pressed="false">Colour</button>
+        <button type="button" data-action="bed-mode" data-value="effect" aria-pressed="false">Effect</button>
         <button type="button" data-action="bed-mode" data-value="off" aria-pressed="false">Off</button>
       </div>
       <div class="stack" id="bed-screen" hidden>
@@ -423,28 +388,36 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
       <div class="fader" data-fader="bed_brightness"></div>
     </div>
     <div class="panel">
-      <details id="bed-strip">
-        <summary>Strip</summary>
-        <div class="stack">
-          <button class="switch" type="button" role="switch" aria-checked="false" data-switch="bed_reverse"
-            aria-describedby="bed-reverse-hint">First LED is the far end<span class="toggle" aria-hidden="true"></span></button>
-          <p class="hint" id="bed-reverse-hint">Leave off when the strip starts next to the monitor.</p>
-          <form class="stack" id="form-bed">
-            <div class="field"><label for="bed-leds">LEDs</label>
-              <input type="number" id="bed-leds" min="0" max="600" inputmode="numeric"></div>
-            <div class="field"><label for="bed-pin">Data pin on the board</label>
-              <select id="bed-pin">
-                <option value="5">D1</option><option value="4">D2</option><option value="14">D5</option>
-                <option value="12">D6</option><option value="13">D7</option><option value="3">RX</option>
-              </select></div>
-            <div class="field"><label for="bed-amps">Power limit (amps)</label>
-              <input type="number" id="bed-amps" min="0.2" max="20" step="0.1" inputmode="decimal"></div>
-            <p class="hint">The bed's share of the adapter, which both strips may be on. The board restarts for
-              about 10 seconds. RX gives the board the least memory to spare, so keep strips there short.</p>
-            <button class="btn primary" type="submit">Apply and restart the board</button>
-          </form>
-        </div>
-      </details>
+      <h2>Mouse</h2>
+      <button class="switch" type="button" role="switch" aria-checked="false" data-switch="mouse_sync"
+        aria-describedby="mouse-hint">Follow the screen<span class="toggle" aria-hidden="true"></span></button>
+      <p class="hint" id="mouse-hint"></p>
+    </div>
+  </section>
+
+  <section class="screen" id="tab-picture" aria-label="Picture" hidden>
+    <div class="panel">
+      <h2>Picture</h2>
+      <div class="seg" role="group" aria-label="Mood">
+        <button type="button" data-action="profile" data-value="movie" aria-pressed="false">Cinema</button>
+        <button type="button" data-action="profile" data-value="game" aria-pressed="false">Gaming</button>
+      </div>
+      <div class="seg" id="my-profiles" role="group" aria-label="Your profiles" hidden></div>
+      <p class="hint">Cinema glides and fills the room with the film's colour; Gaming reacts in a tenth of a second with punchier colour. Brightness and warmth stay yours. Your own profiles keep the whole look.</p>
+      <div class="row">
+        <button class="btn small" type="button" data-action="profile-save">Save this look</button>
+        <button class="btn small" type="button" data-action="profile-delete" id="profile-delete" hidden>Delete</button>
+      </div>
+      <form class="inline" id="form-profile" hidden>
+        <input type="text" id="profile-name" maxlength="24" autocomplete="off" spellcheck="false"
+          placeholder="Name, e.g. Late night" aria-label="Profile name">
+        <button class="btn primary" type="submit">Save</button>
+      </form>
+      <div class="fader" data-fader="brightness"></div>
+      <div class="fader" data-fader="saturation"></div>
+      <div class="fader" data-fader="immersion"
+        data-hint="Lifts deep colours and floods the room with the scene's colour. Skin and greys stay true."></div>
+      <div class="fader" data-fader="blend" data-hint="How long the light takes to settle on a new colour."></div>
     </div>
   </section>
 
@@ -586,6 +559,30 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
       </li>
     </ol>
     <button class="btn primary wide" type="button" data-action="finish">Finish setup</button>
+    <div class="panel">
+      <details id="bed-strip">
+        <summary>Bed strip wiring</summary>
+        <div class="stack">
+          <button class="switch" type="button" role="switch" aria-checked="false" data-switch="bed_reverse"
+            aria-describedby="bed-reverse-hint">First LED is the far end<span class="toggle" aria-hidden="true"></span></button>
+          <p class="hint" id="bed-reverse-hint">Leave off when the strip starts next to the monitor.</p>
+          <form class="stack" id="form-bed">
+            <div class="field"><label for="bed-leds">LEDs</label>
+              <input type="number" id="bed-leds" min="0" max="600" inputmode="numeric"></div>
+            <div class="field"><label for="bed-pin">Data pin on the board</label>
+              <select id="bed-pin">
+                <option value="5">D1</option><option value="4">D2</option><option value="14">D5</option>
+                <option value="12">D6</option><option value="13">D7</option><option value="3">RX</option>
+              </select></div>
+            <div class="field"><label for="bed-amps">Power limit (amps)</label>
+              <input type="number" id="bed-amps" min="0.2" max="20" step="0.1" inputmode="decimal"></div>
+            <p class="hint">The bed's share of the adapter, which both strips may be on. The board restarts for
+              about 10 seconds. RX gives the board the least memory to spare, so keep strips there short.</p>
+            <button class="btn primary" type="submit">Apply and restart the board</button>
+          </form>
+        </div>
+      </details>
+    </div>
   </section>
 
   <section class="screen" id="tab-advanced" aria-label="Advanced" hidden>
@@ -696,7 +693,9 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
 "use strict";
 const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, FETCH_TIMEOUT_MS = 4000, PIN_KEY = "ambilight-pin";
 const BOARD_KEY = "ambilight-board";
-const TABS = ["home", "effects", "override", "bed", "setup", "advanced"];
+const TABS = ["lights", "picture", "setup", "advanced"];
+// Old links still land somewhere sensible: these screens now live on Lights.
+const MOVED = {home: "lights", effects: "lights", override: "lights", bed: "lights"};
 const EDGE_KEYS = ["edge_bottom", "edge_right", "edge_top", "edge_left"];
 const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g", "wb_b",
   "led_gamma", "contrast", "black_level", "colour_weight", "spread"];
@@ -971,6 +970,7 @@ const modeOf = s => s.mode || (s.running ? "sync" : s.wled_on ? "effect" : "off"
 function render(s) {
   state = s;
   renderHero(s);
+  renderMonitorCard(s);
   renderPreview();
   for (const key in faders) if (!FADERS[key].apply) setFader(key, s[key]);
   setFader("fx_brightness", s.wled_bri);
@@ -986,7 +986,20 @@ function render(s) {
   renderZonesFromStatus(s);
   renderAdvanced(s);
   renderTiming(s);
-  if (currentTab === "override") drawPaint();
+  if (currentTab === "lights" && $("lock-box").open) drawPaint();
+}
+
+// The pane the monitor card shows: the strip's own mode, unless the user opened another.
+let monitorView = "", lastMode = "";
+function renderMonitorCard(s) {
+  const mode = modeOf(s);
+  if (mode !== lastMode && (mode === "sync" || mode === "off")) monitorView = "";
+  lastMode = mode;
+  const view = monitorView || mode;
+  $$("#monitor-modes button").forEach(b => press(b, b.dataset.value === view));
+  $("mon-sync").hidden = view !== "sync";
+  $("mon-colour").hidden = view !== "colour";
+  $("mon-effect").hidden = view !== "effect";
 }
 
 function renderHero(s) {
@@ -1861,7 +1874,8 @@ async function startWebcam(task) {
 
 /* ---------- navigation and wiring ---------- */
 function showTab(name) {
-  if (!TABS.includes(name)) name = "home";
+  name = MOVED[name] || name;
+  if (!TABS.includes(name)) name = "lights";
   if (name === currentTab) return;
   const leaving = currentTab;
   currentTab = name;
@@ -1870,10 +1884,12 @@ function showTab(name) {
   history.replaceState(null, "", `#${name}`);
   window.scrollTo(0, 0);
   if (leaving === "setup" && wizardLive) stopWizard({offer: true});
-  if (name === "home") { previewKey = ""; renderPreview(); }
-  if (name === "effects") { if (!effects.length) loadEffects(); loadMeta(); }
-  if (name === "override") drawPaint();
-  if (name === "bed" && !effects.length) loadEffects();
+  if (name === "lights") {
+    previewKey = ""; renderPreview();
+    if (!effects.length) loadEffects();
+    loadMeta();
+    if ($("lock-box").open) drawPaint();
+  }
   if (name === "advanced") { loadMonitors(); loadPorts(); loadHealth(); }
 }
 
@@ -1881,6 +1897,12 @@ const ACTIONS = {
   "tab": b => showTab(b.dataset.value),
   "power": () => act(state && modeOf(state) === "sync" ? "/api/sync/off" : "/api/sync/on"),
   "sync-on": () => act("/api/sync/on"),
+  "monitor-mode": b => {
+    monitorView = b.dataset.value;
+    if (monitorView === "sync") ACTIONS["sync-on"]();
+    if (monitorView === "off") ACTIONS["lights-off"]();
+    if (state) renderMonitorCard(state);
+  },
   "lights-off": async () => { if (await act("/api/wled/power", {on: 0})) refresh(); },
   "profile": b => act(`/api/profile/${encodeURIComponent(b.dataset.value)}`),
   "profile-save": showProfileForm,
@@ -1983,6 +2005,7 @@ function wire() {
     poll();
   });
   $("unlock").addEventListener("cancel", () => { pinDismissed = true; });
+  $("lock-box").addEventListener("toggle", () => { if ($("lock-box").open) drawPaint(); });
   window.addEventListener("resize", debounce(() => { previewKey = ""; renderPreview(); drawPaint(); }, 150));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   window.addEventListener("online", poll);   // Wi-Fi is back: don't wait for the slow offline retry

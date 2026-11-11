@@ -113,7 +113,7 @@ Do not read top to bottom. Follow one frame of video through the system.
    (line 447) and `_output` (line 533). Every time it calls out, jump to that
    function: `processing.edge_colors`, then `color.to_led`, then
    `smoothing`, then `safety`. Skip the helper classes the first time.
-4. **Follow one button press (30 min).** In `web/index.html` find the Home tab's
+4. **Follow one button press (30 min).** In `web/index.html` find the Lights tab's
    power button, find the URL it calls, find that URL in `routes.py`, see what
    it changes in `config.py`. That is the whole control path.
 5. **Then the add-ons (30 min).** `bed.py`, `mouse.py` and `zones.py` are all

@@ -278,7 +278,7 @@ The strip is usually longer than the monitor. Zones give each stretch its own jo
 Drag a zone's handles on the strip to resize it, or drag the dashed **screen
 region** itself. With no zones at all, the whole strip follows the screen.
 
-### Lock colours (the Override tab)
+### Lock colours (Lights → Monitor strip → Lock part of the strip)
 
 On the **Override** tab, drag along the LEDs drawn round the screen to pick a
 stretch, choose a colour and brightness, and press **Lock colour**. A lock is
@@ -305,7 +305,7 @@ black are left alone, and a scene without a real colour (or one small light in
 the dark) is not flooded. Measured on the wall with the webcam at 100%: dark red
 ×3.5, maroon ×5, grey unchanged.
 
-### A second strip round the bed (the Bed tab)
+### A second strip round the bed (the Bed strip card on Lights)
 
 A second WS2812B strip can run from the same board's second output, through the
 level shifter's spare channel, as wired in [docs/wiring.md](docs/wiring.md)
@@ -403,7 +403,7 @@ its own page, plus Profiles and Calibrate, a **Lighting** menu with shortcuts
 (⇧⌘S sync, ⌘1/⌘2 Cinema/Gaming, ⌘3… your profiles, ⇧⌘M mouse) and quick
 controls in the menu bar. It talks to the hub's API, so the hub must be running
 (it starts at login). The Bed strip page has the same controls as the web
-page's Bed tab. Built with the Command Line Tools, no Xcode needed:
+page's Bed strip card. Built with the Command Line Tools, no Xcode needed:
 
 ```bash
 macapp/build.sh test      # the app's layout and colour logic

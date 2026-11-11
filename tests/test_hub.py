@@ -3347,6 +3347,54 @@ def test_telemetry_api(base):
     check("the page shows every stage the hub times", set(re.findall(r'\["(\w+)", "', stages)) == set(STAGES))
 
 
+def test_one_interface():
+    print("\n44. One Lights screen for every light, on every device")
+    import re, shutil
+    html = open("ambilight/web/index.html").read()
+    markup, script = html[:html.index("<script>")], page_script("ambilight/web/index.html")
+    tabs = re.findall(r'data-action="tab" data-value="(\w+)"', markup)
+    check("four tabs: Lights, Picture, Setup, Advanced", tabs == ["lights", "picture", "setup", "advanced"], tabs)
+    lights = re.search(r'<section class="screen" id="tab-lights".*?\n  </section>', markup, re.S).group(0)
+    monitor = re.findall(r'data-action="monitor-mode" data-value="(\w+)"', lights)
+    bed_modes = re.findall(r'data-action="bed-mode" data-value="(\w+)"', lights)
+    check("the monitor strip offers screen sync, colour, effect and off", monitor == ["sync", "colour", "effect", "off"], monitor)
+    check("the bed offers the same four on the same screen", bed_modes == ["screen", "colour", "effect", "off"], bed_modes)
+    check("the mouse is on the Lights screen too", 'data-switch="mouse_sync"' in lights)
+    check("locking part of the strip lives under the monitor's screen sync",
+          'id="lock-box"' in lights and lights.index('id="mon-sync"') < lights.index('id="lock-box"') < lights.index('id="mon-colour"'))
+    check("old links to Home, Effects, Override and Bed open Lights",
+          all(re.search(rf"\b{old}: \"lights\"", script) for old in ("home", "effects", "override", "bed")))
+    ids = set(re.findall(r'id="([\w-]+)"', markup))
+    wanted = set(re.findall(r'\$\("([\w-]+)"\)', script))
+    check("every element the script reaches for is still on the page", wanted <= ids, sorted(wanted - ids))
+    handled = set(re.findall(r'^\s*"?([\w-]+)"?\s*:', js_block(script, "const ACTIONS"), re.M))
+    actions = set(re.findall(r'data-action="([\w-]+)"', markup))
+    check("every button on the page has a handler", actions <= handled, sorted(actions - handled))
+
+    if not shutil.which("node"):
+        print("    (skipped: node not installed, so the monitor card was not run)")
+        return
+    shown = run_node(re.search(r"^const modeOf.*$", script, re.M).group(0) + "\n" + js_block(script, "function renderMonitorCard").replace(
+        "function renderMonitorCard", 'let monitorView = "", lastMode = "";\nfunction renderMonitorCard') + r"""
+const panes = {"mon-sync": {}, "mon-colour": {}, "mon-effect": {}};
+const buttons = ["sync", "colour", "effect", "off"].map(v => ({dataset: {value: v}, pressed: false}));
+const $ = id => panes[id];
+const $$ = () => buttons;
+const press = (b, on) => { b.pressed = on; };
+const look = s => { renderMonitorCard(s); return [Object.keys(panes).find(k => !panes[k].hidden) || "none",
+                                                   buttons.find(b => b.pressed).dataset.value]; };
+const out = [look({mode: "sync"})];
+monitorView = "colour"; out.push(look({mode: "sync"}));
+out.push(look({mode: "effect"}));
+out.push(look({mode: "sync"}));
+out.push(look({mode: "off"}));
+console.log(JSON.stringify(out));
+""")
+    check("the monitor card shows what the strip is doing, and keeps a pane the user opened",
+          shown == [["mon-sync", "sync"], ["mon-colour", "colour"], ["mon-colour", "colour"],
+                    ["mon-sync", "sync"], ["none", "off"]], shown)
+
+
 def test_soak_verdict():
     print("\n43. The soak script's verdict on memory and frame rate")
     import math
@@ -3633,6 +3681,7 @@ def main():
     test_engine_parts()
     test_telemetry()
     test_engine_telemetry()
+    test_one_interface()
     test_soak_verdict()
     test_soak_live()
     test_latency_script()
