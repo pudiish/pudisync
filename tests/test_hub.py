@@ -2831,6 +2831,301 @@ def test_board_address_cache():
         hostcache.BOARD.known.clear()
 
 
+class FakeClock:
+    """Time that moves only when told to, so timing checks are exact. It also
+    stands in for a stop event: waiting on it moves time on instead of sleeping."""
+
+    def __init__(self, now=100.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+    def wait(self, seconds):
+        self.now += seconds
+
+    def is_set(self):
+        return False
+
+
+def test_telemetry():
+    print("\n40. Telemetry: stage timing, delivered frames, drops and picture age")
+    from ambilight.telemetry import STAGES, WINDOW, Telemetry, percentile
+
+    check("percentiles use the nearest rank",
+          percentile([4, 1, 3, 2], 0.5) == 2 and percentile([4, 1, 3, 2], 0.95) == 4)
+    check("no samples, no percentile", percentile([], 0.5) is None)
+
+    clock = FakeClock()
+    t = Telemetry(clock)
+    empty = t.snapshot()
+    check("a fresh collector lists every stage, all empty",
+          set(empty["stages_ms"]) == set(STAGES)
+          and all(v == {"p50": None, "p95": None} for v in empty["stages_ms"].values()), empty["stages_ms"])
+    check("and nothing delivered or dropped", (empty["delivered_fps"], empty["dropped"]) == (0, 0))
+
+    for ms in (10, 20, 30, 40):
+        with t.stage("capture"):
+            clock.wait(ms / 1000)
+    capture = t.snapshot()["stages_ms"]["capture"]
+    check("a stage reports its median and p95 in ms", capture == {"p50": 20.0, "p95": 40.0}, capture)
+
+    try:
+        with t.stage("process"):
+            raise OSError("display gone")
+    except OSError:
+        pass
+    check("a stage that fails is not counted", t.snapshot()["stages_ms"]["process"]["p50"] is None)
+
+    for i in range(WINDOW + 60):
+        t.record("send", i / 1000)
+    check("only the most recent samples count",
+          t.snapshot()["stages_ms"]["send"]["p50"] == 60 + WINDOW // 2 - 1, t.snapshot()["stages_ms"]["send"])
+
+    for _ in range(120):
+        clock.wait(1 / 60)
+        t.sent(True, clock())
+    fps = t.snapshot()["delivered_fps"]
+    check("delivered fps counts the last second of sends", 59 <= fps <= 61, fps)
+    clock.wait(2.0)
+    check("and falls to zero when sends stop", t.snapshot()["delivered_fps"] == 0)
+
+    t = Telemetry(clock)
+    t.captured(clock())
+    clock.wait(0.030)
+    t.sent(True, clock())
+    clock.wait(1 / 60)
+    t.sent(True, clock())
+    check("a picture's age is taken at its first send only",
+          t.snapshot()["latency_ms"] == {"p50": 30.0, "p95": 30.0}, t.snapshot()["latency_ms"])
+
+    t.captured(clock())
+    clock.wait(0.010)
+    t.sent(False, clock())
+    clock.wait(0.010)
+    t.sent(True, clock())
+    snap = t.snapshot()
+    check("a failed send is a drop and an error", (snap["dropped"], snap["send_errors"]) == (1, 1), snap)
+    check("and the picture's age runs to the first send that got through",
+          snap["latency_ms"] == {"p50": 20.0, "p95": 30.0}, snap["latency_ms"])
+    t.missed(5)
+    check("frames the pacer skipped are drops too", t.snapshot()["dropped"] == 6)
+    check("delivered counts only good sends", t.snapshot()["delivered"] == 3)
+
+    t.reset()
+    snap = t.snapshot()
+    check("reset starts from nothing",
+          (snap["delivered"], snap["dropped"], snap["latency_ms"]["p50"]) == (0, 0, None), snap)
+
+
+def test_engine_telemetry():
+    print("\n41. The engine times every stage and counts what it drops")
+    import ambilight.engine as eng
+    from ambilight.telemetry import STAGES
+
+    clock = FakeClock()
+    pacer = eng._Pacer(clock)
+    for _ in range(10):
+        pacer.tick(60, clock)
+    clock.wait(0.1)
+    for _ in range(8):
+        pacer.tick(60, clock)
+    check("a short hiccup is caught up, not dropped", pacer.missed == 0, pacer.missed)
+    clock.wait(0.41)
+    before = clock()
+    pacer.tick(60, clock)
+    check("a stall that forces a resync counts the frames it skipped", pacer.missed == 23, pacer.missed)
+    pacer.tick(60, clock)
+    check("and the pacer still resyncs instead of sprinting", abs(clock() - before - 1 / 60) < 1e-9)
+
+    class Steady:
+        name = "steady"
+
+        @staticmethod
+        def available():
+            return True
+
+        @staticmethod
+        def display_count():
+            return 1
+
+        def open(self, monitor_index, band_height):
+            return 600, 150
+
+        def grab(self):
+            band = np.zeros((150, 600, 3), np.uint8)
+            band[:, :300] = (200, 30, 30)
+            return band
+
+        def grab_full(self):
+            return self.grab()
+
+        def grab_search(self, rows):
+            return self.grab()
+
+        def set_inset(self, rows):
+            pass
+
+        def close(self):
+            pass
+
+    real = (eng.CAPTURES, eng.screen_locked)
+    eng.CAPTURES, eng.screen_locked = {"steady": Steady}, lambda: False
+    try:
+        cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-telemetry-"), "config.json"))
+        cfg.update({"wled_ip": "127.0.0.1", "wled_port": FAKE_WLED_UDP, "led_count": 60,
+                    "layout": "strip", "fps": 60})
+        engine = eng.Engine(cfg)
+        engine.start()
+        time.sleep(1.2)
+        t = engine.status()["telemetry"]
+        engine.stop()
+        engine.start()
+        restarted = engine.status()["telemetry"]["delivered"]
+        engine.stop()
+    finally:
+        eng.CAPTURES, eng.screen_locked = real
+    check("every stage has timings", all(t["stages_ms"][name]["p50"] is not None for name in STAGES),
+          t["stages_ms"])
+    check("p95 is never below the median",
+          all(v["p95"] >= v["p50"] for v in [*t["stages_ms"].values(), t["latency_ms"]]))
+    check("frames reach the output at the set rate", t["delivered_fps"] > 40, t["delivered_fps"])
+    check("a picture's age when it is sent is measured", (t["latency_ms"]["p50"] or 0) > 0, t["latency_ms"])
+    check("each run starts counting afresh", restarted < t["delivered"], (restarted, t["delivered"]))
+
+
+def test_telemetry_api(base):
+    print("\n42. Timing in the status API")
+    from ambilight.telemetry import STAGES
+
+    def get(path):
+        with urllib.request.urlopen(base + path, timeout=3) as r:
+            return json.loads(r.read())
+
+    get("/api/sync/on")
+    time.sleep(2.0)
+    s = get("/api/status")
+    get("/api/sync/off")
+    t = s.get("telemetry", {})
+    check("status carries the stage timings", set(t.get("stages_ms", {})) == set(STAGES), t)
+    check("the screen capture is timed", (t["stages_ms"]["capture"]["p50"] or 0) > 0, t["stages_ms"]["capture"])
+    check("frames are delivered to the board", t["delivered_fps"] > 20, t["delivered_fps"])
+    check("diagnostics carries the same block", set(get("/api/diagnostics")["telemetry"]) == set(t))
+
+    import re
+    html = open("ambilight/web/index.html").read()
+    script = re.search(r"function renderTiming\(s\) \{.*?\n\}", html, re.S).group(0)
+    stages = re.search(r"const TIMING_STAGES = (\[.*?\]);", html, re.S).group(1)
+    check("the page has a Timing panel", 'id="timing"' in html and "renderTiming(s);" in html)
+    check("every timing figure the page reads is in the status",
+          set(re.findall(r"\bt\.(\w+)", script)) <= set(t) and "measured_fps" in s,
+          set(re.findall(r"\bt\.(\w+)", script)) - set(t))
+    check("the page shows every stage the hub times", set(re.findall(r'\["(\w+)", "', stages)) == set(STAGES))
+
+
+def test_soak_verdict():
+    print("\n43. The soak script's verdict on memory and frame rate")
+    import math
+    import soak
+
+    def run_of(minutes=120, rss=lambda t: 50.0, fresh=lambda i: 33.0, drops=0, paused=()):
+        """A sample every 10 s, shaped like soak.sample()'s."""
+        return [{"t": i * 10.0, "rss_mb": rss(i * 10.0), "paused": i in paused,
+                 "fresh_fps": 0.0 if i in paused else fresh(i), "delivered_fps": 60.0,
+                 "delivered": i * 600, "dropped": i * drops} for i in range(minutes * 6)]
+
+    def verdict(samples):
+        return {name: ok for name, ok, _ in soak.judge(samples, 60)}
+
+    steady = verdict(run_of(rss=lambda t: 50 + 0.3 * math.sin(t / 60)))
+    check("a steady two-hour run passes every check, the leak check included",
+          all(steady.values()) and "memory stays flat" in steady, steady)
+    check("a 10 MB an hour leak fails", verdict(run_of(rss=lambda t: 50 + 10 * t / 3600))["memory stays flat"] is False)
+    check("memory that jumps 30 MB fails, however short the run",
+          verdict(run_of(minutes=2, rss=lambda t: 80.0 if t > 60 else 50.0))["memory does not grow"] is False)
+    check("single readings swinging by tens of MB are not a leak",
+          verdict(run_of(rss=lambda t: 50.0 + (35.0 if int(t) % 70 == 0 else 0.0)))["memory does not grow"])
+    check("fresh frames collapsing now and then fails",
+          verdict(run_of(fresh=lambda i: 5.0 if i % 10 == 0 else 33.0))["fresh frames never collapse"] is False)
+    check("2% dropped frames fails", verdict(run_of(drops=12))["dropped frames stay rare"] is False)
+    check("time with the screen locked or asleep is left out",
+          all(verdict(run_of(paused=set(range(300, 360)))).values()))
+    short = verdict(run_of(minutes=1))
+    check("a one-minute run is judged, but not for a slow leak",
+          all(short.values()) and "memory stays flat" not in short, short)
+    check("no samples is a failure, not a pass", verdict([]) == {"enough samples to judge": False})
+
+    check("ps CPU times are read in every form",
+          (soak.cpu_seconds("0:01.23"), soak.cpu_seconds("12:34.50"), soak.cpu_seconds("1-02:03:04.00"))
+          == (1.23, 754.5, 93784.0))
+    try:
+        soak.ports(8079)
+        refused = False
+    except SystemExit:
+        refused = True
+    check("the soak refuses a port base that lands on the live hub", refused)
+
+
+def test_soak_live():
+    print("\n44. A short soak against its own sandbox hub")
+    import soak
+    from ambilight.telemetry import STAGES
+
+    out = os.path.join(tempfile.mkdtemp(prefix="ambilight-soak-test-"), "samples.jsonl")
+    samples = soak.run(PORT_BASE + 2, seconds=6, every=1.0, layout="frame", fps=60, out=out, log=lambda line: None)
+    check("it samples for the whole run", len(samples) >= 6 and samples[-1]["t"] >= 6, len(samples))
+    check("every sample has memory, CPU and every stage",
+          all(s["rss_mb"] > 0 and s["cpu_s"] >= 0 and set(s["stages_ms"]) == set(STAGES) for s in samples))
+    check("the fake board counts the packets", samples[-1]["packets"] > samples[0]["packets"])
+    check("the hub delivers frames throughout", min(s["delivered_fps"] for s in samples) > 20,
+          [s["delivered_fps"] for s in samples])
+    with open(out) as fh:
+        check("every sample is saved as a JSON line", len(fh.read().splitlines()) == len(samples))
+    check("the summary covers every stage", all(any(name in line for line in soak.summary(samples)) for name in STAGES))
+
+
+def test_latency_script():
+    print("\n45. The camera latency script, in a simulated room")
+    import latency
+    from ambilight import camrun
+
+    times = [i / 30 for i in range(30)]
+    hit = latency.crossing(times, [0.0] * 10 + [0.25, 0.75] + [1.0] * 18, times[5])
+    check("a crossing is interpolated between camera frames", hit is not None and abs(hit - 10.5 / 30) < 1e-9, hit)
+    hit = latency.crossing(times, [0.0] * 10 + [0.9] + [0.0] * 4 + [1.0] * 15, times[5])
+    check("a one-frame blip is not taken for the change", hit is not None and abs(hit - 14.5 / 30) < 1e-9, hit)
+    check("a light that does not change gives no reading", latency.crossing(times, [0.3] * 30, times[5]) is None)
+    screen = [(t, 0.0 if i < 10 else 1.0, 0.0 if i < 13 else 1.0) for i, t in enumerate(times)]
+    check("a flash's latency is the wall's crossing minus the screen's",
+          abs(latency.trial_latency(screen, times[5]) - 0.1) < 1e-9)
+
+    for delay in (80, 150):
+        result, truth = latency.dry_run(delay)
+        check(f"the simulated camera recovers a {delay} ms delay to within 10 ms",
+              result["usable"] == result["trials"] and abs(result["median_ms"] - truth) <= 10, (result, truth))
+        check(f"and reports a p95 no lower than the median ({delay} ms)", result["p95_ms"] >= result["median_ms"])
+
+    def opened(*args, **kwargs):
+        raise AssertionError("a camera was opened")
+
+    saved = (camrun.list_cameras, camrun.Camera.__init__, camrun.open_camera, camrun.PatchWindow)
+    camrun.Camera.__init__ = camrun.open_camera = camrun.PatchWindow = opened
+    try:
+        camrun.list_cameras = opened
+        check("the dry run passes without touching a camera or a hub", latency.main(["--dry-run"]) == 0)
+        try:
+            latency.main([])
+            refused = False
+        except SystemExit as exc:
+            refused = exc.code == 2
+        check("a real run without --camera is refused", refused)
+        camrun.list_cameras = lambda: [("FaceTime HD Camera", True), ("Lenovo FHD Webcam", False)]
+        check("naming the built-in camera stops before anything is opened",
+              latency.main(["--camera", "FaceTime", "--port", "9"]) == 1)
+    finally:
+        camrun.list_cameras, camrun.Camera.__init__, camrun.open_camera, camrun.PatchWindow = saved
+
+
 @contextmanager
 def sandbox_hub():
     """A fake WLED plus a hub on its own ports and config, torn down afterwards."""
@@ -2955,7 +3250,13 @@ def main():
     test_webcam_job()
     test_bed_strip()
     test_engine_parts()
+    test_telemetry()
+    test_engine_telemetry()
+    test_soak_verdict()
+    test_soak_live()
+    test_latency_script()
     with sandbox_hub() as base:
+        test_telemetry_api(base)
         test_api(base)
         test_wizard(base)
         test_serial_api(base)

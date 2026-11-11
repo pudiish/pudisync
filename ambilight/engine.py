@@ -14,6 +14,7 @@ from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
 from .safety import Guard
 from .smoothing import Quantizer, Smoother, settle_seconds
+from .telemetry import Telemetry
 
 # Each packet tells WLED to hold this long; comfortably over one frame interval
 # so a dropped packet does not flicker, short enough that a crash self-heals.
@@ -169,11 +170,12 @@ class OutputStage:
 class _Pipeline:
     """Screen in, per-LED target colours out. Owns the mapping cache."""
 
-    def __init__(self, stage=None):
+    def __init__(self, stage=None, telemetry=None):
         self._key = None
         self._mapping = None
         self._fade = None
         self.stage = stage or OutputStage()
+        self.telemetry = telemetry or Telemetry()
 
     def invalidate(self):
         self._key = None
@@ -194,23 +196,27 @@ class _Pipeline:
         # Retina scaling makes the captured width differ from the reported
         # monitor width, so map against what we actually got.
         self._ensure(band.shape[1], cfg)
-        linear = processing.spread(
-            processing.zone_colors(band, self._mapping, cfg["colour_weight"]), cfg["spread"])
-        target = processing.extend_edges(color.grade(linear, cfg), *self._fade)
-        return linear, target
+        with self.telemetry.stage("process"):
+            linear = processing.spread(
+                processing.zone_colors(band, self._mapping, cfg["colour_weight"]), cfg["spread"])
+        with self.telemetry.stage("colour"):
+            graded = color.grade(linear, cfg)
+        return linear, processing.extend_edges(graded, *self._fade)
 
     def measure_edges(self, edges, cfg):
         """Four screen edges -> (linear averages, target), for a strip round the monitor."""
         counts = (cfg["edge_bottom"], cfg["edge_right"], cfg["edge_top"], cfg["edge_left"])
-        share = processing.box_coverage(
-            counts, cfg["led_pitch_mm"], cfg["screen_mm_w"], cfg["screen_mm_h"],
-            (cfg["box_mm_w"], cfg["box_mm_h"]))
-        linear = processing.spread(
-            processing.frame_colors(edges, counts, share, cfg["colour_weight"]),
-            cfg["spread"], ring=True)
+        with self.telemetry.stage("process"):
+            share = processing.box_coverage(
+                counts, cfg["led_pitch_mm"], cfg["screen_mm_w"], cfg["screen_mm_h"],
+                (cfg["box_mm_w"], cfg["box_mm_h"]))
+            linear = processing.spread(
+                processing.frame_colors(edges, counts, share, cfg["colour_weight"]),
+                cfg["spread"], ring=True)
         target = np.zeros((cfg["led_count"], 3), dtype=np.float32)
         used = min(len(linear), len(target))
-        target[:used] = color.grade(linear[:used], cfg)
+        with self.telemetry.stage("colour"):
+            target[:used] = color.grade(linear[:used], cfg)
         return linear, target
 
     def render(self, band, cfg, now=None):
@@ -226,16 +232,18 @@ class _Pacer:
     REPORT_EVERY = 0.5
     RESYNC_AFTER = 0.25     # drop the schedule rather than sprint to catch up
 
-    def __init__(self):
-        now = time.perf_counter()
+    def __init__(self, clock=time.perf_counter):
+        self._clock = clock
+        now = clock()
         self._next = now
         self._window_start = now
         self._frames = 0
         self.fps = 0.0
+        self.missed = 0     # frames skipped by resyncing, never sent
 
     def tick(self, target_fps, stop):
         self._frames += 1
-        now = time.perf_counter()
+        now = self._clock()
         elapsed = now - self._window_start
         if elapsed >= self.REPORT_EVERY:
             self.fps = self._frames / elapsed
@@ -244,12 +252,14 @@ class _Pacer:
 
         # Schedule from the target grid, not from "now", so one slow frame does
         # not permanently shift the cadence.
-        self._next += 1.0 / max(1, target_fps)
-        sleep = self._next - time.perf_counter()
+        interval = 1.0 / max(1, target_fps)
+        self._next += interval
+        sleep = self._next - self._clock()
         if sleep > 0:
             stop.wait(sleep)
         elif sleep < -self.RESYNC_AFTER:
-            self._next = time.perf_counter()
+            self.missed += int(-sleep / interval)
+            self._next = self._clock()
         return self.fps
 
 
@@ -321,6 +331,7 @@ class Engine:
         self.last_recording = None
         self.awake = None
         self.mouse = mouse.LightsyncMouse(mouse.load_hid())
+        self.telemetry = Telemetry()
 
     @property
     def last_error(self):
@@ -335,6 +346,7 @@ class Engine:
             # its join can never be revived by clearing a shared flag.
             stop = self.stop_event = threading.Event()
             self.errors = {"capture": None, "output": None}
+            self.telemetry.reset()
             self._thread = threading.Thread(target=self._run, args=(stop,), daemon=True, name="sync")
             self.emitter = threading.Thread(target=self.emit_loop, args=(stop,), daemon=True, name="emit")
             self.running = True
@@ -435,17 +447,22 @@ class Engine:
             cfg = self.cfg.snapshot()
             try:
                 if self._override is None:
-                    pixels = self.stage.frame(time.perf_counter(), cfg)
+                    with self.telemetry.stage("smooth"):
+                        pixels = self.stage.frame(time.perf_counter(), cfg)
                     if pixels is not None:
-                        self._push(pixels)
+                        with self.telemetry.stage("send"):
+                            sent = self._push(pixels)
+                        self.telemetry.sent(sent, time.perf_counter())
             except Exception as exc:
                 log.exception("output loop failed")
                 self.errors["output"] = f"output hit an error and is retrying: {exc}"
                 stop.wait(0.5)
+            missed = pacer.missed
             self.output_fps = pacer.tick(cfg["fps"], stop)
+            self.telemetry.missed(pacer.missed - missed)
 
     def _loop(self, capture, stop):
-        pipeline = _Pipeline(self.stage)
+        pipeline = _Pipeline(self.stage, self.telemetry)
         pacer = _Pacer()
         watchdog = _BlackFrameWatchdog()
         plugin = type(capture)
@@ -490,6 +507,7 @@ class Engine:
             elif not wrapped:
                 capture.set_inset(0)
 
+            grabbed_at = time.perf_counter()
             try:
                 band = self._grab(
                     capture, stop, (lambda: frame_source.grab(capture, cfg)) if wrapped else None)
@@ -498,6 +516,7 @@ class Engine:
                 return      # _run reopens the capture once a display is back
             if band is None:
                 continue
+            self.telemetry.record("capture", time.perf_counter() - grabbed_at)
 
             if wrapped:
                 edges, band = band, band["bottom"]
@@ -512,6 +531,7 @@ class Engine:
                               else pipeline.measure(band, cfg))
             now = time.perf_counter()
             self.stage.set_target(target, now)
+            self.telemetry.captured(grabbed_at)
             self.record(now, linear)
 
             self.fps = pacer.tick(cfg["fps"], stop)
@@ -572,14 +592,17 @@ class Engine:
         return list(self._preview)
 
     def _push(self, pixels, hold_s=FRAME_TIMEOUT_S):
+        """Send one frame; True when the output took it."""
         monitor = pixels[:self.cfg.get("led_count")]   # the bed's pixels, if any, follow
         self._set_preview(monitor)
         out = self._output()
-        if not out.send(pixels, hold_s):
+        sent = out.send(pixels, hold_s)
+        if not sent:
             self.errors["output"] = f"could not reach the lights: {out.last_error}"
         elif self.errors["output"] and "could not reach" in self.errors["output"]:
             self.errors["output"] = None
         self.follow_mouse(monitor)
+        return sent
 
     def follow_mouse(self, pixels):
         cfg = self.cfg.snapshot()
@@ -608,6 +631,7 @@ class Engine:
             "capture_plugin": self.capture_name,
             "output_plugin": self.output_name,
             "mouse": self.mouse.status(),
+            "telemetry": self.telemetry.snapshot(),
         }
 
 

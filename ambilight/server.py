@@ -184,6 +184,7 @@ class Hub:
             "layout": cfg["layout"],
             "safety": engine.stage.safety(),
             "plugins": plugins,
+            "telemetry": engine.telemetry.snapshot(),
         }
 
 

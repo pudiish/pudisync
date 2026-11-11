@@ -251,8 +251,9 @@ Until then, latency is measured in software by workstream 5.
 - Room lights off, and the hub running from the merged branch.
 
 **Steps:**
-1. Latency: run workstream 5's latency script with `--camera Lenovo`. You get
-   median and p95 glass-to-LED ms.
+1. Latency: `python3 tools/latency.py --camera Lenovo` (add `--pin` if the hub
+   has one). You get median and p95 glass-to-LED ms, next to the hub's own
+   screen-to-send time.
 2. Wall colour: `python3 hub.py --camera-calibrate --camera Lenovo`
 3. Match score: play a video, then run
    `python3 hub.py --camera-check 60 --camera Lenovo`. It should score at least

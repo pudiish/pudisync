@@ -37,6 +37,7 @@ pipeline, a way of controlling it, or a one-off setup tool.
 | `ambilight/smoothing.py` | 124 | How the light moves between frames (no flicker, response speed, dithering). |
 | `ambilight/zones.py` | 140 | Splits the strip into regions, each with its own mode (screen, colour, effect). |
 | `ambilight/safety.py` | 99 | Brightness and current limits so the strip and 5V supply are not overdriven. |
+| `ambilight/telemetry.py` | 99 | Live timing per stage (capture, process, colour, smooth, send), delivered fps, drops and picture age, for the status API. |
 
 ### C. Hardware plugins (swappable in and out)
 | File | Lines | What it is for |
@@ -91,6 +92,8 @@ pipeline, a way of controlling it, or a one-off setup tool.
 | `tests/test_hub.py` | 2964 | 43 test functions, 608 checks. Starts a fake board and a sandbox hub. |
 | `tools/fake_wled.py` | 227 | Pretend WLED board for tests; checks DNRGB and DDP packets. |
 | `tools/hardware_sim.py` | 356 | Puts a hub through failures (reboot, drops) against the fake board. |
+| `tools/soak.py` | 256 | Runs a sandbox hub for hours; checks memory stays flat and fps steady. `--dry-run` for one minute. |
+| `tools/latency.py` | 361 | Camera day: glass-to-LED latency through the webcam. `--dry-run` uses a simulated room. |
 | `Makefile`, `launchd/`, `requirements.txt` | | Commands, start-at-login, dependencies. |
 
 ## 3. Plan to understand it (about 2 to 3 hours, in this order)
