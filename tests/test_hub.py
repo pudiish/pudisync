@@ -2325,6 +2325,7 @@ def test_bed_strip():
     from ambilight.engine import OutputStage
     from ambilight.intent import SyncIntent
     from ambilight.safety import estimate_ma
+    from ambilight.smoothing import settle_seconds
 
     path = os.path.join(tempfile.mkdtemp(prefix="ambilight-bed-"), "config.json")
     cfg = Config(path)
@@ -2571,6 +2572,16 @@ def test_bed_strip():
     quick_bed = fast.frame(0.1, {**live, "bed_look": "side", "blend": 0.9})[180:].astype(int).sum()
     gentle_bed = slow.frame(0.1, {**live, "bed_look": "side", "blend": 0.1})[180:].astype(int).sum()
     check("the bed moves at the monitor's Response, not at a pace of its own", quick_bed > gentle_bed, (quick_bed, gentle_bed))
+    mood_bed, side_bed = bed.BedStage(), bed.BedStage()
+    movie = {**live, "blend": 0.3}
+    for bed_stage, look in ((mood_bed, "mood"), (side_bed, "side")):
+        bed_stage.frame(np.full((180, 3), 0.2, np.float32), 0.0, {**movie, "bed_look": look})
+        bed_stage.frame(np.full((180, 3), 0.35, np.float32), 0.05, {**movie, "bed_look": look})
+    halfway = 0.05 + settle_seconds(0.3) / 2
+    mood_now = mood_bed.frame(np.full((180, 3), 0.35, np.float32), halfway, {**movie, "bed_look": "mood"}).astype(int).sum()
+    side_now = side_bed.frame(np.full((180, 3), 0.35, np.float32), halfway, {**movie, "bed_look": "side"}).astype(int).sum()
+    check("the mood look keeps pace with the monitor strip instead of trailing it",
+          abs(mood_now - side_now) <= 0.02 * max(side_now, 1), (mood_now, side_now))
     check("bed brightness scales only the bed",
           np.array_equal(dim.frame(0.0, {**live, "bed_brightness": 0.0})[180:], np.zeros((30, 3), np.uint8)))
     bright = OutputStage()

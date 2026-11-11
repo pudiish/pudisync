@@ -22,7 +22,6 @@ from .smoothing import Quantizer, Smoother, settle_seconds
 
 SAVE_GAP_S = 1.5        # the sync preset is rewritten at most this often (flash wear)
 WRITE_PAUSE_S = 5.0     # the sync watcher waits this long at most while the preset is rewritten
-MOOD_SLOWER = 4.0       # a mood changes this many times slower than the Response setting
 EDGES = ("bottom", "right", "top", "left")
 
 
@@ -191,10 +190,10 @@ class BedStage:
 
     def frame(self, targets, now, cfg, fade=1.0):
         count = cfg["bed_leds"]
-        settle = settle_seconds(cfg["blend"])    # the bed moves with the monitor strip
+        # Every look moves at the monitor strip's pace; a slower bed reads as out of sync.
+        settle = settle_seconds(cfg["blend"])
         if cfg["bed_look"] == "mood":
             wanted = np.repeat(mood(targets)[None, :], count, axis=0)
-            settle *= MOOD_SLOWER
         elif cfg["bed_look"] == "blend":
             wanted = blend_colours(targets, cfg, count)
         else:
