@@ -31,6 +31,8 @@ MAX_PROFILES = 20
 DEFAULTS = {
     "wled_ip": "4.3.2.1",
     "wled_port": 21324,
+    # WLED listens for DDP on 4048 and offers no setting for it; tests aim it elsewhere.
+    "ddp_port": 4048,
     "wled_http_port": 80,
     "http_port": 8080,
     "pin": "",
@@ -302,6 +304,7 @@ _LIMITS = {
     "edge_skip": (0, 100),
     "http_port": (1024, 65535),
     "wled_port": (1, 65535),
+    "ddp_port": (1, 65535),
     "wled_http_port": (1, 65535),
     "serial_baud": (9600, 2000000),
     "bed_leds": (0, 600),
@@ -317,7 +320,7 @@ _LIMITS = {
 # Settings with a fixed set of values. Matching is case-insensitive.
 CHOICES = {
     "layout": ("strip", "frame"),
-    "output": ("udp", "serial"),
+    "output": ("udp", "ddp", "serial"),
     "bed_mode": ("screen", "effect", "colour", "off"),
     "bed_look": ("mood", "side", "blend"),
     "bed_side": ("whole", "bottom", "right", "top", "left"),

@@ -9,7 +9,7 @@ captures the real screen, so run it with the display awake and unlocked.
 
     AMBILIGHT_TEST_PORT_BASE=8800 python3 tests/test_hub.py
 
-moves every port the run binds (8800-8801, UDP 21401 and 21409), so parallel
+moves every port the run binds (8800-8801, UDP 21401, 21402 and 21409), so parallel
 runs don't collide. Give each parallel run its own base, 10 apart.
 """
 import json
@@ -36,6 +36,7 @@ if PORT_BASE in (8079, 8080):
     sys.exit("AMBILIGHT_TEST_PORT_BASE would land on the live hub's port 8080")
 SANDBOX_PORT, FAKE_WLED_HTTP, FAKE_WLED_UDP = PORT_BASE, PORT_BASE + 1, PORT_BASE + 12601
 SNIFF_UDP = PORT_BASE + 12609   # 21399 by default; bases 10 apart never overlap
+FAKE_WLED_DDP = PORT_BASE + 12602
 from ambilight import processing
 from ambilight.config import Config
 from ambilight.plugins.output_wled_udp import MAX_LEDS_PER_PACKET, WLEDUDPOutput
@@ -96,10 +97,77 @@ def test_packets():
     check("timeout 255 (hold) passes through", pkts and pkts[0][1] == 255)
 
     pkts = sniff(PORT, 1, out.release)
-    check("release frame uses short timeout", pkts and pkts[0][1] == 1,
+    # A frame held with 255 latches on the board; only timeout 0 ends live mode.
+    check("release frame ends live mode at once (timeout 0)", pkts and pkts[0][1] == 0,
           f"got {pkts[0][1] if pkts else 'none'}")
     check("release frame is black", pkts and tuple(pkts[0][4:7]) == (0, 0, 0))
     out.close()
+
+
+def test_ddp_packets():
+    print("\n1b. DDP packet format (as WLED 16.0.1 parses it)")
+    from ambilight import hostcache
+    from ambilight.plugins import OUTPUTS
+    from ambilight.plugins.output_wled_ddp import MAX_LEDS_PER_PACKET as DDP_CHUNK, WLEDDDPOutput
+
+    check("DDP is a registered output", OUTPUTS.get("ddp") is WLEDDDPOutput and WLEDDDPOutput.available())
+    out = WLEDDDPOutput("127.0.0.1", SNIFF_UDP, SNIFF_UDP)
+
+    def fields(p):
+        return {"flags": p[0], "seq": p[1], "type": p[2], "dest": p[3],
+                "offset": int.from_bytes(p[4:8], "big"), "length": int.from_bytes(p[8:10], "big"),
+                "body": p[10:]}
+
+    px = np.zeros((240, 3), np.uint8)
+    px[0] = (255, 0, 0)
+    pkts = [fields(p) for p in sniff(SNIFF_UDP, 1, lambda: out.send(px, 2))]
+    check("240 LEDs -> exactly 1 packet", len(pkts) == 1, f"got {len(pkts)}")
+    if pkts:
+        p = pkts[0]
+        check("version 1 with push on a one-packet frame", p["flags"] == 0x41, hex(p["flags"]))
+        check("data type is RGB24 (0x0B)", p["type"] == 0x0B)
+        check("destination is the display (1)", p["dest"] == 1)
+        check("offset 0, length 720 bytes", (p["offset"], p["length"]) == (0, 720))
+        check("payload matches the length field", len(p["body"]) == p["length"])
+        check("first LED RGB preserved", tuple(p["body"][:3]) == (255, 0, 0))
+
+    big = np.full((1000, 3), 9, np.uint8)
+    pkts = [fields(p) for p in sniff(SNIFF_UDP, 3, lambda: out.send(big, 2))]
+    check("1000 LEDs -> 3 packets", len(pkts) == 3, f"got {len(pkts)}")
+    check("chunks are 480/480/40 LEDs", [p["length"] // 3 for p in pkts] == [DDP_CHUNK, DDP_CHUNK, 40],
+          [p["length"] // 3 for p in pkts])
+    check("offsets count bytes: 0/1440/2880", [p["offset"] for p in pkts] == [0, 1440, 2880])
+    check("push only on the frame's last packet", [p["flags"] & 1 for p in pkts] == [0, 0, 1])
+    check("no packet exceeds WLED's 1440 data bytes", all(p["length"] <= 1440 for p in pkts))
+    check("one sequence number for the whole frame", len({p["seq"] for p in pkts}) == 1)
+
+    seqs = []
+    for _ in range(16):
+        got = sniff(SNIFF_UDP, 1, lambda: out.send(px, 2))
+        seqs.append(got[0][1] if got else None)
+    check("the sequence runs 1-15 and wraps, never 0",
+          None not in seqs and 0 not in seqs and all(b == a % 15 + 1 for a, b in zip(seqs, seqs[1:])), seqs)
+
+    pkts = sniff(SNIFF_UDP, 1, lambda: out.send(px, 255))
+    check("a held frame goes out as DNRGB with timeout 255 (DDP cannot hold)",
+          pkts and pkts[0][0] == 4 and pkts[0][1] == 255)
+    pkts = sniff(SNIFF_UDP, 1, out.release)
+    check("release goes out as DNRGB timeout 0, ending live mode at once",
+          pkts and pkts[0][0] == 4 and pkts[0][1] == 0)
+    out.close()
+
+    saved = hostcache.lookup
+    try:
+        def no_dns(host):
+            raise OSError("mDNS down")
+        hostcache.lookup = no_dns
+        dark = WLEDDDPOutput("board-missing.local", SNIFF_UDP, SNIFF_UDP)
+        check("a failed send is reported, not raised",
+              dark.send(px, 2) is False and "mDNS down" in (dark.last_error or ""), dark.last_error)
+        dark.close()
+    finally:
+        hostcache.lookup = saved
+        hostcache.BOARD.known.clear()
 
 
 def test_mapping():
@@ -550,6 +618,23 @@ def test_serial_api(base):
     s = get("/api/status")
     check("stale serial error clears on switching back", not s["last_error"],
           str(s["last_error"]))
+
+    def board_ddp():
+        with urllib.request.urlopen(f"http://127.0.0.1:{FAKE_WLED_HTTP}/stats", timeout=3) as r:
+            return json.loads(r.read())["ddp"]
+
+    before = board_ddp()
+    get("/api/set?output=ddp")
+    time.sleep(1.5)
+    s = get("/api/status")
+    after = board_ddp()
+    check("DDP can be chosen while sync runs", s["running"] and s["output_plugin"] == "wled-ddp",
+          s["output_plugin"])
+    check("frames reach the board as DDP", after["pushes"] - before["pushes"] > 20,
+          f"{after['pushes'] - before['pushes']} frames in 1.5 s")
+    check("the board finds nothing wrong with them", not after["violations"], after["violations"][:3])
+    check("no error while streaming DDP", not s["last_error"], str(s["last_error"]))
+    get("/api/set?output=udp")
     get("/api/sync/off")
 
 
@@ -1186,6 +1271,12 @@ def test_config():
     check("layout is case-insensitive", recovered.update({"layout": "Frame"}) == ["layout"]
           and recovered.get("layout") == "frame")
     check("an output that does not exist is refused", rejects({"output": "laser"}))
+    check("DDP is an output choice", recovered.update({"output": "DDP"}) == ["output"]
+          and recovered.get("output") == "ddp")
+    check("the DDP port is a setting with a range",
+          recovered.update({"ddp_port": "4049"}) == ["ddp_port"] and recovered.get("ddp_port") == 4049
+          and rejects({"ddp_port": 0}) is False and recovered.get("ddp_port") == 1)
+    recovered.update({"output": "udp", "ddp_port": 4048})
     check("a controller address cannot carry a URL", rejects({"wled_ip": "evil.example/x"}))
     check("an mDNS controller name is accepted", recovered.update({"wled_ip": "wled-6b0bc6.local"}) == ["wled_ip"])
     check("an IP controller address is accepted", recovered.update({"wled_ip": "192.168.29.57"}) == ["wled_ip"])
@@ -1624,6 +1715,26 @@ def test_fake_wled_presets():
         check("so does a brightness change", post({"ps": 1}) and post({"bri": 90})["ps"] == -1)
     finally:
         server.shutdown()
+
+
+def test_fake_wled_ddp():
+    print("\n26b. The fake WLED checks DDP packets the way WLED 16.0.1 reads them")
+    import fake_wled
+    from ambilight.plugins.output_wled_ddp import header
+
+    good = fake_wled.parse_ddp(header(1440, 6, 3, True) + bytes(6))
+    check("the hub's packet is accepted",
+          good["violations"] == [] and (good["offset"], good["leds"], good["push"], good["seq"]) == (1440, 2, True, 3),
+          good)
+
+    def flagged(packet, tag):
+        return any(v.startswith(tag) for v in fake_wled.parse_ddp(packet)["violations"])
+
+    check("a short packet is flagged", flagged(b"\x41\x01", "SHORT"))
+    check("a wrong version is flagged", flagged(b"\x81" + header(0, 3, 1, True)[1:] + bytes(3), "NOT-V1"))
+    check("a length that disagrees with the payload is flagged", flagged(header(0, 6, 1, True) + bytes(3), "LENGTH"))
+    check("an offset between LEDs is flagged", flagged(header(4, 3, 1, True) + bytes(3), "UNALIGNED"))
+    check("more than 1440 data bytes is flagged", flagged(header(0, 1443, 1, True) + bytes(1443), "OVER-1440"))
 
 
 def test_display_follow():
@@ -2727,11 +2838,11 @@ def sandbox_hub():
     config = os.path.join(folder, "config.json")
     with open(config, "w") as fh:
         json.dump({"wled_ip": "127.0.0.1", "wled_http_port": FAKE_WLED_HTTP,
-                   "wled_port": FAKE_WLED_UDP, "monitor_index": 1}, fh)
+                   "wled_port": FAKE_WLED_UDP, "ddp_port": FAKE_WLED_DDP, "monitor_index": 1}, fh)
     log = open(os.path.join(folder, "hub.log"), "w")
     procs = [
         subprocess.Popen([sys.executable, "tools/fake_wled.py", "--udp-port", str(FAKE_WLED_UDP),
-                          "--http-port", str(FAKE_WLED_HTTP), "--quiet"],
+                          "--ddp-port", str(FAKE_WLED_DDP), "--http-port", str(FAKE_WLED_HTTP), "--quiet"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
         subprocess.Popen([sys.executable, "hub.py", "--config", config,
                           "--port", str(SANDBOX_PORT), "--no-bonjour"],
@@ -2807,6 +2918,7 @@ def main():
     print("AMBILIGHT HUB -- ACCEPTANCE TESTS")
     print("=" * 62)
     test_packets()
+    test_ddp_packets()
     test_mapping()
     test_fade()
     test_zones()
@@ -2828,6 +2940,7 @@ def main():
     test_board_deploy()
     test_board_ui()
     test_fake_wled_presets()
+    test_fake_wled_ddp()
     test_display_follow()
     test_camera_calibration_maths()
     test_fitted_matrix_in_use()

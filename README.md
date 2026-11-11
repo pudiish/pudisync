@@ -19,7 +19,8 @@ network only.
 - Reachable from every device on your home network by name (`yourmac.local`),
   with protection against other websites driving it
 - Every control is also a plain URL, so iOS Shortcuts can drive it
-- Talks to WLED over **Wi-Fi (UDP)** or a **USB cable**; flashes and provisions a
+- Talks to WLED over **Wi-Fi** (UDP realtime, or DDP so each frame is drawn whole)
+  or a **USB cable**; flashes and provisions a
   brand-new ESP board over USB
 
 ---
