@@ -287,7 +287,11 @@ Colour zones underneath, so they also show under Advanced ▸ Zones.
 
 ### Profiles and immersion
 
-**Cinema** and **Gaming** set how quickly the light follows. **Save this look**
+**Cinema** and **Gaming** are the two sync modes, each a whole look. Cinema
+glides (about 0.37 s), lifts deep film colours and floods dark parts of the room
+with the scene's colour. Gaming settles in about 0.1 s, with punchier colour and
+light kept where the action is. Neither touches brightness, warmth, contrast or
+calibration; the Home sliders fine-tune either one. **Save this look**
 stores the whole look under a name of your own: brightness, colour, immersion,
 contrast, warmth, response, spread and whether the mouse follows. Pick it again
 from Home, the Mac app or `/api/profile/<name>`.
