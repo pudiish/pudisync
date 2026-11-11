@@ -76,7 +76,7 @@ struct BedPage: View {
     private static let lookHints = [
         "blend": "For a strip low on the wall beside the monitor: the bottom-right corner of the screen next to it, "
             + "easing into the scene's colour along the strip.",
-        "mood": "One slowly changing colour for the whole strip: the scene's strongest.",
+        "mood": "One colour for the whole strip, moving with the monitor strip: the scene's strongest.",
         "side": "One part of the screen stretched along the strip.",
     ]
 
