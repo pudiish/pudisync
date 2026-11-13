@@ -34,6 +34,7 @@ struct HubStatus: Decodable {
     var saturation: Double
     var immersion: Double
     var darkBoost: Double?
+    var adaptive: Double?
     var blend: Double
     var profile: String
     var userProfiles: [String: Ignored]
@@ -76,6 +77,7 @@ struct HubStatus: Decodable {
         case "saturation": return saturation
         case "immersion": return immersion
         case "dark_boost": return darkBoost
+        case "adaptive": return adaptive
         case "blend": return blend
         case "bed_brightness": return bedBrightness
         case "bed_speed": return bedSpeed

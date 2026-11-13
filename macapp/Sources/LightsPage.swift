@@ -173,6 +173,10 @@ struct PicturePage: View {
                     SettingSlider(key: "immersion", label: "Immersion",
                                   hint: "Lifts deep colours and floods the room with the scene's colour. Skin and greys stay true.",
                                   format: offOrPercent)
+                    SettingSlider(key: "adaptive", label: "Adaptive brightness",
+                                  hint: "Each LED takes its brightness from what it faces: highlights stay bright, "
+                                      + "dull areas dim, and a bright screen no longer floods the wall.",
+                                  format: offOrPercent)
                     SettingSlider(key: "dark_boost", label: "Dark scenes",
                                   hint: "How much the light still shows and reacts when the whole picture is dark. "
                                       + "Bright scenes are unchanged.",

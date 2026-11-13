@@ -37,7 +37,7 @@ PROFILES = {
 }
 # What a profile of your own saves: the whole look, not the strip's setup.
 PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
-                "colour_weight", "spread", "black_level", "enrich", "dark_boost", "mouse_sync",
+                "colour_weight", "spread", "black_level", "enrich", "dark_boost", "adaptive", "mouse_sync",
                 "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect", "bed_speed",
                 "bed_brightness")
 PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
@@ -91,6 +91,9 @@ DEFAULTS = {
     # Dark scenes: how far a dark frame relaxes LED gamma and contrast so shadows
     # still light up and react (color.dark_lift). 0 off, 1 fully neutral.
     "dark_boost": 0.4,
+    # Adaptive brightness: each LED's level from its pixels against the whole
+    # frame (color.adaptive_gain). 0 off, 1 full.
+    "adaptive": 0.6,
     # LED safety (safety.py). Defaults suit a 5V 5A supply: peaks stay under
     # 3.8A (WLED's own limiter, set to 4A, is the hardware-side backstop) and a
     # bright scene held for minutes settles at 3A.
@@ -307,6 +310,7 @@ _LIMITS = {
     "immersion": (0.0, 1.0),
     "enrich": (0.0, 1.0),
     "dark_boost": (0.0, 1.0),
+    "adaptive": (0.0, 1.0),
     "power_limit_ma": (200, 20000),
     "sustained_ma": (200, 20000),
     "spread": (0.0, 0.8),

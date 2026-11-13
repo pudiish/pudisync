@@ -257,6 +257,33 @@ def dark_lift(perceptual, cfg):
     return amount * (1.0 - float(smoothstep(*DARK_SCENE, key)))
 
 
+BRIGHT_KEY = 0.35     # scenes brighter than this on average are compressed
+EXPOSURE = 1.5        # ...this hard at full Adaptive: a white screen drives about half
+EMPHASIS = 0.8        # how far an LED's level follows its pixels' lightness against the scene's
+FLOOR = 0.3           # the dullest LED keeps at least this share of its level
+
+
+def adaptive_gain(perceptual, cfg):
+    """Each LED's level multiplier from what its pixels show against the whole frame.
+
+    Two parts. Exposure: the brighter the frame on average, the more every LED
+    is held back, so a white desktop does not blast the wall (dark scenes are
+    left alone). Emphasis: an LED facing pixels lighter than the frame's
+    average keeps (or regains) its full level, one facing duller pixels dims in
+    proportion, down to FLOOR, so highlights stand out and backgrounds recede.
+    Brighter pixels never end up dimmer than darker ones; colour is untouched.
+    """
+    strength = cfg.get("adaptive", 0.0)
+    if strength <= 0 or not len(perceptual):
+        return 1.0
+    lightness = (perceptual @ LUMA)[:, None]
+    key = float(lightness.mean())
+    exposure = 1.0 / (1.0 + EXPOSURE * strength * max(0.0, key - BRIGHT_KEY))
+    emphasis = EMPHASIS * strength
+    follow = (1.0 + emphasis) - emphasis * key / np.maximum(lightness, 1e-6)
+    return np.clip(exposure * follow, FLOOR, 1.0)
+
+
 def curve(cfg, lift):
     """LED gamma and contrast, eased toward neutral (1.0) by `lift`; never steeper."""
     gamma, contrast = cfg["led_gamma"], cfg["contrast"]
@@ -278,7 +305,7 @@ def to_led(perceptual, cfg):
     balance = np.array([cfg["wb_r"], cfg["wb_g"], cfg["wb_b"]], dtype=np.float32)
     gamma, contrast = curve(cfg, dark_lift(p, cfg))
     if not cfg["colour_match"]:
-        return contrast_curve(p ** gamma, contrast) * balance * 255.0
+        return contrast_curve(p ** gamma, contrast) * balance * adaptive_gain(p, cfg) * 255.0
 
     linear = srgb_to_linear(p)
     # A webcam-measured matrix (camcal.py) beats the datasheet model when present.
@@ -301,4 +328,4 @@ def to_led(perceptual, cfg):
     # unmatched curve, taken from the screen colour itself, so a saturated
     # red is as bright on the wall as it is on screen.
     level = contrast_curve(p.max(axis=1, keepdims=True) ** gamma, contrast)
-    return light * (level / np.maximum(peak, 1e-12)) * 255.0
+    return light * (level * adaptive_gain(p, cfg) / np.maximum(peak, 1e-12)) * 255.0

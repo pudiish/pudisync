@@ -199,6 +199,7 @@ struct MenuBarPanel: View {
             ProfileChoices()
             SettingSlider(key: "brightness", label: "Brightness")
             SettingSlider(key: "immersion", label: "Immersion", format: offOrPercent)
+            SettingSlider(key: "adaptive", label: "Adaptive brightness", format: offOrPercent)
             SettingSlider(key: "dark_boost", label: "Dark scenes", format: offOrPercent)
             if status?.mouse?.connected == true {
                 Toggle(isOn: Binding(get: { status?.mouseSync ?? false }, set: { store.set("mouse_sync", $0 ? "1" : "0") })) {

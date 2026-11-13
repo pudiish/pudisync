@@ -2689,6 +2689,38 @@ def test_dark_scenes():
     check("a profile of your own keeps it", "dark_boost" in PROFILE_KEYS)
 
 
+def test_adaptive_brightness():
+    print("\n40d. Adaptive brightness: each LED's level from what it faces")
+    from ambilight import color
+    from ambilight.config import DEFAULTS, PROFILE_KEYS
+
+    with tempfile.TemporaryDirectory() as folder:
+        cfg = {**Config(os.path.join(folder, "config.json")).snapshot(), "dark_boost": 0.0}
+    off, on = {**cfg, "adaptive": 0.0}, {**cfg, "adaptive": 1.0}
+    white = np.full((100, 3), 0.95, np.float32)
+    check("a bright white screen no longer drives every LED near full",
+          color.to_led(white, on).mean() < 0.75 * color.to_led(white, off).mean(),
+          (round(float(color.to_led(white, off).mean())), round(float(color.to_led(white, on).mean()))))
+    mixed = np.full((100, 3), 0.45, np.float32)
+    mixed[40:50] = 0.9
+    plain, shaped = color.to_led(mixed, off).sum(axis=1), color.to_led(mixed, on).sum(axis=1)
+    check("LEDs facing a highlight stand out more against the rest",
+          shaped[45] / shaped[0] > 1.3 * plain[45] / plain[0], (round(plain[45] / plain[0], 2), round(shaped[45] / shaped[0], 2)))
+    check("...and keep most of their brightness", shaped[45] > 0.8 * plain[45], (plain[45], shaped[45]))
+    check("dull parts dim but never switch off", shaped[0] > 0.2 * plain[0], (plain[0], shaped[0]))
+    dark = np.full((100, 3), 0.08, np.float32)
+    check("a dark scene is not dimmed further", np.allclose(color.to_led(dark, on), color.to_led(dark, off), rtol=0.02))
+    ramp = np.linspace(0.0, 1.0, 100, dtype=np.float32)[:, None].repeat(3, axis=1)
+    check("a brighter target never shows dimmer than a darker one",
+          bool(np.all(np.diff(color.to_led(ramp, on).sum(axis=1)) >= -1e-4)))
+    tint = np.tile(np.array([[0.9, 0.5, 0.1]], np.float32), (100, 1))
+    tint[:50] *= 0.5
+    a, b = color.to_led(tint, off)[10], color.to_led(tint, on)[10]
+    check("only the level changes, never the colour", np.allclose(a / a.sum(), b / b.sum(), atol=1e-3))
+    check("at zero nothing changes", np.array_equal(color.to_led(mixed, off), color.to_led(mixed, {**cfg, "adaptive": 0})))
+    check("it is on out of the box, and profiles keep it", DEFAULTS["adaptive"] > 0 and "adaptive" in PROFILE_KEYS)
+
+
 def test_enriched():
     print("\n40b. Enriched: deep blacks, bright highlights, true colour")
     import colour
@@ -3774,6 +3806,7 @@ def main():
     test_sync_modes()
     test_enriched()
     test_dark_scenes()
+    test_adaptive_brightness()
     test_colour_locks()
     test_webcam_job()
     test_bed_strip()

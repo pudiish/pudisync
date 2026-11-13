@@ -418,6 +418,8 @@ dialog::backdrop{background:rgb(0 0 0/.75)}
       <div class="fader" data-fader="saturation"></div>
       <div class="fader" data-fader="immersion"
         data-hint="Lifts deep colours and floods the room with the scene's colour. Skin and greys stay true."></div>
+      <div class="fader" data-fader="adaptive"
+        data-hint="Each LED takes its brightness from what it faces: highlights stay bright, dull areas dim, and a bright screen no longer floods the wall."></div>
       <div class="fader" data-fader="dark_boost"
         data-hint="How much the light still shows and reacts when the whole picture is dark. Bright scenes are unchanged."></div>
       <div class="fader" data-fader="blend" data-hint="How long the light takes to settle on a new colour."></div>
@@ -723,6 +725,7 @@ const FADERS = {
   colour_weight: {label: "Colour weight", min: 0, max: 100, scale: 100, fmt: pct},
   immersion: {label: "Immersion", min: 0, max: 100, scale: 100, fmt: v => v ? pct(v) : "Off"},
   dark_boost: {label: "Dark scenes", min: 0, max: 100, scale: 100, fmt: v => v ? pct(v) : "Off"},
+  adaptive: {label: "Adaptive brightness", min: 0, max: 100, scale: 100, fmt: v => v ? pct(v) : "Off"},
   lock_brightness: {label: "Brightness", min: 0, max: 100, scale: 100, fmt: pct, apply: () => drawPaint()},
   wb_r: {label: "Red", min: 20, max: 100, scale: 100, fmt: two},
   wb_g: {label: "Green", min: 20, max: 100, scale: 100, fmt: two},
