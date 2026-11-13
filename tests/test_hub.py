@@ -2664,7 +2664,7 @@ def test_dark_scenes():
     with tempfile.TemporaryDirectory() as folder:
         cfg = {**Config(os.path.join(folder, "config.json")).snapshot(), "led_gamma": 1.5, "contrast": 1.8}
     off, on = {**cfg, "dark_boost": 0.0}, {**cfg, "dark_boost": 1.0}
-    dark = np.full((100, 3), 0.12, np.float32)
+    dark = np.full((100, 3), 0.05, np.float32)
     check("in a dark scene, dim light drives the LEDs several times harder",
           color.to_led(dark, on).mean() > 3 * color.to_led(dark, off).mean(),
           (round(float(color.to_led(dark, off).mean()), 2), round(float(color.to_led(dark, on).mean()), 2)))
@@ -2672,10 +2672,14 @@ def test_dark_scenes():
     bright[0] = 0.12
     check("in a bright scene nothing changes, so it keeps its punch",
           np.allclose(color.to_led(bright, on), color.to_led(bright, off)))
+    desktop = np.full((100, 3), 0.118, np.float32)     # a dark-mode editor's background
+    desktop[::10] = 0.8                                # ...and its text
+    check("a dark-mode desktop is barely lifted, so everyday use is not brighter",
+          color.to_led(desktop, {**cfg, "dark_boost": DEFAULTS["dark_boost"]}).sum() < 1.15 * color.to_led(desktop, off).sum())
     ramp = np.linspace(0.0, 0.2, 100, dtype=np.float32)[:, None].repeat(3, axis=1)
     lifted = color.to_led(ramp, on).sum(axis=1)
     check("a darker pixel never comes out brighter than a lighter one", bool(np.all(np.diff(lifted) >= -1e-6)))
-    ember = np.tile(np.array([[0.2, 0.08, 0.02]], np.float32), (100, 1))
+    ember = np.tile(np.array([[0.09, 0.035, 0.01]], np.float32), (100, 1))
     a, b = color.to_led(ember, off)[0], color.to_led(ember, on)[0]
     check("a dark colour gets brighter without changing colour", b.sum() > a.sum() and np.allclose(a / a.sum(), b / b.sum(), atol=1e-3),
           (a.round(2), b.round(2)))

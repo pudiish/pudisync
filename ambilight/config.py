@@ -90,7 +90,7 @@ DEFAULTS = {
     "enrich": 0.0,
     # Dark scenes: how far a dark frame relaxes LED gamma and contrast so shadows
     # still light up and react (color.dark_lift). 0 off, 1 fully neutral.
-    "dark_boost": 0.7,
+    "dark_boost": 0.4,
     # LED safety (safety.py). Defaults suit a 5V 5A supply: peaks stay under
     # 3.8A (WLED's own limiter, set to 4A, is the hardware-side backstop) and a
     # bright scene held for minutes settles at 3A.

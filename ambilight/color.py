@@ -237,7 +237,9 @@ def contrast_curve(level, amount):
     return up / np.maximum(up + down, 1e-12)
 
 
-DARK_SCENE = (0.04, 0.3)   # mean screen lightness: full dark-scene lift below, none above
+# Mean screen lightness: full dark-scene lift below the first, none above the second.
+# A dark-mode desktop averages ~0.12-0.15, so it is left almost alone.
+DARK_SCENE = (0.02, 0.15)
 
 
 def dark_lift(perceptual, cfg):
