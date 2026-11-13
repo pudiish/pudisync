@@ -2656,6 +2656,34 @@ def test_user_profiles():
           "Bad" not in reloaded and reloaded["Fine"]["saturation"] == 3.0, reloaded)
 
 
+def test_dark_scenes():
+    print("\n40c. Dark scenes: shadows stay visible and responsive")
+    from ambilight import color
+    from ambilight.config import DEFAULTS, PROFILE_KEYS
+
+    with tempfile.TemporaryDirectory() as folder:
+        cfg = {**Config(os.path.join(folder, "config.json")).snapshot(), "led_gamma": 1.5, "contrast": 1.8}
+    off, on = {**cfg, "dark_boost": 0.0}, {**cfg, "dark_boost": 1.0}
+    dark = np.full((100, 3), 0.12, np.float32)
+    check("in a dark scene, dim light drives the LEDs several times harder",
+          color.to_led(dark, on).mean() > 3 * color.to_led(dark, off).mean(),
+          (round(float(color.to_led(dark, off).mean()), 2), round(float(color.to_led(dark, on).mean()), 2)))
+    bright = np.full((100, 3), 0.7, np.float32)
+    bright[0] = 0.12
+    check("in a bright scene nothing changes, so it keeps its punch",
+          np.allclose(color.to_led(bright, on), color.to_led(bright, off)))
+    ramp = np.linspace(0.0, 0.2, 100, dtype=np.float32)[:, None].repeat(3, axis=1)
+    lifted = color.to_led(ramp, on).sum(axis=1)
+    check("a darker pixel never comes out brighter than a lighter one", bool(np.all(np.diff(lifted) >= -1e-6)))
+    ember = np.tile(np.array([[0.2, 0.08, 0.02]], np.float32), (100, 1))
+    a, b = color.to_led(ember, off)[0], color.to_led(ember, on)[0]
+    check("a dark colour gets brighter without changing colour", b.sum() > a.sum() and np.allclose(a / a.sum(), b / b.sum(), atol=1e-3),
+          (a.round(2), b.round(2)))
+    check("at zero the curve is exactly as before", np.array_equal(color.to_led(dark, off), color.to_led(dark, {**cfg, "dark_boost": 0})))
+    check("it is on out of the box", DEFAULTS["dark_boost"] > 0, DEFAULTS["dark_boost"])
+    check("a profile of your own keeps it", "dark_boost" in PROFILE_KEYS)
+
+
 def test_enriched():
     print("\n40b. Enriched: deep blacks, bright highlights, true colour")
     import colour
@@ -3740,6 +3768,7 @@ def main():
     test_user_profiles()
     test_sync_modes()
     test_enriched()
+    test_dark_scenes()
     test_colour_locks()
     test_webcam_job()
     test_bed_strip()

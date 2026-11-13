@@ -237,6 +237,30 @@ def contrast_curve(level, amount):
     return up / np.maximum(up + down, 1e-12)
 
 
+DARK_SCENE = (0.04, 0.3)   # mean screen lightness: full dark-scene lift below, none above
+
+
+def dark_lift(perceptual, cfg):
+    """How far a dark scene relaxes the drive curve, 0..1.
+
+    LED gamma and contrast make bright scenes punchy, but in a dark scene
+    they crush every shadow to black, so the light stops reacting to what
+    happens on screen. The darker the whole frame, the closer both get to
+    neutral; a dim pixel in a bright scene is left alone.
+    """
+    amount = cfg.get("dark_boost", 0.0)
+    if amount <= 0 or not len(perceptual):
+        return 0.0
+    key = float((perceptual @ LUMA).mean())
+    return amount * (1.0 - float(smoothstep(*DARK_SCENE, key)))
+
+
+def curve(cfg, lift):
+    """LED gamma and contrast, eased toward neutral (1.0) by `lift`; never steeper."""
+    gamma, contrast = cfg["led_gamma"], cfg["contrast"]
+    return (gamma - max(0.0, gamma - 1.0) * lift, contrast - max(0.0, contrast - 1.0) * lift)
+
+
 def to_led(perceptual, cfg):
     """Perceptual colours -> 0..255 LED drive levels (float, not yet quantized).
 
@@ -250,8 +274,9 @@ def to_led(perceptual, cfg):
     # next to the datasheet's average), trimmed in LED light so every colour
     # scales alike.
     balance = np.array([cfg["wb_r"], cfg["wb_g"], cfg["wb_b"]], dtype=np.float32)
+    gamma, contrast = curve(cfg, dark_lift(p, cfg))
     if not cfg["colour_match"]:
-        return contrast_curve(p ** cfg["led_gamma"], cfg["contrast"]) * balance * 255.0
+        return contrast_curve(p ** gamma, contrast) * balance * 255.0
 
     linear = srgb_to_linear(p)
     # A webcam-measured matrix (camcal.py) beats the datasheet model when present.
@@ -273,5 +298,5 @@ def to_led(perceptual, cfg):
     # The matrix sets only the mix of the three channels. Brightness keeps the
     # unmatched curve, taken from the screen colour itself, so a saturated
     # red is as bright on the wall as it is on screen.
-    level = contrast_curve(p.max(axis=1, keepdims=True) ** cfg["led_gamma"], cfg["contrast"])
+    level = contrast_curve(p.max(axis=1, keepdims=True) ** gamma, contrast)
     return light * (level / np.maximum(peak, 1e-12)) * 255.0
