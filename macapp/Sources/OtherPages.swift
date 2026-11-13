@@ -9,48 +9,39 @@ struct MousePage: View {
         let zones = status.map {
             mouseZones(preview: $0.preview, ledCount: $0.ledCount, bottomEdge: $0.edgeBottom, frame: $0.layout == "frame")
         } ?? []
-        ScrollView {
-            VStack(spacing: 16) {
-                Card(title: "Lighting") {
-                    HStack(spacing: 28) {
-                        ZStack(alignment: .bottom) {
-                            Image(systemName: "computermouse.fill")
-                                .resizable().scaledToFit().frame(height: 120)
-                                .foregroundStyle(Theme.raised)
-                            HStack(spacing: 10) {
-                                ForEach(Array(zones.enumerated()), id: \.offset) { _, rgb in
-                                    let colour = Color(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b)
-                                    Capsule().fill(colour).frame(width: 18, height: 6)
-                                        .shadow(color: colour, radius: 6)
-                                }
+        VStack(spacing: 16) {
+            Card(title: "Mouse") {
+                HStack(spacing: 28) {
+                    ZStack(alignment: .bottom) {
+                        Image(systemName: "computermouse.fill")
+                            .resizable().scaledToFit().frame(height: 120)
+                            .foregroundStyle(Theme.raised)
+                        HStack(spacing: 10) {
+                            ForEach(Array(zones.enumerated()), id: \.offset) { _, rgb in
+                                let colour = Color(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b)
+                                Capsule().fill(colour).frame(width: 18, height: 6)
+                                    .shadow(color: colour, radius: 6)
                             }
-                            .opacity(status?.mouseSync == true && status?.syncing == true ? 1 : 0.25)
-                            .padding(.bottom, 14)
                         }
-                        VStack(alignment: .leading, spacing: 10) {
-                            Toggle(isOn: Binding(get: { status?.mouseSync ?? false },
-                                                 set: { store.set("mouse_sync", $0 ? "1" : "0") })) {
-                                Text("Follow the screen").caps(Theme.ink)
-                            }
-                            .toggleStyle(.switch).tint(Theme.green)
-                            Text(explanation(mouse)).hint()
-                            if let permission = mouse?.permission, mouse?.connected == true, permission != "granted" {
-                                Button("Open Input Monitoring settings") {
-                                    NSWorkspace.shared.open(URL(string:
-                                        "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
-                                }
+                        .opacity(status?.mouseSync == true && status?.syncing == true ? 1 : 0.25)
+                        .padding(.bottom, 14)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle(isOn: Binding(get: { status?.mouseSync ?? false },
+                                             set: { store.set("mouse_sync", $0 ? "1" : "0") })) {
+                            Text("Follow the screen").caps(Theme.ink)
+                        }
+                        .toggleStyle(.switch).tint(Theme.green)
+                        Text(explanation(mouse)).hint()
+                        if let permission = mouse?.permission, mouse?.connected == true, permission != "granted" {
+                            Button("Open Input Monitoring settings") {
+                                NSWorkspace.shared.open(URL(string:
+                                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
                             }
                         }
                     }
                 }
-                Card(title: "How it works") {
-                    Text("The mouse's left, middle and right lights take the colours along the bottom of the screen, "
-                         + "brightened for the mouse's small LEDs. When sync stops or you turn this off, the mouse "
-                         + "goes back to the lighting stored in it. Colours are set live and never written to the mouse.")
-                        .hint()
-                }
             }
-            .padding(20)
         }
     }
 
@@ -65,11 +56,13 @@ struct MousePage: View {
 
 struct BedPage: View {
     @EnvironmentObject private var store: HubStore
+    /// The one-time wiring form (Setup) rather than the everyday controls (Lights).
+    var wiring = false
     @State private var leds = ""
     @State private var amps = ""
     @State private var pin = 5
 
-    private static let modes = [("screen", "Follow screen"), ("effect", "Effect"), ("colour", "Colour"), ("off", "Off")]
+    private static let modes = [("screen", "Screen sync"), ("colour", "Colour"), ("effect", "Effect"), ("off", "Off")]
     private static let looks = [("blend", "Blend"), ("mood", "Mood"), ("side", "Edge")]
     private static let sides = [("whole", "All round"), ("bottom", "Bottom"), ("right", "Right"), ("top", "Top"), ("left", "Left")]
     private static let pins = [("D1", 5), ("D2", 4), ("D5", 14), ("D6", 12), ("D7", 13), ("RX", 3)]
@@ -82,19 +75,17 @@ struct BedPage: View {
 
     var body: some View {
         let status = store.status
-        ScrollView {
-            VStack(spacing: 16) {
-                if (status?.bedLeds ?? 0) > 0 {
-                    controls(status)
-                } else {
-                    Card(title: "Bed strip") {
-                        Text("No bed strip is set up yet. Wire it as in docs/wiring.md, then enter its details under Strip below.")
-                            .hint()
-                    }
-                }
+        VStack(spacing: 16) {
+            if wiring {
                 stripCard(status)
+            } else if (status?.bedLeds ?? 0) > 0 {
+                controls(status)
+            } else {
+                Card(title: "Bed strip") {
+                    Text("No bed strip is set up yet. Wire it as in docs/wiring.md, then enter its details under "
+                         + "Setup → Bed strip wiring.").hint()
+                }
             }
-            .padding(20)
         }
         .onAppear {
             store.loadEffects()
@@ -128,7 +119,7 @@ struct BedPage: View {
     }
 
     private func stripCard(_ status: HubStatus?) -> some View {
-        Card(title: "Strip") {
+        Card(title: "Bed strip wiring") {
             Toggle(isOn: Binding(get: { status?.bedReverse ?? false },
                                  set: { store.set("bed_reverse", $0 ? "1" : "0") })) {
                 Text("First LED is the far end").caps(Theme.ink)
@@ -192,37 +183,34 @@ struct ProfilesPage: View {
 
     var body: some View {
         let active = store.status?.profile ?? ""
-        ScrollView {
-            VStack(spacing: 16) {
-                Card(title: "Built in") {
-                    ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
-                        row(title: title, detail: name == "movie" ? "Glides gently between colours."
-                                : name == "enriched" ? "Sharp and true, with deep blacks and bright highlights."
-                                : "Follows the action quickly.", active: active == name) {
-                            store.apply(profile: name)
-                        }
+        VStack(spacing: 16) {
+            Card(title: "Built in") {
+                ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
+                    row(title: title, detail: name == "movie" ? "Glides gently between colours."
+                            : name == "enriched" ? "Sharp and true, with deep blacks and bright highlights."
+                            : "Follows the action quickly.", active: active == name) {
+                        store.apply(profile: name)
                     }
-                }
-                Card(title: "Yours") {
-                    let mine = store.status?.myProfiles ?? []
-                    if mine.isEmpty { Text("Save the current look to make a profile of your own.").hint() }
-                    ForEach(mine, id: \.self) { name in
-                        row(title: name, detail: "Brightness, colour, immersion, response and mouse.",
-                            active: active == name, delete: { confirmDelete = name }) {
-                            store.apply(profile: name)
-                        }
-                    }
-                    HStack {
-                        TextField("Name, e.g. Late night", text: $newName).textFieldStyle(.roundedBorder)
-                            .onSubmit(save)
-                        Button("Save this look", action: save)
-                            .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    Text("A profile keeps the whole look: brightness, colour, immersion, warmth, response and whether "
-                         + "the mouse follows. Up to 24 letters, digits, spaces, - or _.").hint()
                 }
             }
-            .padding(20)
+            Card(title: "Yours") {
+                let mine = store.status?.myProfiles ?? []
+                if mine.isEmpty { Text("Save the current look to make a profile of your own.").hint() }
+                ForEach(mine, id: \.self) { name in
+                    row(title: name, detail: "Brightness, colour, immersion, response and mouse.",
+                        active: active == name, delete: { confirmDelete = name }) {
+                        store.apply(profile: name)
+                    }
+                }
+                HStack {
+                    TextField("Name, e.g. Late night", text: $newName).textFieldStyle(.roundedBorder)
+                        .onSubmit(save)
+                    Button("Save this look", action: save)
+                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                Text("A profile keeps the whole look: brightness, colour, immersion, warmth, response and whether "
+                     + "the mouse follows. Up to 24 letters, digits, spaces, - or _.").hint()
+            }
         }
         .confirmationDialog("Delete the profile \(confirmDelete ?? "")?", isPresented: Binding(
             get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
@@ -267,44 +255,41 @@ struct CalibratePage: View {
         let job = store.camera
         let usable = store.cameras.filter { !$0.builtin }
         let working = job?.state == "working"
-        ScrollView {
-            VStack(spacing: 16) {
-                Card(title: "Webcam calibration") {
-                    Text("Aim a USB webcam at the monitor and the glow around it. For about a minute the monitor "
-                         + "shows test colours while the strip is matched to them. The Mac's built-in camera is "
-                         + "never used.").hint()
-                    Picker("Webcam", selection: $chosen) {
-                        if chosen.isEmpty { Text("No webcam plugged in").tag("") }
-                        ForEach(usable, id: \.name) { Text($0.name).tag($0.name) }
-                        ForEach(store.cameras.filter(\.builtin), id: \.name) {
-                            Text("\($0.name) — built-in, never used").tag("builtin:\($0.name)")
-                        }
-                    }
-                    .onChange(of: chosen) { _, new in if new.hasPrefix("builtin:") { chosen = preferredWebcam(store.cameras) } }
-                    HStack {
-                        Group {
-                            Button("Calibrate") { store.startCamera(task: "calibrate", camera: chosen) }
-                                .keyboardShortcut(.defaultAction)
-                            Button("Check during a video") { store.startCamera(task: "check", camera: chosen) }
-                        }
-                        .disabled(working || chosen.isEmpty)
-                        Spacer()
-                        Button("Refresh list") { store.loadCameras() }.disabled(working)
-                    }
-                    if let job, job.state != "idle" {
-                        Text(stateLine(job)).caps(job.state == "error" ? Theme.red : job.state == "done" ? Theme.green : Theme.amber)
-                        ScrollView {
-                            Text(job.log.joined(separator: "\n"))
-                                .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.dim)
-                                .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                        }
-                        .frame(maxHeight: 180)
-                        .padding(10)
-                        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 2))
+        VStack(spacing: 16) {
+            Card(title: "Webcam calibration") {
+                Text("Aim a USB webcam at the monitor and the glow around it. For about a minute the monitor "
+                     + "shows test colours while the strip is matched to them. The Mac's built-in camera is "
+                     + "never used.").hint()
+                Picker("Webcam", selection: $chosen) {
+                    if chosen.isEmpty { Text("No webcam plugged in").tag("") }
+                    ForEach(usable, id: \.name) { Text($0.name).tag($0.name) }
+                    ForEach(store.cameras.filter(\.builtin), id: \.name) {
+                        Text("\($0.name) — built-in, never used").tag("builtin:\($0.name)")
                     }
                 }
+                .onChange(of: chosen) { _, new in if new.hasPrefix("builtin:") { chosen = preferredWebcam(store.cameras) } }
+                HStack {
+                    Group {
+                        Button("Calibrate") { store.startCamera(task: "calibrate", camera: chosen) }
+                            .keyboardShortcut(.defaultAction)
+                        Button("Check during a video") { store.startCamera(task: "check", camera: chosen) }
+                    }
+                    .disabled(working || chosen.isEmpty)
+                    Spacer()
+                    Button("Refresh list") { store.loadCameras() }.disabled(working)
+                }
+                if let job, job.state != "idle" {
+                    Text(stateLine(job)).caps(job.state == "error" ? Theme.red : job.state == "done" ? Theme.green : Theme.amber)
+                    ScrollView {
+                        Text(job.log.joined(separator: "\n"))
+                            .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.dim)
+                            .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 180)
+                    .padding(10)
+                    .background(Theme.inset, in: RoundedRectangle(cornerRadius: 2))
+                }
             }
-            .padding(20)
         }
         .onAppear { store.loadCameras() }
         .onChange(of: store.cameras) { _, cameras in

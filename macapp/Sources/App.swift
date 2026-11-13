@@ -28,44 +28,43 @@ struct AmbilightHubApp: App {
 }
 
 enum Page: Hashable {
-    case strip, mouse, bed, profiles, calibrate
+    case lights, picture, setup
 }
 
 struct ContentView: View {
     @EnvironmentObject private var store: HubStore
-    @State private var page: Page? = .strip
+    @State private var page: Page? = .lights
 
     var body: some View {
         NavigationSplitView {
             List(selection: $page) {
+                Section("Lighting") {
+                    Label("Lights", systemImage: "lightbulb.2").tag(Page.lights)
+                    Label("Picture", systemImage: "slider.horizontal.3").tag(Page.picture)
+                    Label("Setup", systemImage: "wrench.and.screwdriver").tag(Page.setup)
+                }
+                // Status at a glance; every light is controlled on the Lights page.
                 Section("Devices") {
-                    DeviceRow(title: "LED strip", detail: stripDetail, symbol: "tv", lit: stripLit,
-                              alert: store.status?.wledReachable == false).tag(Page.strip)
+                    DeviceRow(title: "Monitor strip", detail: stripDetail, symbol: "tv", lit: stripLit,
+                              alert: store.status?.wledReachable == false)
+                    DeviceRow(title: "Bed strip", detail: bedDetail, symbol: "bed.double",
+                              lit: (store.status?.bedLeds ?? 0) > 0 && store.status?.bedMode != "off", alert: false)
                     DeviceRow(title: store.status?.mouse?.name.map(shortMouseName) ?? "Mouse", detail: mouseDetail,
                               symbol: "computermouse", lit: store.status?.mouse?.connected == true && store.status?.mouseSync == true,
-                              alert: false).tag(Page.mouse)
-                    DeviceRow(title: "Bed strip", detail: bedDetail, symbol: "bed.double",
-                              lit: (store.status?.bedLeds ?? 0) > 0 && store.status?.bedMode != "off",
-                              alert: false).tag(Page.bed)
-                }
-                Section("Lighting") {
-                    Label("Profiles", systemImage: "square.stack").tag(Page.profiles)
-                    Label("Calibrate", systemImage: "camera.viewfinder").tag(Page.calibrate)
+                              alert: false)
                 }
             }
             .navigationSplitViewColumnWidth(min: 220, ideal: 240)
         } detail: {
             VStack(spacing: 0) {
-                Header(page: page ?? .strip)
+                Header(page: page ?? .lights)
                 if let text = store.link.banner(address: store.address, now: Date()) ?? store.problem {
                     Banner(text: text, fault: store.link != .online)
                 }
-                switch page ?? .strip {
-                case .strip: StripPage()
-                case .mouse: MousePage()
-                case .bed: BedPage()
-                case .profiles: ProfilesPage()
-                case .calibrate: CalibratePage()
+                switch page ?? .lights {
+                case .lights: LightsPage()
+                case .picture: PicturePage()
+                case .setup: SetupPage()
                 }
             }
             .background(Theme.bg)
@@ -156,11 +155,9 @@ struct Header: View {
 
     private var title: String {
         switch page {
-        case .strip: return "LED strip"
-        case .mouse: return store.status?.mouse?.name ?? "Mouse"
-        case .bed: return "Bed strip"
-        case .profiles: return "Profiles"
-        case .calibrate: return "Calibrate"
+        case .lights: return "Lights"
+        case .picture: return "Picture"
+        case .setup: return "Setup"
         }
     }
 
@@ -201,8 +198,8 @@ struct MenuBarPanel: View {
             }
             ProfileChoices()
             SettingSlider(key: "brightness", label: "Brightness")
-            SettingSlider(key: "immersion", label: "Immersion",
-                          format: { $0 < 0.005 ? "Off" : "\(Int(($0 * 100).rounded()))%" })
+            SettingSlider(key: "immersion", label: "Immersion", format: offOrPercent)
+            SettingSlider(key: "dark_boost", label: "Dark scenes", format: offOrPercent)
             if status?.mouse?.connected == true {
                 Toggle(isOn: Binding(get: { status?.mouseSync ?? false }, set: { store.set("mouse_sync", $0 ? "1" : "0") })) {
                     Text("Mouse follows the screen").caps(Theme.ink)

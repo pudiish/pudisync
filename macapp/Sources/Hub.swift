@@ -33,6 +33,7 @@ struct HubStatus: Decodable {
     var brightness: Double
     var saturation: Double
     var immersion: Double
+    var darkBoost: Double?
     var blend: Double
     var profile: String
     var userProfiles: [String: Ignored]
@@ -74,6 +75,7 @@ struct HubStatus: Decodable {
         case "brightness": return brightness
         case "saturation": return saturation
         case "immersion": return immersion
+        case "dark_boost": return darkBoost
         case "blend": return blend
         case "bed_brightness": return bedBrightness
         case "bed_speed": return bedSpeed
@@ -269,6 +271,35 @@ final class HubStore: ObservableObject {
     func saveProfile(_ name: String) { act("/api/profiles/save", ["name": name]) }
 
     func deleteProfile(_ name: String) { act("/api/profiles/delete", ["name": name]) }
+
+    // MARK: the monitor strip's own looks (sync stops while one runs)
+
+    /// A solid colour, as "rrggbb".
+    func runColour(_ hex: String) { act("/api/effect/run", ["fx": "0", "color": hex]) }
+
+    /// The same, sent only after a colour being dragged in the picker settles.
+    func runColourLater(_ hex: String) {
+        pending["monitor_colour"]?.cancel()
+        pending["monitor_colour"] = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            runColour(hex)
+        }
+    }
+
+    func runEffect(_ fx: Int) { act("/api/effect/run", ["fx": String(fx)]) }
+
+    /// Turns the board off; its answer is not the hub's status, so fetch that after.
+    func lightsOff() {
+        Task {
+            do {
+                let _: Ignored = try await client.get("/api/wled/power", ["on": "0"])
+                await refresh()
+            } catch {
+                report(error)
+            }
+        }
+    }
 
     // MARK: bed strip
 
