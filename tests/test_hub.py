@@ -413,7 +413,7 @@ def test_api(base):
     check("and switched back to by name", s["profile"] == "Late Night" and abs(s["immersion"] - 0.7) < 1e-6)
     listed = get("/api/profiles")
     check("profiles are listed, built-in and your own",
-          listed["builtin"] == ["movie", "game"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
+          listed["builtin"] == ["movie", "game", "enriched"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
     s = get("/api/profiles/delete?name=Late%20Night")
     check("and deleted", "Late Night" not in get("/api/profiles")["user"])
 
@@ -2656,16 +2656,80 @@ def test_user_profiles():
           "Bad" not in reloaded and reloaded["Fine"]["saturation"] == 3.0, reloaded)
 
 
+def test_enriched():
+    print("\n40b. Enriched: deep blacks, bright highlights, true colour")
+    import colour
+    from ambilight import color, enrich
+    from ambilight.config import PROFILE_KEYS, PROFILES
+
+    with tempfile.TemporaryDirectory() as folder:
+        cfg = Config(os.path.join(folder, "config.json"))
+        cfg.apply_profile("enriched")
+        look = cfg.snapshot()
+        check("Enriched is a built-in mode next to Cinema and Gaming", list(PROFILES) == ["movie", "game", "enriched"])
+        check("it is true colour: no saturation boost, no immersion flood",
+              look["saturation"] == 1.0 and look["immersion"] == 0.0, (look["saturation"], look["immersion"]))
+        check("it is sharp: fast response and almost no spread between LEDs",
+              look["blend"] >= 0.8 and look["spread"] <= 0.1, (look["blend"], look["spread"]))
+        check("it turns the Enriched tone on", look["enrich"] == 1.0)
+        cfg.apply_profile("movie")
+        check("Cinema turns it off again", cfg.get("enrich") == 0.0)
+    check("every mode sets the tone, so switching modes always undoes it",
+          all("enrich" in mode for mode in PROFILES.values()) and "enrich" in PROFILE_KEYS)
+
+    def lightness(rgb):
+        return colour.XYZ_to_Oklab(colour.sRGB_to_XYZ(np.asarray(rgb, np.float64)))
+
+    greys = np.array([[0.12] * 3, [0.5] * 3, [0.9] * 3], np.float32)
+    toned = enrich.apply(greys, 1.0)
+    before, after = lightness(greys)[:, 0], lightness(toned)[:, 0]
+    check("dark stays dark: a dark grey gets darker", after[0] < before[0] - 0.02, (before[0], after[0]))
+    check("bright stays bright: a light grey gets brighter", after[2] > before[2] + 0.01, (before[2], after[2]))
+    check("greys stay neutral", float(np.ptp(toned, axis=1).max()) < 2e-3, toned)
+
+    rng = np.random.default_rng(7)
+    colours = rng.random((1000, 3)).astype(np.float32)
+    out = enrich.apply(colours, 1.0)
+    check("every colour stays something the LEDs can show", float(out.min()) >= 0.0 and float(out.max()) <= 1.0)
+    lab_in, lab_out = lightness(colours), lightness(out)
+    chroma_in = np.hypot(lab_in[:, 1], lab_in[:, 2])
+    vivid = chroma_in > 0.05
+    hue_in = np.degrees(np.arctan2(lab_in[vivid, 2], lab_in[vivid, 1]))
+    hue_out = np.degrees(np.arctan2(lab_out[vivid, 2], lab_out[vivid, 1]))
+    drift = np.abs((hue_out - hue_in + 180.0) % 360.0 - 180.0)
+    check("true colour: hues hold within 2 degrees", float(np.percentile(drift, 99)) < 2.0, float(drift.max()))
+    in_gamut = vivid & (np.abs(out - colours).max(axis=1) < 0.5)
+    ratio_in = chroma_in[in_gamut] / np.maximum(lab_in[in_gamut, 0], 1e-6)
+    ratio_out = np.hypot(lab_out[in_gamut, 1], lab_out[in_gamut, 2]) / np.maximum(lab_out[in_gamut, 0], 1e-6)
+    check("...and saturation is kept, not boosted (median within 5%)",
+          abs(float(np.median(ratio_out / ratio_in)) - 1.0) < 0.05, float(np.median(ratio_out / ratio_in)))
+    check("at zero it leaves colours untouched", np.array_equal(enrich.apply(colours, 0.0), colours))
+
+    frame = rng.random((400, 3)).astype(np.float32)
+    enrich.apply(frame, 1.0)
+    timings = []
+    for _ in range(30):
+        started = time.perf_counter()
+        enrich.apply(frame, 1.0)
+        timings.append(time.perf_counter() - started)
+    check("fast enough for 60 fps: under 4 ms for 400 LEDs", float(np.median(timings)) < 0.004,
+          f"{np.median(timings) * 1000:.2f} ms")
+    base = {"saturation": 1.0, "immersion": 0.0}
+    linear = color.srgb_to_linear(colours[:20])
+    check("the colour grade applies it when the mode asks",
+          not np.allclose(color.grade(linear, {**base, "enrich": 1.0}), color.grade(linear, {**base, "enrich": 0.0})))
+
+
 def test_sync_modes():
-    print("\n40. Two sync modes: Cinema and Gaming, each a whole tuned look")
+    print("\n40. Sync modes: Cinema, Gaming and Enriched, each a whole tuned look")
     from ambilight import color
     from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
     from ambilight.smoothing import settle_seconds
 
     cinema, gaming = PROFILES.get("movie", {}), PROFILES.get("game", {})
-    check("there are exactly two sync modes, Cinema and Gaming", list(PROFILES) == ["movie", "game"], list(PROFILES))
-    recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight"}
-    check("each sets motion and colour feel together", set(cinema) == set(gaming) == recipe,
+    check("there are exactly three sync modes: Cinema, Gaming and Enriched", list(PROFILES) == ["movie", "game", "enriched"], list(PROFILES))
+    recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight", "enrich"}
+    check("each sets motion and colour feel together", set(cinema) == set(gaming) == set(PROFILES["enriched"]) == recipe,
           (sorted(cinema), sorted(gaming)))
     check("and only what a profile of your own also keeps", recipe <= set(PROFILE_KEYS))
     check("a fresh install starts in Cinema, exactly",
@@ -3675,6 +3739,7 @@ def main():
     test_immersion()
     test_user_profiles()
     test_sync_modes()
+    test_enriched()
     test_colour_locks()
     test_webcam_job()
     test_bed_strip()

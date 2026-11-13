@@ -159,7 +159,7 @@ struct HubClient {
 
 @MainActor
 final class HubStore: ObservableObject {
-    static let builtinProfiles = [("movie", "Cinema"), ("game", "Gaming")]
+    static let builtinProfiles = [("movie", "Cinema"), ("game", "Gaming"), ("enriched", "Enriched")]
 
     @Published private(set) var status: HubStatus?
     @Published private(set) var link = LinkState.connecting

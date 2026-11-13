@@ -13,7 +13,7 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
 log = logging.getLogger(__name__)
 
-# The two sync modes, each a whole look: how fast the light follows and how
+# The three sync modes, each a whole look: how fast the light follows and how
 # the colour feels. They never touch brightness, warmth, contrast or the
 # calibration, so picking one cannot undo a measured strip; the Home sliders
 # fine-tune whichever is chosen.
@@ -23,13 +23,21 @@ log = logging.getLogger(__name__)
 # - Gaming settles in ~0.1s, with punchier colour, small vivid effects
 #   favoured over large grey areas, and light kept where the action is. It
 #   keeps a little spread, as without it fast motion jitters LED to LED.
+# - Enriched is sharp and true: the screen's own colour with no boost or
+#   flood, LEDs kept distinct, and a tone stage (enrich.py) that sinks
+#   darks and lifts brights without moving hue. Cinema and Gaming switch
+#   that stage off, so changing mode always undoes it.
 PROFILES = {
-    "movie": {"blend": 0.3, "fps": 60, "saturation": 1.2, "immersion": 0.4, "spread": 0.4, "colour_weight": 0.6},
-    "game": {"blend": 0.8, "fps": 60, "saturation": 1.35, "immersion": 0.15, "spread": 0.2, "colour_weight": 0.75},
+    "movie": {"blend": 0.3, "fps": 60, "saturation": 1.2, "immersion": 0.4, "spread": 0.4, "colour_weight": 0.6,
+              "enrich": 0.0},
+    "game": {"blend": 0.8, "fps": 60, "saturation": 1.35, "immersion": 0.15, "spread": 0.2, "colour_weight": 0.75,
+             "enrich": 0.0},
+    "enriched": {"blend": 0.85, "fps": 60, "saturation": 1.0, "immersion": 0.0, "spread": 0.05,
+                 "colour_weight": 0.3, "enrich": 1.0},
 }
 # What a profile of your own saves: the whole look, not the strip's setup.
 PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
-                "colour_weight", "spread", "black_level", "mouse_sync",
+                "colour_weight", "spread", "black_level", "enrich", "mouse_sync",
                 "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect", "bed_speed",
                 "bed_brightness")
 PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
@@ -78,6 +86,8 @@ DEFAULTS = {
     # (color.immerse). 0 leaves colours exactly as graded. A fresh install
     # starts in Cinema, so this and the other look settings are its recipe.
     "immersion": 0.4,
+    # The Enriched tone stage (enrich.py): 0 off, 1 full.
+    "enrich": 0.0,
     # LED safety (safety.py). Defaults suit a 5V 5A supply: peaks stay under
     # 3.8A (WLED's own limiter, set to 4A, is the hardware-side backstop) and a
     # bright scene held for minutes settles at 3A.
@@ -292,6 +302,7 @@ _LIMITS = {
     "black_level": (0.0, 0.2),
     "colour_weight": (0.0, 1.0),
     "immersion": (0.0, 1.0),
+    "enrich": (0.0, 1.0),
     "power_limit_ma": (200, 20000),
     "sustained_ma": (200, 20000),
     "spread": (0.0, 0.8),

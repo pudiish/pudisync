@@ -236,9 +236,12 @@ struct LightingCommands: Commands {
                 Button(profile.1) { store.apply(profile: profile.0) }
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
             }
-            ForEach(Array((store.status?.myProfiles ?? []).prefix(7).enumerated()), id: \.offset) { index, name in
+            // Your profiles take the digits after the built-in modes, up to ⌘9.
+            ForEach(Array((store.status?.myProfiles ?? []).prefix(9 - HubStore.builtinProfiles.count).enumerated()),
+                    id: \.offset) { index, name in
                 Button(name) { store.apply(profile: name) }
-                    .keyboardShortcut(KeyEquivalent(Character("\(index + 3)")), modifiers: .command)
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + HubStore.builtinProfiles.count + 1)")),
+                                      modifiers: .command)
             }
             Divider()
             Button(store.status?.mouseSync == true ? "Mouse: Own Lighting" : "Mouse: Follow the Screen") {

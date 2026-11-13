@@ -197,6 +197,7 @@ struct ProfilesPage: View {
                 Card(title: "Built in") {
                     ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
                         row(title: title, detail: name == "movie" ? "Glides gently between colours."
+                                : name == "enriched" ? "Sharp and true, with deep blacks and bright highlights."
                                 : "Follows the action quickly.", active: active == name) {
                             store.apply(profile: name)
                         }

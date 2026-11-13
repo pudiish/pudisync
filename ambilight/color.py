@@ -13,6 +13,8 @@ from functools import lru_cache
 
 import numpy as np
 
+from . import enrich
+
 # Luma weights (Rec. 709), for "how bright does this look".
 LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
@@ -156,7 +158,9 @@ def grade(linear, cfg):
     hsv[:, 1] = sat
     graded = np.clip(hsv_to_rgb(hsv), 0.0, 1.0)
     amount = cfg.get("immersion", 0.0)
-    return immerse(graded, amount) if amount > 0 else graded
+    if amount > 0:
+        graded = immerse(graded, amount)
+    return enrich.apply(graded, cfg.get("enrich", 0.0))
 
 
 IMMERSE_LIFT = 0.55     # at full immersion a colourful LED's level is raised to the power 0.45

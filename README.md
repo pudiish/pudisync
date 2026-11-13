@@ -287,11 +287,14 @@ Colour zones underneath, so they also show under Advanced ▸ Zones.
 
 ### Profiles and immersion
 
-**Cinema** and **Gaming** are the two sync modes, each a whole look. Cinema
-glides (about 0.37 s), lifts deep film colours and floods dark parts of the room
-with the scene's colour. Gaming settles in about 0.1 s, with punchier colour and
-light kept where the action is. Neither touches brightness, warmth, contrast or
-calibration; the Home sliders fine-tune either one. **Save this look**
+**Cinema**, **Gaming** and **Enriched** are the three sync modes, each a whole
+look. Cinema glides (about 0.37 s), lifts deep film colours and floods dark parts
+of the room with the scene's colour. Gaming settles in about 0.1 s, with punchier
+colour and light kept where the action is. Enriched is sharp and true to the
+screen: no saturation boost, LEDs kept distinct, and a tone stage that sinks
+darks and lifts brights in Oklab, so hue and saturation never shift
+(`ambilight/enrich.py`, using the colour-science library). None of them touches
+brightness, warmth, contrast or calibration; the Picture sliders fine-tune each. **Save this look**
 stores the whole look under a name of your own: brightness, colour, immersion,
 contrast, warmth, response, spread and whether the mouse follows. Pick it again
 from Home, the Mac app or `/api/profile/<name>`.
@@ -400,7 +403,7 @@ runs, the hub holds off idle system sleep so phones can still reach it.
 `macapp/` is a native app for controlling the hub from the Mac, laid out like
 Logitech G HUB: your devices (the LED strip, the mouse) in a sidebar, each with
 its own page, plus Profiles and Calibrate, a **Lighting** menu with shortcuts
-(⇧⌘S sync, ⌘1/⌘2 Cinema/Gaming, ⌘3… your profiles, ⇧⌘M mouse) and quick
+(⇧⌘S sync, ⌘1/⌘2/⌘3 Cinema/Gaming/Enriched, ⌘4… your profiles, ⇧⌘M mouse) and quick
 controls in the menu bar. It talks to the hub's API, so the hub must be running
 (it starts at login). The Bed strip page has the same controls as the web
 page's Bed strip card. Built with the Command Line Tools, no Xcode needed:

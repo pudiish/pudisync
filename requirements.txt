@@ -1,6 +1,8 @@
 # Python 3.10 or newer (tested on 3.12, macOS 26).
 mss>=9.0,<11
-numpy>=1.24,<3
+numpy>=2.0,<3
+# Enriched mode's Oklab conversions (enrich.py).
+colour-science==0.4.7
 
 # Optional: USB serial output, and flashing a board from the Setup tab.
 pyserial>=3.5,<4
