@@ -137,6 +137,14 @@ struct Header: View {
                 .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.dim)
             }
             Spacer()
+            HStack(spacing: 4) {
+                ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
+                    ChoiceButton(title: title, chosen: status?.profile == name) { store.apply(profile: name) }
+                }
+            }
+            .frame(width: 330)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Sync mode")
             Text("Screen sync").caps(Theme.ink)
             Toggle("Screen sync", isOn: Binding(get: { status?.syncing ?? false }, set: { store.setSync($0) }))
                 .toggleStyle(.switch).tint(Theme.green).labelsHidden().controlSize(.large)
