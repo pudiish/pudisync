@@ -367,8 +367,8 @@ def test_engine_parts():
 
 def test_api(base):
     print("\n4. HTTP API")
-    def get(path):
-        with urllib.request.urlopen(base + path, timeout=3) as r:
+    def get(path, timeout=3):
+        with urllib.request.urlopen(base + path, timeout=timeout) as r:
             return json.loads(r.read())
 
     s = get("/api/sync/on")
@@ -417,7 +417,8 @@ def test_api(base):
     s = get("/api/profiles/delete?name=Late%20Night")
     check("and deleted", "Late Night" not in get("/api/profiles")["user"])
 
-    listed = get("/api/camera/list")
+    # Listing runs in a short-lived process of its own: under heavy load it took 3-6.5 s here.
+    listed = get("/api/camera/list", timeout=15)
     check("the web page can list webcams, the built-in one marked as never used",
           all(c["builtin"] == ("FaceTime" in c["name"]) for c in listed["cameras"])
           and listed["state"] in ("idle", "done", "error"), listed)
