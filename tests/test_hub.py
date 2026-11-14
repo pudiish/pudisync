@@ -3530,51 +3530,256 @@ def test_telemetry_api(base):
 
 
 def test_one_interface():
-    print("\n44. One Lights screen for every light, on every device")
+    print("\n44. PudiSync: one Home screen that runs every light")
     import re, shutil
+    from ambilight.config import DEFAULTS
+    from ambilight.routes import ROUTES
     html = open("ambilight/web/index.html").read()
     markup, script = html[:html.index("<script>")], page_script("ambilight/web/index.html")
     tabs = re.findall(r'data-action="tab" data-value="(\w+)"', markup)
-    check("four tabs: Lights, Picture, Setup, Advanced", tabs == ["lights", "picture", "setup", "advanced"], tabs)
-    lights = re.search(r'<section class="screen" id="tab-lights".*?\n  </section>', markup, re.S).group(0)
-    monitor = re.findall(r'data-action="monitor-mode" data-value="(\w+)"', lights)
-    bed_modes = re.findall(r'data-action="bed-mode" data-value="(\w+)"', lights)
-    check("the monitor strip offers screen sync, colour, effect and off", monitor == ["sync", "colour", "effect", "off"], monitor)
-    check("the bed offers the same four on the same screen", bed_modes == ["screen", "colour", "effect", "off"], bed_modes)
-    check("the mouse is on the Lights screen too", 'data-switch="mouse_sync"' in lights)
-    check("locking part of the strip lives under the monitor's screen sync",
-          'id="lock-box"' in lights and lights.index('id="mon-sync"') < lights.index('id="lock-box"') < lights.index('id="mon-colour"'))
-    check("old links to Home, Effects, Override and Bed open Lights",
-          all(re.search(rf"\b{old}: \"lights\"", script) for old in ("home", "effects", "override", "bed")))
+    check("three tabs: Home, Tune, Settings", tabs == ["home", "tune", "settings"], tabs)
+    home = re.search(r'<section class="screen" id="tab-home".*?\n  </section>', markup, re.S).group(0)
+    scenes = re.findall(r'data-action="scene" data-value="(\w+)"', home)
+    bed_modes = re.findall(r'data-action="bed-mode" data-value="(\w+)"', home)
+    check("Home offers one scene for every light: screen, colour or effect", scenes == ["screen", "colour", "effect"], scenes)
+    check("...one power button and one brightness for all of them",
+          home.count('data-action="power"') == 1 and home.count('data-fader="master"') == 1)
+    check("the bed can match the scene, or have its own colour, effect or off",
+          bed_modes == ["screen", "colour", "effect", "off"], bed_modes)
+    check("the mouse is on Home too", 'data-switch="mouse_sync"' in home)
+    check("old links and bookmarks open the screen that now holds them",
+          all(re.search(rf"\b{old}: \"{new}\"", script) for old, new in
+              (("lights", "home"), ("effects", "home"), ("bed", "home"), ("picture", "tune"),
+               ("override", "tune"), ("setup", "settings"), ("advanced", "settings"))))
     ids = set(re.findall(r'id="([\w-]+)"', markup))
     wanted = set(re.findall(r'\$\("([\w-]+)"\)', script))
-    check("every element the script reaches for is still on the page", wanted <= ids, sorted(wanted - ids))
+    check("every element the script reaches for is on the page", wanted <= ids, sorted(wanted - ids))
+    check("no id is used twice", len(re.findall(r' id="', markup)) == len(ids))
     handled = set(re.findall(r'^\s*"?([\w-]+)"?\s*:', js_block(script, "const ACTIONS"), re.M))
-    actions = set(re.findall(r'data-action="([\w-]+)"', markup))
+    actions = set(re.findall(r'data-action="([\w-]+)"', markup)) | set(re.findall(r'dataset\.action = "([\w-]+)"', script))
     check("every button on the page has a handler", actions <= handled, sorted(actions - handled))
+    called = set(re.findall(r'"(/api/[\w/-]+)"', script))
+    check("every hub address the page calls exists", called <= set(ROUTES), sorted(called - set(ROUTES)))
+    switches = set(re.findall(r'data-switch="(\w+)"', markup))
+    check("every switch is a real setting", switches <= set(DEFAULTS), sorted(switches - set(DEFAULTS)))
+    check("it is called PudiSync", "<title>PudiSync</title>" in html and 'content="PudiSync"' in html
+          and "Ambilight Hub" not in html)
+    check("it stays light: one file, no outside resources, under 120 kB",
+          len(html.encode()) < 120_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), len(html.encode()))
+    check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
+    check("it follows the device's light or dark appearance", "prefers-color-scheme:light" in html)
 
     if not shutil.which("node"):
-        print("    (skipped: node not installed, so the monitor card was not run)")
+        print("    (skipped: node not installed, so the page's logic was not run)")
         return
-    shown = run_node(re.search(r"^const modeOf.*$", script, re.M).group(0) + "\n" + js_block(script, "function renderMonitorCard").replace(
-        "function renderMonitorCard", 'let monitorView = "", lastMode = "";\nfunction renderMonitorCard') + r"""
-const panes = {"mon-sync": {}, "mon-colour": {}, "mon-effect": {}};
-const buttons = ["sync", "colour", "effect", "off"].map(v => ({dataset: {value: v}, pressed: false}));
-const $ = id => panes[id];
-const $$ = () => buttons;
-const press = (b, on) => { b.pressed = on; };
-const look = s => { renderMonitorCard(s); return [Object.keys(panes).find(k => !panes[k].hidden) || "none",
-                                                   buttons.find(b => b.pressed).dataset.value]; };
-const out = [look({mode: "sync"})];
-monitorView = "colour"; out.push(look({mode: "sync"}));
-out.push(look({mode: "effect"}));
-out.push(look({mode: "sync"}));
-out.push(look({mode: "off"}));
+    consts = "\n".join(re.search(rf"^const {name} .*?;$", script, re.M | re.S).group(0)
+                       for name in ("settle", "pct", "two", "offOr", "modeOf", "SWATCHES", "swatchName"))
+    faders = run_node(consts + "\n" + js_block(script, "const FADERS") + r"""
+console.log(JSON.stringify(Object.entries(FADERS).map(([k, f]) => [k, !!f.local, !!(f.apply || f.read)])));
+""")
+    if isinstance(faders, list):
+        plain = {k for k, local, custom in faders if not local and not custom}
+        check("every slider writes a real setting", plain <= set(DEFAULTS), sorted(plain - set(DEFAULTS)))
+        hosts = set(re.findall(r'data-fader="(\w+)"', markup))
+        check("every slider on the page is defined, and every one defined is used",
+              hosts == {k for k, *_ in faders}, sorted(hosts ^ {k for k, *_ in faders}))
+    else:
+        check("the sliders' table runs", False, faders)
+
+    logic = run_node(consts + "\n" + "\n".join(js_block(script, start) for start in (
+        "function sceneOf", "function heroView", "const BED_LOOKS", "function bedView", "function cutOut",
+        "function withPart", "function newerGate")) + r"""
+const effectName = fx => `fx${fx}`;
+const name = s => [sceneOf(s), heroView(s, {offline: false, scene: sceneOf(s), effectName}).state];
+const out = {
+  scenes: [name({mode: "sync", running: true}), name({mode: "effect", wled_fx: 0, wled_col: "ff2010"}),
+           name({mode: "effect", wled_fx: 63}), name({mode: "off"}), name({mode: "effect", wled_fx: null})],
+  offline: heroView({mode: "sync"}, {offline: true, scene: "screen", effectName}).state,
+  noBoard: heroView({mode: "off", wled_reachable: false}, {offline: false, scene: "off", effectName}),
+  syncNoBoard: heroView({mode: "sync", wled_reachable: false}, {offline: false, scene: "screen", effectName}).lamp,
+  bed: [["screen", "screen"], ["screen", "colour"], ["screen", "off"], ["colour", "screen"], ["off", "screen"]]
+    .map(([mode, scene]) => bedView({bed_leds: 120, bed_mode: mode, bed_look: "mood", bed_effect: 9}, scene))
+    .map(v => [v.state, v.brightness]),
+  noBed: bedView({bed_leds: 0, bed_mode: "screen"}, "screen").state,
+  cut: cutOut([{start: 0, end: 9, mode: "warm"}, {start: 20, end: 29, mode: "off"}], 5, 24)
+    .map(z => [z.start, z.end]),
+  split: cutOut([{start: 0, end: 30, mode: "warm"}], 10, 19).map(z => [z.start, z.end]),
+  put: withPart([{start: 0, end: 30, mode: "warm"}], 10, 19, {mode: "solid", color: "#ff0000"})
+    .map(z => [z.start, z.end, z.mode]),
+  back: withPart([{start: 0, end: 30, mode: "warm"}], 10, 19, {mode: "sync"}).map(z => [z.start, z.end]),
+};
+const gate = newerGate();
+out.gate = [gate(2), gate(1), gate(3), gate(3)];
 console.log(JSON.stringify(out));
 """)
-    check("the monitor card shows what the strip is doing, and keeps a pane the user opened",
-          shown == [["mon-sync", "sync"], ["mon-colour", "colour"], ["mon-colour", "colour"],
-                    ["mon-sync", "sync"], ["none", "off"]], shown)
+    if not isinstance(logic, dict) or "error" in logic:
+        check("the page's logic runs under node", False, logic)
+        return
+    check("the scene is read from the board: sync, colour, effect, off",
+          [s for s, _ in logic["scenes"]] == ["screen", "colour", "effect", "off", "colour"], logic["scenes"])
+    check("...and the hero names what is showing",
+          [t for _, t in logic["scenes"][:4]] == ["Following your screen", "Red", "fx63", "Off"], logic["scenes"])
+    check("an unreachable hub is never shown as lights on", logic["offline"] == "Hub offline")
+    check("an unreachable board says so instead of 'Off'",
+          logic["noBoard"]["state"] == "Can't reach the board" and logic["noBoard"]["lamp"] == "fault", logic["noBoard"])
+    check("...and while syncing it shows as a fault", logic["syncNoBoard"] == "fault")
+    check("the bed says when it matches the scene, and hides a brightness that would do nothing",
+          logic["bed"] == [["Matches · follows the screen", True], ["Matches · same colour", False],
+                           ["Matches · off with everything", False], ["Its own colour", True], ["Off", False]], logic["bed"])
+    check("a missing bed strip says it is not set up", logic["noBed"] == "Not set up")
+    check("a selection takes its LEDs out of the parts it crosses", logic["cut"] == [[0, 4], [25, 29]], logic["cut"])
+    check("...splitting a part it falls inside", logic["split"] == [[0, 9], [20, 30]], logic["split"])
+    check("giving a stretch a colour leaves the lamp on both sides",
+          logic["put"] == [[0, 9, "warm"], [10, 19, "solid"], [20, 30, "warm"]], logic["put"])
+    check("handing a stretch back to the scene leaves no part there", logic["back"] == [[0, 9], [20, 30]], logic["back"])
+    check("a reply that arrives after a newer one is not drawn", logic["gate"] == [True, False, True, False], logic["gate"])
+
+
+def test_page_in_browser(base):
+    print("\n45. The phone page in a real browser, against the sandbox hub")
+    try:
+        from playwright.sync_api import sync_playwright, Error as PlaywrightError
+    except ImportError:
+        print("    (skipped: playwright not installed, so the page was not driven)")
+        return
+
+    def get(path):
+        with urllib.request.urlopen(base + path, timeout=5) as r:
+            return json.loads(r.read())
+
+    def until(cond, seconds=6.0):
+        """Wait for the hub to agree; returns the last status seen."""
+        deadline = time.time() + seconds
+        while True:
+            s = get("/api/status")
+            if cond(s) or time.time() > deadline:
+                return s
+            time.sleep(0.2)
+
+    get("/api/sync/off")
+    get("/api/set?bed_leds=60&bed_mode=screen&zones=[]")
+    with sync_playwright() as play:
+        try:
+            browser = play.chromium.launch(channel="chrome", headless=True)
+        except PlaywrightError:
+            try:
+                browser = play.chromium.launch(headless=True)
+            except PlaywrightError:
+                print("    (skipped: no Chrome or Chromium for playwright, so the page was not driven)")
+                return
+        page = browser.new_page(viewport={"width": 390, "height": 844}, has_touch=True)
+        problems = []
+        page.on("pageerror", lambda exc: problems.append(str(exc)))
+        page.on("console", lambda msg: problems.append(msg.text) if msg.type == "error" else None)
+        page.on("dialog", lambda dialog: dialog.accept())
+        page.goto(base + "/")
+        page.wait_for_selector("#screens:not([inert])", timeout=8000)
+        check("the page opens on Home and comes alive once the hub answers",
+              page.is_visible("#tab-home") and not page.is_visible("#tab-tune"))
+
+        def pressed(selector):
+            return page.get_attribute(selector, "aria-pressed") == "true"
+
+        page.click('[data-action=scene][data-value=colour]')
+        s = until(lambda s: s["mode"] == "effect" and s.get("wled_fx") == 0)
+        check("Colour lights every light at once, no second tap needed",
+              s["mode"] == "effect" and s.get("wled_fx") == 0 and pressed('[data-action=scene][data-value=colour]'), s["mode"])
+        page.click('#swatches .swatch[data-hex="#2040ff"]')
+        s = until(lambda s: s.get("wled_col") == "2040ff")
+        page.wait_for_function("document.getElementById('power-state').textContent === 'Blue'", timeout=4000)
+        check("a swatch sets the colour and the hero names it", s.get("wled_col") == "2040ff")
+
+        page.click('[data-action=scene][data-value=effect]')
+        s = until(lambda s: s.get("wled_fx") not in (None, 0))
+        page.wait_for_selector("#fx-tiles .tile[aria-pressed=true]", timeout=4000)
+        check("Effect starts one straight away and marks its tile", s.get("wled_fx") not in (None, 0), s.get("wled_fx"))
+
+        page.click("#power")
+        s = until(lambda s: s["mode"] == "off")
+        page.wait_for_function("document.getElementById('power').getAttribute('aria-checked') === 'false'", timeout=4000)
+        check("the power button turns everything off", s["mode"] == "off" and s["wled_on"] is False and not s["running"])
+        page.click("#power")
+        s = until(lambda s: s["running"])
+        page.wait_for_selector('[data-action=scene][data-value=screen][aria-pressed=true]', timeout=4000)
+        check("...and on again into screen sync", s["running"] and page.text_content("#power-state") == "Following your screen")
+
+        page.eval_on_selector("#f-master", "el => { el.value = 77; el.dispatchEvent(new Event('input', {bubbles: true})); }")
+        s = until(lambda s: s.get("wled_bri") == 77)
+        check("the master brightness reaches the board, even while syncing", s.get("wled_bri") == 77, s.get("wled_bri"))
+        time.sleep(3.0)
+        check("...and the slider stays where it was let go", page.input_value("#f-master") == "77")
+        check("...and sync carries on", get("/api/status")["running"])
+
+        page.click('[data-action=profile][data-value=game]')
+        s = until(lambda s: s["profile"] == "game")
+        check("a style applies its look", s["profile"] == "game" and pressed('[data-action=profile][data-value=game]'))
+
+        page.click('[data-action=bed-mode][data-value=colour]')
+        s = until(lambda s: s["bed_mode"] == "colour")
+        page.wait_for_selector("#bed-colour-box:not([hidden])", timeout=4000)
+        check("the bed can take its own colour while the rest syncs", s["bed_mode"] == "colour" and s["running"])
+        page.click('[data-action=bed-mode][data-value=screen]')
+        s = until(lambda s: s["bed_mode"] == "screen")
+        page.wait_for_selector("#bed-screen:not([hidden])", timeout=4000)
+        check("...and match the scene again", s["bed_mode"] == "screen")
+
+        page.click('[data-action=tab][data-value=tune]')
+        page.click("#parts > summary")
+        page.click('[data-action=part-mode][data-value=warm]')
+        page.click('[data-action=part-all]')
+        page.click("#part-go")
+        s = until(lambda s: len(s["zones"]) == 1)
+        check("a part of the strip can be set to a lamp from the Tune tab",
+              [z["mode"] for z in s["zones"]] == ["warm"], s["zones"])
+        page.click("#parts-clear")
+        s = until(lambda s: not s["zones"])
+        check("...and cleared", s["zones"] == [])
+
+        page.click('[data-action=tab][data-value=settings]')
+        for group in ("set-controller", "set-strip", "set-bed", "set-calibrate", "set-capture", "set-access", "set-diag"):
+            page.click(f"#{group} > summary")
+        page.wait_for_function("document.querySelectorAll('#timing dt').length > 0", timeout=4000)
+        check("every settings group opens, and diagnostics fill in", page.is_visible("#timing"))
+
+        spilled = []
+        for width in (320, 390):
+            page.set_viewport_size({"width": width, "height": 800})
+            for tab in ("home", "tune", "settings"):
+                page.evaluate(f"location.hash = '{tab}'")
+                page.wait_for_selector(f"#tab-{tab}:not([hidden])")
+                if page.evaluate("document.documentElement.scrollWidth > innerWidth + 1"):
+                    spilled.append(f"{tab} at {width}px")
+        check("nothing runs off the side of a small phone", not spilled, spilled)
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        bar = page.evaluate("Math.round(document.querySelector('.tabs').getBoundingClientRect().bottom) - innerHeight")
+        check("on a phone the tab bar stays at the bottom of the screen, scrolled or not", bar == 0, bar)
+        page.set_viewport_size({"width": 1280, "height": 900})
+        page.evaluate("location.hash = 'home'")
+        page.wait_for_selector("#tab-home:not([hidden])")
+        tops = page.evaluate("[...document.querySelectorAll('#tab-home > .col')].map(c => Math.round(c.getBoundingClientRect().top))")
+        check("on a Mac or iPad, Home sits in two columns", len(tops) == 2 and tops[0] == tops[1], tops)
+
+        page.route("**/api/status", lambda route: route.abort())
+        page.wait_for_selector("#offline-banner:not([hidden])", timeout=12000)
+        check("a hub that drops out is said so, and the controls step back",
+              page.get_attribute("#screens", "inert") is not None and page.text_content("#link-word") == "Offline")
+        page.unroute("**/api/status")
+        page.evaluate("window.dispatchEvent(new Event('online'))")
+        page.wait_for_selector("#offline-banner[hidden]", state="attached", timeout=8000)
+        check("...and come back by themselves", page.get_attribute("#screens", "inert") is None)
+
+        light = browser.new_page(color_scheme="light")
+        light.goto(base + "/")
+        colours = light.evaluate("getComputedStyle(document.body).backgroundColor")
+        light.close()
+        check("a phone in light mode gets the light look", colours == "rgb(244, 244, 247)", colours)
+        browser.close()
+    # Aborted requests log a network error to the console; anything else is the page's own fault.
+    own = [p for p in problems if "Failed to load resource" not in p]
+    check("the page logged no errors along the way", not own, own[:5])
+    get("/api/sync/off")
+    get("/api/set?bed_leds=0&bed_mode=screen")
+    get("/api/profile/movie")
 
 
 def test_soak_verdict():
@@ -3878,6 +4083,7 @@ def main():
         test_provision_api(base)
         test_security_api(base)
         test_connect_api(base)
+        test_page_in_browser(base)
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")
