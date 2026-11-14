@@ -148,14 +148,17 @@ class Hub:
         self.wled_lock = threading.Lock()
         self.wled_cached = None
         self.wled_cached_at = -1e9
+        self.wled_cached_writes = -1
 
     def wled_state(self):
-        """WLED's state, fetched at most every few seconds across all clients."""
+        """WLED's state, fetched at most every few seconds across all clients, and after every write."""
         with self.wled_lock:
             ttl = self.WLED_TTL_S if self.wled.reachable else self.WLED_BACKOFF_S
-            if time.monotonic() - self.wled_cached_at > ttl:
+            writes = self.wled.writes
+            if time.monotonic() - self.wled_cached_at > ttl or writes != self.wled_cached_writes:
                 self.wled_cached = self.wled.state()
                 self.wled_cached_at = time.monotonic()
+                self.wled_cached_writes = writes
             return self.wled_cached or {}
 
     def public_config(self):

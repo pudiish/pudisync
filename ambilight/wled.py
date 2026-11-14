@@ -25,6 +25,9 @@ class WLEDClient:
         self._meta_at = 0.0
         self.reachable = False
         self.last_error = None
+        # Counts every write, sent or not: a cached state older than the last
+        # write no longer describes the board.
+        self.writes = 0
 
     def _url(self, path):
         port = self.cfg.get("wled_http_port")
@@ -45,6 +48,7 @@ class WLEDClient:
             return None
 
     def _post(self, payload, path="/json/state"):
+        self.writes += 1
         body = json.dumps(payload).encode()
         try:
             req = urllib.request.Request(

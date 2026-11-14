@@ -395,6 +395,18 @@ def test_api(base):
     check("an unknown bed mode is refused", refused_mode)
     get("/api/set?bed_mode=screen&bed_look=blend&bed_side=whole&bed_reverse=0")
 
+    # The page renders the reply to each tap; a reply built from the hub's
+    # cached board state would flick the switch back for a couple of seconds.
+    lit = get("/api/effect/run?fx=0&color=ff2010")
+    check("a colour lights everything, and the reply already says so",
+          lit["running"] is False and lit["mode"] == "effect" and lit["wled_on"] is True, (lit["mode"], lit["wled_on"]))
+    dark = get("/api/lights/off")
+    check("all off answers with everything off, not the cached board state",
+          dark["running"] is False and dark["mode"] == "off" and dark["wled_on"] is False, (dark["mode"], dark["wled_on"]))
+    check("...and the next poll agrees", get("/api/status")["mode"] == "off")
+    s = get("/api/sync/on")
+    check("screen sync comes back from all off", s["running"] is True and s["mode"] == "sync")
+
     from ambilight.config import PROFILES
     s = get("/api/profile/movie")
     check("/api/profile/movie applies", s["profile"] == "movie")
