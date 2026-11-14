@@ -14,6 +14,12 @@ import colour
 import numpy as np
 
 TONE = 1.35        # S-curve strength on Oklab lightness at full Enriched (1 = none)
+# The pivot sits a little under the frame's average lightness: sinking costs
+# more LED light than the same lift adds (light grows faster than lightness),
+# and a vivid colour's lift is capped by the gamut, so at the average itself a
+# bright frame came out dimmer. At 0.9 bright frames keep their level.
+PIVOT_SHARE = 0.9
+PIVOT_MIN, PIVOT_MAX = 0.15, 0.85   # keeps a near-black or near-white frame's curve from going flat on one side
 GAMUT_STEPS = 8    # halvings of the chroma range when a colour lands outside the LEDs' gamut
 SLACK = 1e-4       # conversion round-off that still counts as inside the gamut
 
@@ -27,10 +33,16 @@ def from_oklab(lab):
 
 
 def tone(lightness, amount):
-    """Darks down, lights up, mid-grey and both ends fixed."""
+    """Darker than the frame's own average goes down, lighter goes up; both ends stay put.
+
+    The pivot follows the frame, not mid-grey: most of a film sits below
+    mid-grey, and a fixed pivot sank whole scenes rather than shaping them.
+    """
     level = np.clip(lightness, 0.0, 1.0)
-    up, down = level ** TONE, (1.0 - level) ** TONE
-    curved = up / np.maximum(up + down, 1e-12)
+    pivot = float(np.clip(PIVOT_SHARE * level.mean(), PIVOT_MIN, PIVOT_MAX)) if level.size else 0.5
+    below = pivot * (level / pivot) ** TONE
+    above = 1.0 - (1.0 - pivot) * ((1.0 - level) / (1.0 - pivot)) ** TONE
+    curved = np.where(level < pivot, below, above)
     return lightness + (curved - lightness) * amount
 
 
