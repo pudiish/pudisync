@@ -1638,6 +1638,26 @@ def test_sync_routes():
     check("and really changes the board's look, so the preset clears",
           kind == "apply" and seg["fx"] == 0 and seg["col"][0] != [40, 26, 10], payload)
 
+    # Power alone does not end WLED's active preset, and realtime packets light a
+    # board that is off, so "everything off" must change the look and stop the stream.
+    routes.handle(hub, "/api/sync/on", parse_qs(""))
+    order = []
+    stop = Engine.stop
+    Engine.stop = lambda self: (order.append(len(hub.wled.sent)), stop(self))
+    hub.wled.sent.clear()
+    try:
+        body, code = routes.handle(hub, "/api/lights/off", parse_qs(""))
+    finally:
+        Engine.stop = stop
+    kind, payload = hub.wled.sent[-1] if hub.wled.sent else (None, {})
+    check("all off turns the board off", kind == "apply" and payload.get("on") is False, hub.wled.sent)
+    check("...in a command that changes the look, so the sync preset clears",
+          payload.get("seg", [{}])[0].get("fx") == 0 and "ps" not in payload, payload)
+    check("...and stops the stream", not Engine.running and order, order)
+    check("...after the board has been told, so the watcher cannot restart sync",
+          order == [1] and code == 200, (order, hub.wled.sent))
+    check("...and answers with the status the page renders", body.get("running") is False, body)
+
     routes.handle(hub, "/api/wizard/gradient", parse_qs(""))
     check("a test pattern pauses the watcher so it cannot restart sync", hub.intent.paused_until > 0)
     routes.handle(hub, "/api/wizard/stop", parse_qs(""))

@@ -69,6 +69,20 @@ def sync_off(hub, q):
     return hub.status(), OK
 
 
+def lights_off(hub, q):
+    """Every light dark at once: the monitor strip, the bed and the mouse.
+
+    Power alone keeps WLED's active preset, which the watcher reads as "sync
+    on", and realtime packets light a board that is off. So the board gets a
+    real change of look with its power, before the stream stops; the watcher
+    then has no preset to restart sync from.
+    """
+    hub.wizard.stop()
+    ok = hub.wled.apply({"on": False, **FALLBACK_LOOK})
+    hub.engine.stop()
+    return {"ok": ok, **hub.status()}, OK
+
+
 def sync_toggle(hub, q):
     return (sync_off if hub.engine.running else sync_on)(hub, q)
 
@@ -375,6 +389,7 @@ ROUTES = {
     "/api/sync/on": sync_on,
     "/api/sync/off": sync_off,
     "/api/sync/toggle": sync_toggle,
+    "/api/lights/off": lights_off,
     "/api/profiles": profiles,
     "/api/profiles/save": profile_save,
     "/api/profiles/delete": profile_delete,
