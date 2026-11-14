@@ -1,4 +1,5 @@
 """HTTP server. Every UI action is a plain GET URL so iOS Shortcuts can call it."""
+import gzip
 import json
 import logging
 import socket
@@ -32,6 +33,18 @@ PAGES = {
 }
 
 
+_PACKED = {}
+
+
+def packed(name, body):
+    """`body` gzipped, compressed once per version of the file."""
+    key = (name, hash(body))
+    if key not in _PACKED:
+        _PACKED.clear()  # one version per page is all that is ever served
+        _PACKED[key] = gzip.compress(body, mtime=0)
+    return _PACKED[key]
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AmbilightHub"
     hub = None  # injected by serve()
@@ -42,9 +55,11 @@ class Handler(BaseHTTPRequestHandler):
         pass  # the hub logs what matters; per-request access lines only add noise
 
     # --- plumbing ----------------------------------------------------------
-    def _send(self, code, body, ctype):
+    def _send(self, code, body, ctype, headers=()):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        for name, value in headers:
+            self.send_header(name, value)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
@@ -110,10 +125,16 @@ class Handler(BaseHTTPRequestHandler):
     def serve_page(self, path):
         name, ctype = PAGES[path]
         try:
-            self._send(200, (WEB_DIR / name).read_bytes(), ctype)
+            body = (WEB_DIR / name).read_bytes()
         except OSError:
             log.exception("page %s is missing", name)
             self._json({"error": "this page is missing from the install"}, 500)
+            return
+        # A phone on weak Wi-Fi loads the page in a third of the bytes.
+        if "gzip" in self.headers.get("Accept-Encoding", ""):
+            self._send(200, packed(name, body), ctype, [("Content-Encoding", "gzip"), ("Vary", "Accept-Encoding")])
+        else:
+            self._send(200, body, ctype, [("Vary", "Accept-Encoding")])
 
 
 def board_answering(reachable, running, output_error):

@@ -3952,6 +3952,17 @@ def test_security_api(base):
     check("HEAD never runs an action", call("/api/sync/on", method="HEAD")[0] == 405)
     check("HEAD on a page is fine", call("/", method="HEAD")[0] == 200)
     check("the manifest is served", call("/manifest.webmanifest")[0] == 200)
+    import gzip
+    page = open("ambilight/web/index.html", "rb").read()
+    packed = urllib.request.Request(base + "/", headers={"Accept-Encoding": "gzip"})
+    with urllib.request.urlopen(packed, timeout=3) as r:
+        encoding, vary, body = r.headers.get("Content-Encoding"), r.headers.get("Vary"), r.read()
+    check("a browser that takes gzip gets the page at under a third of its size",
+          encoding == "gzip" and gzip.decompress(body) == page and len(body) * 3 < len(page)
+          and "Accept-Encoding" in (vary or ""), (encoding, len(body), len(page)))
+    with urllib.request.urlopen(base + "/", timeout=3) as r:
+        plain_encoding, plain = r.headers.get("Content-Encoding"), r.read()
+    check("...and one that does not gets it plain", plain_encoding is None and plain == page)
     check("invalid settings are a 400, not a 500", call("/api/set?fps=fast")[0] == 400)
     check("a flash can only target a connected board",
           call("/api/flash/start?port=/dev/cu.nothing&ssid=x")[0] == 400)
