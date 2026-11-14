@@ -291,17 +291,8 @@ final class HubStore: ObservableObject {
 
     func runEffect(_ fx: Int) { act("/api/effect/run", ["fx": String(fx)]) }
 
-    /// Turns the board off; its answer is not the hub's status, so fetch that after.
-    func lightsOff() {
-        Task {
-            do {
-                let _: Ignored = try await client.get("/api/wled/power", ["on": "0"])
-                await refresh()
-            } catch {
-                report(error)
-            }
-        }
-    }
+    /// Every light off. Power alone would leave sync chosen, and its stream would light the strip again.
+    func lightsOff() { act("/api/lights/off") }
 
     // MARK: bed strip
 
