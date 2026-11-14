@@ -6,7 +6,8 @@ a NodeMCU board running **WLED**, which drives the LED strip behind the monitor.
 It also drives a second strip round a bed, a Logitech mouse's lights, and has a
 phone web page and a native Mac app for controlling it all.
 
-Line counts below are from the repo at the time of writing.
+Line counts below are from the repo at the time of writing. Every library,
+protocol and thread, and what PudiSync builds itself, is in `docs/TECHNICAL.md`.
 
 ## 1. The one-line data flow
 

@@ -5,6 +5,7 @@ to a WLED board (ESP8266) that drives the monitor strip and a bed strip. The
 phone page, the Mac app and the board's own page control it over HTTP.
 
 - File map and reading order: `docs/ARCHITECTURE.md`
+- Libraries, protocols, threads and the frame pipeline: `docs/TECHNICAL.md`
 - Workstreams, port bases, approval flow and merge order: `docs/ROADMAP.md`
 
 ## Hard rules
