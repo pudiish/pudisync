@@ -1,99 +1,155 @@
 import SwiftUI
 
 @main
-struct AmbilightHubApp: App {
+struct PudiSyncApp: App {
     @StateObject private var store = HubStore()
 
     var body: some Scene {
         Window("PudiSync", id: "main") {
             ContentView()
                 .environmentObject(store)
-                .frame(minWidth: 960, minHeight: 640)
-                .preferredColorScheme(.dark)
+                .frame(minWidth: 820, minHeight: 600)
         }
-        .defaultSize(width: 1120, height: 780)
+        .defaultSize(width: 1180, height: 820)
         .commands { LightingCommands(store: store) }
 
         MenuBarExtra {
-            MenuBarPanel().environmentObject(store).preferredColorScheme(.dark)
+            MenuBarPanel().environmentObject(store)
         } label: {
-            Image(systemName: store.status?.syncing == true ? "light.max" : "light.min")
+            Image(systemName: store.scene == .off ? "light.min" : "light.max")
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView().environmentObject(store).preferredColorScheme(.dark)
+            ConnectionCard().environmentObject(store).padding(20).frame(width: 440).background(Theme.bg)
+                .sheet(isPresented: $store.showingPair) { PairSheet().environmentObject(store) }
         }
     }
 }
 
+/// The same three places as the phone page: Home for every day, Tune for the picture, Settings for things set once.
 enum Page: Hashable {
-    case lights, picture, setup
+    case home, tune, settings
+
+    var title: String {
+        switch self {
+        case .home: return "Home"
+        case .tune: return "Tune"
+        case .settings: return "Settings"
+        }
+    }
 }
 
 struct ContentView: View {
     @EnvironmentObject private var store: HubStore
-    @State private var page: Page? = .lights
+    @State private var page: Page? = .home
 
     var body: some View {
         NavigationSplitView {
             List(selection: $page) {
-                Section("Lighting") {
-                    Label("Lights", systemImage: "lightbulb.2").tag(Page.lights)
-                    Label("Picture", systemImage: "slider.horizontal.3").tag(Page.picture)
-                    Label("Setup", systemImage: "wrench.and.screwdriver").tag(Page.setup)
+                Section {
+                    Label("Home", systemImage: "lightbulb").tag(Page.home)
+                    Label("Tune", systemImage: "slider.horizontal.3").tag(Page.tune)
+                    Label("Settings", systemImage: "gearshape").tag(Page.settings)
                 }
-                // Status at a glance; every light is controlled on the Lights page.
-                Section("Devices") {
-                    DeviceRow(title: "Monitor strip", detail: stripDetail, symbol: "tv", lit: stripLit,
+                // Status at a glance; each light is controlled on Home.
+                Section("Lights") {
+                    DeviceRow(title: "Monitor strip", detail: stripDetail, symbol: "display", lit: stripLit,
                               alert: store.status?.wledReachable == false)
-                    DeviceRow(title: "Bed strip", detail: bedDetail, symbol: "bed.double",
-                              lit: (store.status?.bedLeds ?? 0) > 0 && store.status?.bedMode != "off", alert: false)
-                    DeviceRow(title: store.status?.mouse?.name.map(shortMouseName) ?? "Mouse", detail: mouseDetail,
-                              symbol: "computermouse", lit: store.status?.mouse?.connected == true && store.status?.mouseSync == true,
-                              alert: false)
+                    DeviceRow(title: "Bed strip", detail: bedDetail, symbol: "bed.double", lit: bedLit, alert: false)
+                    DeviceRow(title: "Mouse", detail: mouseDetail, symbol: "computermouse",
+                              lit: store.status?.mouse?.connected == true && store.status?.mouseSync == true, alert: false)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 230)
+            .safeAreaInset(edge: .bottom) { brand }
         } detail: {
             VStack(spacing: 0) {
-                Header(page: page ?? .lights)
                 if let text = store.link.banner(address: store.address, now: Date()) ?? store.problem {
                     Banner(text: text, fault: store.link != .online)
                 }
-                switch page ?? .lights {
-                case .lights: LightsPage()
-                case .picture: PicturePage()
-                case .setup: SetupPage()
+                if let error = store.status?.lastError, store.online { Banner(text: error, fault: true) }
+                switch page ?? .home {
+                case .home: HomePage { page = $0 }
+                case .tune: TunePage()
+                case .settings: SettingsPage()
                 }
             }
             .background(Theme.bg)
+            .navigationTitle((page ?? .home).title)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) { StatusPill() }
+            }
         }
+        .tint(Theme.accent)
         .sheet(isPresented: $store.showingPair) { PairSheet().environmentObject(store) }
     }
 
-    private var stripLit: Bool { store.status?.syncing == true && store.status?.wledReachable != false }
+    private var brand: some View {
+        HStack(spacing: 0) {
+            Text("Pudi").foregroundStyle(Theme.ink)
+            Text("Sync").foregroundStyle(Theme.accent)
+        }
+        .font(.system(size: 15, weight: .bold))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18).padding(.vertical, 14)
+    }
+
+    private var stripLit: Bool { store.scene != .off && store.status?.wledReachable != false }
 
     private var stripDetail: String {
         guard store.online, let status = store.status else { return "Hub offline" }
-        if status.wledReachable == false { return "Controller not answering" }
-        return status.syncing ? "Syncing · \(status.wledIp)" : "Standby · \(status.wledIp)"
+        if status.wledReachable == false { return "Board not answering" }
+        switch store.scene {
+        case .screen: return "Following the screen"
+        case .colour: return colourName("#" + (status.wledCol ?? "ffffff"))
+        case .effect: return store.effectName(status.wledFx)
+        case .off: return "Off"
+        }
+    }
+
+    private var bedLit: Bool {
+        guard let status = store.status, let leds = status.bedLeds else { return false }
+        return bedView(leds: leds, mode: status.bedMode ?? "screen", look: status.bedLook ?? "", effect: "",
+                       scene: store.scene).lit
+    }
+
+    private var bedDetail: String {
+        guard let status = store.status, let leds = status.bedLeds, leds > 0 else { return "Not set up" }
+        return ["screen": "Matches the scene", "colour": "Its own colour", "effect": "Its own effect", "off": "Off"][
+            status.bedMode ?? "screen"] ?? ""
     }
 
     private var mouseDetail: String {
         guard let mouse = store.status?.mouse, mouse.connected else { return "Not plugged in" }
         if let permission = mouse.permission, permission != "granted" { return "Needs Input Monitoring" }
-        return store.status?.mouseSync == true ? "Following the screen" : "Own lighting"
+        return store.status?.mouseSync == true ? "Follows the screen" : "Its own lighting"
+    }
+}
+
+/// What the lights are doing, in the window's toolbar.
+struct StatusPill: View {
+    @EnvironmentObject private var store: HubStore
+
+    var body: some View {
+        let scene = store.scene
+        HStack(spacing: 7) {
+            Lamp(on: store.online && scene != .off, colour: store.status?.wledReachable == false ? Theme.bad
+                 : scene == .screen ? Theme.ok : Theme.accent)
+            Text(words(scene)).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.ink)
+        }
+        .padding(.horizontal, 10)
     }
 
-    private var bedDetail: String {
-        guard let status = store.status, let count = status.bedLeds, count > 0 else { return "Not set up" }
-        let what = ["screen": "Follows the screen", "effect": "Effect", "colour": "Colour", "off": "Off"]
-        return "\(count) LEDs · \(what[status.bedMode ?? "screen"] ?? "")"
-    }
-
-    private func shortMouseName(_ name: String) -> String {
-        name.replacingOccurrences(of: " Gaming Mouse", with: "")
+    private func words(_ scene: LightScene) -> String {
+        guard store.online else { return "Hub offline" }
+        switch scene {
+        case .screen:
+            return store.status?.outputFps.map { String(format: "Syncing · %.0f fps", $0) } ?? "Syncing"
+        case .colour: return "Colour"
+        case .effect: return "Effect"
+        case .off: return "Off"
+        }
     }
 }
 
@@ -106,63 +162,15 @@ struct DeviceRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).frame(width: 22).foregroundStyle(lit ? Theme.amber : Theme.dim)
+            Image(systemName: symbol).frame(width: 22).foregroundStyle(lit ? Theme.accent : Theme.dim)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.system(size: 13, weight: .semibold))
-                Text(detail).font(.system(size: 11)).foregroundStyle(alert ? Theme.red : Theme.dim)
+                Text(detail).font(.system(size: 11)).foregroundStyle(alert ? Theme.bad : Theme.dim).lineLimit(1)
             }
             Spacer()
-            Lamp(on: lit || alert, colour: alert ? Theme.red : Theme.green)
+            Lamp(on: lit || alert, colour: alert ? Theme.bad : Theme.ok)
         }
         .padding(.vertical, 3)
-    }
-}
-
-struct Header: View {
-    @EnvironmentObject private var store: HubStore
-    let page: Page
-
-    var body: some View {
-        let status = store.status
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.ink)
-                HStack(spacing: 14) {
-                    Label(status?.syncing == true ? "Syncing" : "Standby", systemImage: "dot.radiowaves.left.and.right")
-                    if let fps = status?.outputFps, status?.syncing == true { Text(String(format: "%.0f fps", fps)) }
-                    if let ma = status?.safety?.powerMa { Text(String(format: "%.2f A", Double(ma) / 1000)) }
-                    if let profile = status?.profile, !profile.isEmpty { Text("Profile: \(profileTitle(profile))") }
-                }
-                .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.dim)
-            }
-            Spacer()
-            HStack(spacing: 4) {
-                ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
-                    ChoiceButton(title: title, chosen: status?.profile == name) { store.apply(profile: name) }
-                }
-            }
-            .frame(width: 330)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Sync mode")
-            Text("Screen sync").caps(Theme.ink)
-            Toggle("Screen sync", isOn: Binding(get: { status?.syncing ?? false }, set: { store.setSync($0) }))
-                .toggleStyle(.switch).tint(Theme.green).labelsHidden().controlSize(.large)
-        }
-        .padding(.horizontal, 20).padding(.vertical, 16)
-        .background(Theme.panel)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.rule).frame(height: 1) }
-    }
-
-    private var title: String {
-        switch page {
-        case .lights: return "Lights"
-        case .picture: return "Picture"
-        case .setup: return "Setup"
-        }
-    }
-
-    private func profileTitle(_ name: String) -> String {
-        HubStore.builtinProfiles.first { $0.0 == name }?.1 ?? name
     }
 }
 
@@ -171,60 +179,78 @@ struct Banner: View {
     let fault: Bool
 
     var body: some View {
-        HStack {
-            Image(systemName: fault ? "exclamationmark.triangle.fill" : "info.circle").foregroundStyle(fault ? Theme.red : Theme.amber)
+        HStack(spacing: 10) {
+            Image(systemName: fault ? "exclamationmark.triangle.fill" : "info.circle")
+                .foregroundStyle(fault ? Theme.bad : Theme.accent)
             Text(text).font(.system(size: 13)).foregroundStyle(Theme.ink)
             Spacer()
         }
         .padding(12)
-        .background(Theme.raised)
+        .background(Theme.surface)
+        .overlay(alignment: .leading) { Rectangle().fill(fault ? Theme.bad : Theme.accent).frame(width: 3) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 }
 
-/// The quick controls behind the menu-bar icon.
+/// The quick controls behind the menu-bar icon: the same power, brightness and scene as Home.
 struct MenuBarPanel: View {
     @EnvironmentObject private var store: HubStore
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let status = store.status
+        let scene = store.scene
+        let view = heroView(online: store.online, boardReachable: status?.wledReachable, scene: scene,
+                            colour: status?.wledCol, effect: store.effectName(status?.wledFx))
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Lamp(on: status?.syncing == true)
-                Text(store.online ? (status?.syncing == true ? "Syncing" : "Standby") : "Hub offline").caps(Theme.ink)
-                Spacer()
-                Toggle("Screen sync", isOn: Binding(get: { status?.syncing ?? false }, set: { store.setSync($0) }))
-                    .toggleStyle(.switch).tint(Theme.green).labelsHidden()
-            }
-            ProfileChoices()
-            SettingSlider(key: "brightness", label: "Brightness")
-            SettingSlider(key: "immersion", label: "Immersion", format: offOrPercent)
-            SettingSlider(key: "adaptive", label: "Adaptive brightness", format: offOrPercent)
-            SettingSlider(key: "dark_boost", label: "Dark scenes", format: offOrPercent)
-            if status?.mouse?.connected == true {
-                Toggle(isOn: Binding(get: { status?.mouseSync ?? false }, set: { store.set("mouse_sync", $0 ? "1" : "0") })) {
-                    Text("Mouse follows the screen").caps(Theme.ink)
+            HStack(spacing: 14) {
+                PowerButton(on: scene != .off && store.online, glow: Theme.accent, size: 46) { store.togglePower() }
+                    .disabled(!store.online)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("All lights").font(.system(size: 11.5)).foregroundStyle(Theme.dim)
+                    Text(view.state).font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.ink).lineLimit(1)
                 }
-                .toggleStyle(.switch).tint(Theme.green)
+                Spacer(minLength: 0)
             }
-            if !store.locks.isEmpty {
-                KeyButton(title: "Unlock \(store.locks.count) locked colour\(store.locks.count == 1 ? "" : "s")") {
-                    store.unlockAll()
+            Fader(label: "Brightness", range: 1...255, format: { "\(max(1, Int(($0 / 2.55).rounded())))%" },
+                  read: { $0.wledBri.map(Double.init) },
+                  write: { value, final in store.setMasterBrightness(value, final: final) })
+            Segmented(icons: [(LightScene.screen, "Screen", "display"), (.colour, "Colour", "paintpalette"),
+                              (.effect, "Effect", "sparkles")], chosen: scene == .off ? nil : scene) { store.pick($0) }
+            if scene == .screen {
+                HStack(spacing: 6) {
+                    ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
+                        Chip(title: title, chosen: status?.profile == name) { store.pickStyle(name) }
+                    }
+                }
+            }
+            if scene == .colour {
+                HStack(spacing: 2) {
+                    ForEach(swatches, id: \.hex) { swatch in
+                        SwatchButton(hex: swatch.hex, name: swatch.name, chosen: "#" + (status?.wledCol ?? "") == swatch.hex,
+                                     size: 24) { store.runColour(swatch.hex) }
+                    }
+                }
+            }
+            if status?.mouse?.connected == true {
+                SwitchRow(title: "Mouse follows the screen", isOn: status?.mouseSync ?? false) {
+                    store.set("mouse_sync", $0 ? "1" : "0")
                 }
             }
             Divider()
             HStack {
-                KeyButton(title: "Open PudiSync") {
+                Button("Open PudiSync") {
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }
                 Spacer()
-                KeyButton(title: "Quit") { NSApp.terminate(nil) }
+                Button("Quit") { NSApp.terminate(nil) }
             }
         }
         .padding(16)
         .frame(width: 320)
-        .background(Theme.panel)
+        .background(Theme.bg)
+        .tint(Theme.accent)
     }
 }
 
@@ -232,65 +258,32 @@ struct LightingCommands: Commands {
     @ObservedObject var store: HubStore
 
     var body: some Commands {
-        CommandMenu("Lighting") {
-            Button(store.status?.syncing == true ? "Stop Screen Sync" : "Start Screen Sync") {
-                store.setSync(store.status?.syncing != true)
-            }
-            .keyboardShortcut("s", modifiers: [.command, .shift])
+        CommandMenu("Lights") {
+            Button(store.scene == .off ? "Turn Lights On" : "Turn Lights Off") { store.togglePower() }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+            Button("Follow the Screen") { store.startSync() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
             Divider()
             ForEach(Array(HubStore.builtinProfiles.enumerated()), id: \.offset) { index, profile in
-                Button(profile.1) { store.apply(profile: profile.0) }
+                Button(profile.1) { store.pickStyle(profile.0) }
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
             }
-            // Your profiles take the digits after the built-in modes, up to ⌘9.
+            // Your looks take the digits after the built-in styles, up to ⌘9.
             ForEach(Array((store.status?.myProfiles ?? []).prefix(9 - HubStore.builtinProfiles.count).enumerated()),
                     id: \.offset) { index, name in
-                Button(name) { store.apply(profile: name) }
+                Button(name) { store.pickStyle(name) }
                     .keyboardShortcut(KeyEquivalent(Character("\(index + HubStore.builtinProfiles.count + 1)")),
                                       modifiers: .command)
             }
             Divider()
-            Button(store.status?.mouseSync == true ? "Mouse: Own Lighting" : "Mouse: Follow the Screen") {
+            Button(store.status?.mouseSync == true ? "Mouse: Its Own Lighting" : "Mouse: Follow the Screen") {
                 store.set("mouse_sync", store.status?.mouseSync == true ? "0" : "1")
             }
             .keyboardShortcut("m", modifiers: [.command, .shift])
-            Button("Unlock All Colours") { store.unlockAll() }
-                .disabled(store.locks.isEmpty)
+            Button("Clear Parts of the Strip") { store.setParts([]) }
+                .disabled(store.parts.isEmpty)
             Divider()
-            Button("Pair a Phone or iPad…") { store.showingPair = true }
-        }
-    }
-}
-
-struct SettingsView: View {
-    @EnvironmentObject private var store: HubStore
-    @State private var address = ""
-    @State private var pin = ""
-    @State private var pairing = false
-
-    var body: some View {
-        Form {
-            TextField("Hub address", text: $address, prompt: Text("127.0.0.1:8080"))
-            SecureField("PIN (if the hub has one)", text: $pin)
-            Text("The hub runs on this Mac and starts at login. Use another address only for a hub on another computer.")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
-            HStack {
-                Button("Pair a Phone or iPad…") { pairing = true }
-                Spacer()
-                Button("Save") {
-                    store.address = address.trimmingCharacters(in: .whitespaces)
-                    store.pin = pin
-                    Task { await store.refresh() }
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 420)
-        .sheet(isPresented: $pairing) { PairSheet().environmentObject(store) }
-        .onAppear {
-            address = store.address
-            pin = store.pin
+            Button("Add a Phone or iPad…") { store.showingPair = true }
         }
     }
 }

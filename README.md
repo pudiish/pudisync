@@ -100,7 +100,7 @@ the hub also advertises itself over Bonjour as **Ambilight Hub**:
 `--config other.json` and `--port 8790` run a second, independent hub (tests use
 this); `--no-bonjour` skips the advertisement.
 
-**Pair a phone or iPad with a QR code:** in the Mac app, Lighting ▸ Pair a Phone
+**Pair a phone or iPad with a QR code:** in the Mac app, Lights ▸ Add a Phone
 or iPad…; on a device that is already paired, Advanced ▸ Access ▸ Add a phone or
 tablet. What happens when the Mac sleeps, the board reboots or Wi-Fi drops, and
 the manual steps, are in [docs/CONNECT.md](docs/CONNECT.md).
@@ -312,7 +312,7 @@ the dark) is not flooded. Measured on the wall with the webcam at 100%: dark red
 
 A second WS2812B strip can run from the same board's second output, through the
 level shifter's spare channel, as wired in [docs/wiring.md](docs/wiring.md)
-section 7. In the web page's **Bed** tab and the Mac app's **Bed strip** page:
+section 7. In the Bed strip row on Home, on the web page and in the Mac app:
 
 - **Follow screen** takes the screen's colours while sync runs. **Blend** is for
   a strip low on the wall beside the monitor: the bottom-right corner of the
@@ -400,21 +400,24 @@ runs, the hub holds off idle system sleep so phones can still reach it.
 
 ### The Mac app
 
-`macapp/` is a native app for controlling the hub from the Mac, laid out like
-Logitech G HUB: your devices (the LED strip, the mouse) in a sidebar, each with
-its own page, plus Profiles and Calibrate, a **Lighting** menu with shortcuts
-(⇧⌘S sync, ⌘1/⌘2/⌘3 Cinema/Gaming/Enriched, ⌘4… your profiles, ⇧⌘M mouse) and quick
-controls in the menu bar. It talks to the hub's API, so the hub must be running
-(it starts at login). The Bed strip page has the same controls as the web
-page's Bed strip card. Built with the Command Line Tools, no Xcode needed:
+`macapp/` is PudiSync for the Mac, laid out like the phone page: **Home** runs
+every light at once (one power button, one brightness, a scene of Screen,
+Colour or Effect with the same colour wheel, then the bed and the mouse),
+**Tune** holds the picture, your looks and parts of the strip, and **Settings**
+the hub address, the bed's wiring and the webcam. A **Lights** menu has
+shortcuts (⇧⌘L lights on/off, ⇧⌘S follow the screen, ⌘1/⌘2/⌘3
+Cinema/Gaming/Enriched, ⌘4… your looks, ⇧⌘M mouse), and the menu bar has the
+power, brightness and scene. It follows the Mac's light or dark appearance and
+talks to the hub's API, so the hub must be running (it starts at login). Built
+with the Command Line Tools, no Xcode needed:
 
 ```bash
-macapp/build.sh test      # the app's layout and colour logic
-macapp/build.sh install   # build, then copy "Ambilight Hub" to /Applications
+macapp/build.sh test      # the app's scene, colour wheel, parts and layout logic
+macapp/build.sh install   # build, then copy PudiSync to /Applications (replacing Ambilight Hub)
 ```
 
 It is signed for this Mac only; another Mac would need a Developer ID and
-notarisation. The hub address and PIN are under Ambilight Hub ▸ Settings.
+notarisation. The hub address and PIN are under PudiSync ▸ Settings.
 
 ## 10. Testing without hardware
 

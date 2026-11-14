@@ -1,19 +1,31 @@
+import AppKit
 import SwiftUI
 
-/// The web page's palette, so the app and the page read as one product.
+/// The phone page's palette, light or dark with the Mac, so the app and the page read as one product.
 enum Theme {
-    static let bg = Color(hex: "#0c0c0b")
-    static let panel = Color(hex: "#151513")
-    static let raised = Color(hex: "#1f1e1b")
-    static let inset = Color(hex: "#070706")
-    static let rule = Color(hex: "#2b2a26")
-    static let ruleHi = Color(hex: "#3b3a35")
-    static let ink = Color(hex: "#ece6d6")
-    static let dim = Color(hex: "#a49d8c")
-    static let amber = Color(hex: "#ffb000")
-    static let green = Color(hex: "#4be37a")
-    static let red = Color(hex: "#ff6a55")
-    static let off = Color(hex: "#2e2d29")
+    static let bg = adaptive("#0b0b0e", "#f4f4f7")
+    static let surface = adaptive("#141418", "#ffffff")
+    static let raised = adaptive("#1d1d23", "#ececf1")
+    static let well = adaptive("#09090c", "#e3e3ea")
+    static let line = adaptive("#242428", "#ededee")
+    static let lineHi = adaptive("#333338", "#d6d6d9")
+    static let ink = adaptive("#f2f2f5", "#15151b")
+    static let dim = adaptive("#9c9ca9", "#5e5e6b")
+    static let faint = adaptive("#5d5d69", "#9a9aa6")
+    static let ledOff = adaptive("#26262d", "#d4d4dc")
+    static let accent = adaptive("#ffad42", "#d97a00")
+    static let accentInk = adaptive("#1d1100", "#ffffff")
+    static let ok = adaptive("#3ddc84", "#15993f")
+    static let bad = adaptive("#ff6b5e", "#d4342a")
+    static let radius: CGFloat = 18
+
+    private static func adaptive(_ dark: String, _ light: String) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let rgb = RGB(hex: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light)
+                ?? RGB(r: 0, g: 0, b: 0)
+            return NSColor(srgbRed: rgb.r, green: rgb.g, blue: rgb.b, alpha: 1)
+        })
+    }
 }
 
 extension Color {
@@ -21,102 +33,140 @@ extension Color {
         let rgb = RGB(hex: hex) ?? RGB(r: 0, g: 0, b: 0)
         self.init(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b)
     }
-
-    var rgb: RGB {
-        let colour = NSColor(self).usingColorSpace(.sRGB) ?? .black
-        return RGB(r: colour.redComponent, g: colour.greenComponent, b: colour.blueComponent)
-    }
 }
 
 extension Text {
-    func caps(_ colour: Color = Theme.dim) -> some View {
-        font(.system(size: 11, weight: .semibold)).tracking(1.6).textCase(.uppercase).foregroundStyle(colour)
+    func hint() -> some View {
+        font(.system(size: 12.5)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
     }
 
     func readout() -> some View {
-        font(.system(size: 13, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.amber)
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Theme.inset, in: RoundedRectangle(cornerRadius: 2))
-    }
-
-    func hint() -> some View {
-        font(.system(size: 12.5)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
+        font(.system(size: 13, weight: .semibold, design: .monospaced)).monospacedDigit().foregroundStyle(Theme.ink)
     }
 }
 
 struct Card<Content: View>: View {
-    let title: String
+    var title: String?
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Text(title).caps()
-                Rectangle().fill(Theme.rule).frame(height: 1)
-            }
+            if let title { Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink) }
             content
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.rule))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).stroke(Theme.line))
     }
 }
 
 struct Lamp: View {
     var on: Bool
-    var colour = Theme.green
+    var colour = Theme.ok
 
     var body: some View {
-        Circle().fill(on ? colour : Theme.off).frame(width: 8, height: 8)
+        Circle().fill(on ? colour : Theme.ledOff).frame(width: 8, height: 8)
             .shadow(color: on ? colour.opacity(0.8) : .clear, radius: 4)
     }
 }
 
-/// A raised key that lights amber while chosen, like the page's segmented buttons.
-struct ChoiceButton: View {
+/// One choice among a few, like the phone page's segmented buttons; `big` adds an icon above each label.
+struct Segmented<Value: Hashable>: View {
+    let options: [(value: Value, title: String, icon: String?)]
+    let chosen: Value?
+    var big = false
+    let pick: (Value) -> Void
+
+    init(_ options: [(Value, String)], chosen: Value?, pick: @escaping (Value) -> Void) {
+        self.options = options.map { ($0.0, $0.1, nil) }
+        self.chosen = chosen
+        self.pick = pick
+    }
+
+    init(icons options: [(Value, String, String)], chosen: Value?, pick: @escaping (Value) -> Void) {
+        self.options = options.map { ($0.0, $0.1, Optional($0.2)) }
+        self.chosen = chosen
+        self.big = true
+        self.pick = pick
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(options, id: \.value) { option in
+                let on = option.value == chosen
+                Button { pick(option.value) } label: {
+                    VStack(spacing: 3) {
+                        if let icon = option.icon { Image(systemName: icon).font(.system(size: 15, weight: .medium)) }
+                        Text(option.title).font(.system(size: big ? 12.5 : 13, weight: .semibold))
+                    }
+                    .foregroundStyle(on ? Theme.ink : Theme.dim)
+                    .frame(maxWidth: .infinity, minHeight: big ? 50 : 32)
+                    .background(on ? Theme.raised : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .shadow(color: on ? .black.opacity(0.25) : .clear, radius: 1.5, y: 1)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(Theme.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// A rounded pill that lights up while chosen.
+struct Chip: View {
     let title: String
     let chosen: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
-                Lamp(on: chosen, colour: Theme.amber).frame(width: 6, height: 6)
-                Text(title).caps(chosen ? Theme.ink : Theme.dim)
-            }
-            .frame(maxWidth: .infinity, minHeight: 34)
-            .background(chosen ? Theme.panel : Theme.raised, in: RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(chosen ? Theme.amber.opacity(0.5) : Theme.ruleHi))
+            Text(title).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(chosen ? Theme.accentInk : Theme.ink)
+                .padding(.horizontal, 14).frame(minHeight: 32)
+                .background(chosen ? Theme.accent : Theme.raised, in: Capsule())
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 }
 
-/// A plain raised key with light text, readable on any panel background.
-struct KeyButton: View {
-    let title: String
+/// A round colour to click.
+struct SwatchButton: View {
+    let hex: String
+    let name: String
+    var chosen = false
+    var size: CGFloat = 30
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title).caps(Theme.ink).padding(.horizontal, 12).frame(minHeight: 30)
-                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.ruleHi))
+            Circle().fill(Color(hex: hex)).frame(width: size, height: size)
+                .overlay(Circle().stroke(Theme.lineHi, lineWidth: 1.5))
+                .padding(3)
+                .overlay(Circle().stroke(chosen ? Theme.accent : .clear, lineWidth: 2.5))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .help(name)
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 }
 
-/// A slider bound to one hub setting. Polls never yank it while it is being
-/// dragged, or for a moment after, so the knob does not jump back.
-struct SettingSlider: View {
+/// A slider tied to one value on the hub. Polls never yank it while it is dragged, or for a moment after.
+struct Fader: View {
     @EnvironmentObject private var store: HubStore
-    let key: String
     let label: String
     var range: ClosedRange<Double> = 0...1
+    var step: Double?
     var hint: String?
     var format: (Double) -> String = { "\(Int(($0 * 100).rounded()))%" }
+    let read: (HubStatus) -> Double?
+    let write: (Double, Bool) -> Void
 
     @State private var value = 0.0
     @State private var editing = false
@@ -125,50 +175,65 @@ struct SettingSlider: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(label).caps(Theme.ink)
+                Text(label).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink)
                 Spacer()
                 Text(format(value)).readout()
             }
-            Slider(value: $value, in: range) { active in
-                editing = active
-                touched = Date()
-            }
-            .tint(Theme.amber)
-            .onChange(of: value) { _, new in
-                guard editing || Date().timeIntervalSince(touched) < 0.5 else { return }
-                touched = Date()
-                store.send(key, new)
-            }
+            slider.tint(Theme.accent).disabled(store.status.flatMap(read) == nil)
             if let hint { Text(hint).hint() }
         }
-        .onAppear { if let v = store.status?.number(key) { value = v } }
+        .onAppear { if let v = store.status.flatMap(read) { value = v } }
         .onReceive(store.$status) { status in
-            guard !editing, Date().timeIntervalSince(touched) > 2, let v = status?.number(key) else { return }
+            guard !editing, Date().timeIntervalSince(touched) > HubStore.holdSeconds, let v = status.flatMap(read) else { return }
             if abs(v - value) > 0.0005 { value = v }
         }
+        .accessibilityValue(format(value))
+    }
+
+    @ViewBuilder private var slider: some View {
+        let changed: (Bool) -> Void = { active in
+            editing = active
+            touched = Date()
+            if !active { write(value, true) }
+        }
+        if let step {
+            Slider(value: $value, in: range, step: step, onEditingChanged: changed).onChange(of: value) { _, new in moved(new) }
+        } else {
+            Slider(value: $value, in: range, onEditingChanged: changed).onChange(of: value) { _, new in moved(new) }
+        }
+    }
+
+    private func moved(_ new: Double) {
+        guard editing || Date().timeIntervalSince(touched) < 0.5 else { return }
+        touched = Date()
+        write(new, false)
     }
 }
 
-/// Cinema, Gaming and the profiles you saved.
-struct ProfileChoices: View {
-    @EnvironmentObject private var store: HubStore
+/// A fader for one setting in the hub's config.
+@MainActor func settingFader(_ key: String, _ label: String, range: ClosedRange<Double> = 0...1, step: Double? = nil, hint: String? = nil,
+                  format: @escaping (Double) -> String = { "\(Int(($0 * 100).rounded()))%" }, store: HubStore) -> Fader {
+    Fader(label: label, range: range, step: step, hint: hint, format: format, read: { $0.number(key) },
+          write: { value, _ in store.send(key, value) })
+}
+
+/// A labelled on/off switch with a line of explanation.
+struct SwitchRow: View {
+    let title: String
+    var detail: String?
+    let isOn: Bool
+    let set: (Bool) -> Void
 
     var body: some View {
-        let active = store.status?.profile ?? ""
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
-                    ChoiceButton(title: title, chosen: active == name) { store.apply(profile: name) }
-                }
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink)
+                if let detail { Text(detail).hint() }
             }
-            let mine = store.status?.myProfiles ?? []
-            if !mine.isEmpty {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 4)], spacing: 4) {
-                    ForEach(mine, id: \.self) { name in
-                        ChoiceButton(title: name, chosen: active == name) { store.apply(profile: name) }
-                    }
-                }
-            }
+            Spacer(minLength: 8)
+            Toggle(title, isOn: Binding(get: { isOn }, set: set)).toggleStyle(.switch).tint(Theme.accent).labelsHidden()
         }
     }
 }
+
+func offOrPercent(_ value: Double) -> String { value < 0.005 ? "Off" : "\(Int((value * 100).rounded()))%" }
