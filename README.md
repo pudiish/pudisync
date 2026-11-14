@@ -324,9 +324,10 @@ section 7. In the Bed strip row on Home, on the web page and in the Mac app:
 - **Strip** sets the LED count, the board pin and the bed's current limit (each
   strip is limited separately, so they can share one adapter), and which end is
   first. Applying it restarts the board for about 10 seconds
-  (`/api/bed/setup?leds=201&amps=1&pin=3`).
+  (`/api/bed/setup?leds=201&amps=1&pin=1`).
 - The board's ESP8266 has little memory to spare: on RX (pin 3) about 180 to 200
-  LEDs is the limit while syncing; D1 (pin 5) and the other D pins leave more.
+  LEDs is the limit while syncing. TX (pin 1) is hardware-driven and leaves far
+  more, so use it for a long strip; the D pins are driven in software.
 
 ## 7. The phone page lives on the board
 
