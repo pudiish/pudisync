@@ -25,6 +25,9 @@ class SyncIntent:
         # Also shown every state read here, on this thread (bed.Keeper).
         self.watchers = []
         self.woken = threading.Event()
+        # The board's state at the last look: what status reports while sync
+        # runs, when the hub does not ask the board itself.
+        self.last_state = None
 
     def pause(self, seconds=600):
         """Hold off while something else owns the strip (setup wizard, flashing)."""
@@ -40,6 +43,7 @@ class SyncIntent:
         state = self.wled.state()
         if state is None:       # an unreachable board says nothing about intent
             return None
+        self.last_state = state
         wanted = state.get("ps") == self.cfg.get("sync_preset")
         change = None
         if wanted and not self.engine.running:

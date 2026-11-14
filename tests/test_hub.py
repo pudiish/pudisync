@@ -378,6 +378,8 @@ def test_api(base):
     check("engine reports a live frame rate", s["measured_fps"] > 20,
           f"{s['measured_fps']} fps")
     check("status carries a preview for the UI", len(s.get("preview", [])) > 0)
+    check("while syncing, status still carries the board's brightness for the master slider",
+          isinstance(s.get("wled_bri"), int) and s.get("wled_on") is True, (s.get("wled_bri"), s.get("wled_on")))
     check("status never leaks the PIN", "pin" not in s)
     bed_keys = ("bed_leds", "bed_pin", "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect",
                 "bed_speed", "bed_brightness", "bed_power_ma", "bed_reverse")
@@ -400,6 +402,10 @@ def test_api(base):
     lit = get("/api/effect/run?fx=0&color=ff2010")
     check("a colour lights everything, and the reply already says so",
           lit["running"] is False and lit["mode"] == "effect" and lit["wled_on"] is True, (lit["mode"], lit["wled_on"]))
+    check("...and names the colour, so every device highlights the same one",
+          lit.get("wled_fx") == 0 and lit.get("wled_col") == "ff2010", (lit.get("wled_fx"), lit.get("wled_col")))
+    fx = get("/api/effect/run?fx=63&speed=90")
+    check("an effect is named by its id", fx.get("wled_fx") == 63, fx.get("wled_fx"))
     dark = get("/api/lights/off")
     check("all off answers with everything off, not the cached board state",
           dark["running"] is False and dark["mode"] == "off" and dark["wled_on"] is False, (dark["mode"], dark["wled_on"]))

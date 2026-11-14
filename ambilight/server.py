@@ -128,6 +128,14 @@ def board_answering(reachable, running, output_error):
     return reachable
 
 
+def board_look(state):
+    """What the board's main segment shows: its effect id and first colour as hex."""
+    seg = (state.get("seg") or [{}])[0]
+    colour = (seg.get("col") or [[]])[0][:3]
+    return {"wled_fx": seg.get("fx"),
+            "wled_col": "".join(f"{int(c):02x}" for c in colour) if len(colour) == 3 else None}
+
+
 class Hub:
     """Ties config, engine, WLED client and wizard together for the handler."""
 
@@ -169,7 +177,9 @@ class Hub:
 
     def status(self):
         state = self.engine.status()
-        wled_state = {} if self.engine.running else self.wled_state()
+        # While streaming, the sync watcher's last look stands in for a request
+        # of our own: the board is busy enough.
+        wled_state = (self.intent.last_state or {}) if self.engine.running else self.wled_state()
         if self.engine.running:
             mode = "sync"
         else:
@@ -178,6 +188,7 @@ class Hub:
                 "preview": self.engine.preview(),
                 "wled_bri": wled_state.get("bri"),
                 "wled_on": wled_state.get("on"),
+                **board_look(wled_state),
                 "wled_reachable": board_answering(self.wled.reachable, self.engine.running,
                                                   self.engine.errors["output"]),
                 "mode": mode,

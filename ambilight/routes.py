@@ -191,7 +191,9 @@ def wled_power(hub, q):
 
 
 def wled_brightness(hub, q):
-    return {"ok": hub.wled.set_brightness(q.one("value", "128"))}, OK
+    ok = hub.wled.set_brightness(q.one("value", "128"))
+    hub.intent.nudge()      # while syncing, status shows the watcher's view of the board
+    return {"ok": ok}, OK
 
 
 def hand_to_controller(hub):
