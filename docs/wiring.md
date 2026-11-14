@@ -162,8 +162,8 @@ If you plan to use the **USB cable** output, keep GPIO1 and GPIO3 free. Source:
 ## 7. A second strip round the bed (same board, same shifter, same adapter)
 
 The SN74AHCT125 has four channels and the monitor strip uses only channel 1,
-so the bed strip takes **channel 4**, driven from the board's **RX (GPIO3)**,
-a hardware-driven LED pin. The bed strip is powered from the **same 5V
+so the bed strip takes **channel 4**, driven from the board's **TX (GPIO1)**,
+a hardware-driven LED pin with memory for a long strip. The bed strip is powered from the **same 5V
 adapter** as the monitor strip.
 
 ```
@@ -171,7 +171,7 @@ adapter** as the monitor strip.
                  │       NodeMCU         │
                  │ VIN ◀── +5V           │
                  │ GND ◀── GND           │
-                 │ D4 GPIO2     RX GPIO3 │
+                 │ D4 GPIO2     TX GPIO1 │
                  └─────┬───────────┬─────┘
                        │ 3.3V      │ 3.3V
                  ┌─────▼───────────▼─────┐
@@ -196,7 +196,7 @@ adapter** as the monitor strip.
 
 | From | To | Notes |
 |---|---|---|
-| NodeMCU RX (GPIO3) | SN74AHCT125 4A (pin 12) | 3.3V data in |
+| NodeMCU TX (GPIO1) | SN74AHCT125 4A (pin 12) | 3.3V data in |
 | SN74AHCT125 4OE (pin 13) | GND | Enables channel 4 (active low) |
 | SN74AHCT125 4Y (pin 11) | 330Ω, then bed strip DIN | Resistor at the shifter end |
 | Adapter +5V / GND | Bed strip +5V / GND | Proper power wire; jumpers carry about 1 A |
@@ -205,14 +205,15 @@ adapter** as the monitor strip.
 | 2A, 3A (pins 5, 9) | GND | Parks the unused channels |
 | 2OE, 3OE (pins 4, 10) | +5V | Switches the unused channels off |
 
-### RX notes
+### TX notes
 
-- Unplug the USB cable while the bed is on RX: the NodeMCU's USB-serial chip
-  shares that pin and would fight the LED data.
-- With the bed on RX, USB serial output and Wi-Fi setup over USB are off.
+- With the bed on TX, USB serial output and Wi-Fi setup over USB are off.
   Flashing over USB still works.
-- RX uses more memory per LED than other pins: set the bed's real LED count.
-- Another pin: `/api/bed/setup?pin=5` (D1), or 4, 12, 13, 14.
+- The bed may flicker for a moment at power-on while the chip prints its boot
+  messages on TX; that is harmless.
+- RX (GPIO3) also works, but it uses about 5× the memory per LED: the board
+  ran out of memory past about 200 bed LEDs there while syncing.
+- Another pin: `/api/bed/setup?pin=3` (RX), or 5 (D1), 4, 12, 13, 14.
 
 ### Current limits on one adapter
 
