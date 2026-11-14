@@ -3546,7 +3546,7 @@ def test_telemetry_api(base):
 
 def test_one_interface():
     print("\n44. PudiSync: one Home screen that runs every light")
-    import re, shutil
+    import gzip, re, shutil
     from ambilight.config import DEFAULTS
     from ambilight.routes import ROUTES
     html = open("ambilight/web/index.html").read()
@@ -3579,16 +3579,20 @@ def test_one_interface():
     check("every switch is a real setting", switches <= set(DEFAULTS), sorted(switches - set(DEFAULTS)))
     check("it is called PudiSync", "<title>PudiSync</title>" in html and 'content="PudiSync"' in html
           and "Ambilight Hub" not in html)
-    check("it stays light: one file, no outside resources, under 120 kB",
-          len(html.encode()) < 120_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), len(html.encode()))
+    sent = len(gzip.compress(html.encode(), mtime=0))
+    check("it stays light: one file, no outside resources, under 40 kB as a phone downloads it",
+          sent < 40_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
     check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
     check("it follows the device's light or dark appearance", "prefers-color-scheme:light" in html)
+    wheels = re.findall(r'<div class="wheel" id="([\w-]+)"', markup)
+    check("every colour is picked on a round wheel, never the browser's square box",
+          wheels == ["colour", "bed-colour", "part-colour"] and 'type="color"' not in markup, wheels)
 
     if not shutil.which("node"):
         print("    (skipped: node not installed, so the page's logic was not run)")
         return
     consts = "\n".join(re.search(rf"^const {name} .*?;$", script, re.M | re.S).group(0)
-                       for name in ("settle", "pct", "two", "offOr", "modeOf", "SWATCHES", "swatchName"))
+                       for name in ("settle", "pct", "two", "offOr", "modeOf", "SWATCHES", "HUE_NAMES", "WARMEST_K"))
     faders = run_node(consts + "\n" + js_block(script, "const FADERS") + r"""
 console.log(JSON.stringify(Object.entries(FADERS).map(([k, f]) => [k, !!f.local, !!(f.apply || f.read)])));
 """)
@@ -3603,7 +3607,8 @@ console.log(JSON.stringify(Object.entries(FADERS).map(([k, f]) => [k, !!f.local,
 
     logic = run_node(consts + "\n" + "\n".join(js_block(script, start) for start in (
         "function sceneOf", "function heroView", "const BED_LOOKS", "function bedView", "function cutOut",
-        "function withPart", "function newerGate")) + r"""
+        "function withPart", "function newerGate", "function hexToHsv", "function hsvToHex",
+        "function kelvinToHex", "function kelvinOf", "function colourName")) + r"""
 const effectName = fx => `fx${fx}`;
 const name = s => [sceneOf(s), heroView(s, {offline: false, scene: sceneOf(s), effectName}).state];
 const out = {
@@ -3622,6 +3627,12 @@ const out = {
   put: withPart([{start: 0, end: 30, mode: "warm"}], 10, 19, {mode: "solid", color: "#ff0000"})
     .map(z => [z.start, z.end, z.mode]),
   back: withPart([{start: 0, end: 30, mode: "warm"}], 10, 19, {mode: "sync"}).map(z => [z.start, z.end]),
+  wheel: ["#80ff00", "#00ffff", "#2040ff", "#ffb46b", "#ffffff", "#000000"]
+    .map(h => { const c = hexToHsv(h); return hsvToHex(c.h, c.s, c.v); }),
+  rim: [hsvToHex(0, 1), hsvToHex(90, 1), hsvToHex(180, 1), hsvToHex(270, 0.5), hsvToHex(45, 0)],
+  names: ["#ff2010", "#80ff00", "#00ffff", "#ff80ff", "#f2f2f2", "#ff6a00", "#c0ffc0", "#ff9227", "#fffefa"]
+    .map(colourName),
+  whites: [kelvinToHex(2200), kelvinToHex(6500), kelvinOf(kelvinToHex(4000)), kelvinOf("#00ffff")],
 };
 const gate = newerGate();
 out.gate = [gate(2), gate(1), gate(3), gate(3)];
@@ -3648,6 +3659,15 @@ console.log(JSON.stringify(out));
           logic["put"] == [[0, 9, "warm"], [10, 19, "solid"], [20, 30, "warm"]], logic["put"])
     check("handing a stretch back to the scene leaves no part there", logic["back"] == [[0, 9], [20, 30]], logic["back"])
     check("a reply that arrives after a newer one is not drawn", logic["gate"] == [True, False, True, False], logic["gate"])
+    check("the wheel reads any colour back exactly as it was given",
+          logic["wheel"] == ["#80ff00", "#00ffff", "#2040ff", "#ffb46b", "#ffffff", "#000000"], logic["wheel"])
+    check("...red at the top, then round clockwise, white at the centre",
+          logic["rim"] == ["#ff0000", "#80ff00", "#00ffff", "#bf80ff", "#ffffff"], logic["rim"])
+    check("a picked shade gets a plain name for the hero",
+          logic["names"] == ["Red", "Lime", "Cyan", "Magenta", "White", "Orange", "Pale green", "Warm white", "Daylight"],
+          logic["names"])
+    check("the White wheel runs from 2200 K candlelight to 6500 K daylight, and knows a white when it sees one",
+          logic["whites"] == ["#ff9227", "#fffefa", 4000, None], logic["whites"])
 
 
 def test_page_in_browser(base):
@@ -3704,6 +3724,46 @@ def test_page_in_browser(base):
         page.wait_for_function("document.getElementById('power-state').textContent === 'Blue'", timeout=4000)
         check("a swatch sets the colour and the hero names it", s.get("wled_col") == "2040ff")
 
+        def wheel(host):
+            """Where the wheel is, once it is scrolled into the middle of the screen as a person would."""
+            disc = page.locator(f"#{host} .wheel-disc")
+            disc.evaluate("el => el.scrollIntoView({block: 'center'})")
+            box = disc.bounding_box()
+            return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, box["width"] / 2
+
+        mid_x, mid_y, rim = wheel("colour")
+        page.mouse.click(mid_x + rim - 2, mid_y)
+        s = until(lambda s: s.get("wled_col") == "80ff00")
+        check("a tap on the colour wheel's rim lights that full shade", s.get("wled_col") == "80ff00", s.get("wled_col"))
+        page.mouse.move(mid_x, mid_y)
+        page.mouse.down()
+        page.mouse.move(mid_x, mid_y + rim - 2, steps=8)
+        page.mouse.up()
+        s = until(lambda s: s.get("wled_col") == "00ffff")
+        page.wait_for_function("document.getElementById('power-state').textContent === 'Cyan'", timeout=4000)
+        check("dragging round the wheel ends on the shade where it is let go, and the hero names it",
+              s.get("wled_col") == "00ffff", s.get("wled_col"))
+        page.focus("#colour .wheel-disc")
+        page.keyboard.press("ArrowLeft")
+        s = until(lambda s: s.get("wled_col") == "00ffea")
+        check("...and the arrow keys turn it a little", s.get("wled_col") == "00ffea", s.get("wled_col"))
+        page.click("#colour [data-wheel-mode=white]")
+        mid_x, mid_y, rim = wheel("colour")
+        page.mouse.click(mid_x, mid_y + rim - 2)
+        s = until(lambda s: s.get("wled_col") == "ff9227")
+        page.wait_for_function("document.getElementById('power-state').textContent === 'Warm white'", timeout=4000)
+        check("White gives candle-warm white at the bottom of its wheel", s.get("wled_col") == "ff9227", s.get("wled_col"))
+        page.mouse.click(mid_x, mid_y - rim + 2)
+        s = until(lambda s: s.get("wled_col") == "fffefa")
+        check("...and daylight at the top", s.get("wled_col") == "fffefa", s.get("wled_col"))
+        recent = page.eval_on_selector_all("#colour .recent .swatch", "els => els.map(e => e.dataset.hex)")
+        check("the shades just picked come back under Recent, newest first",
+              recent[:3] == ["#fffefa", "#ff9227", "#00ffea"], recent)
+        page.click('#colour .recent .swatch[data-hex="#00ffea"]')
+        s = until(lambda s: s.get("wled_col") == "00ffea")
+        check("...one tap on a recent shade lights it, back on the colour wheel",
+              s.get("wled_col") == "00ffea" and pressed("#colour [data-wheel-mode=colour]"), s.get("wled_col"))
+
         page.click('[data-action=scene][data-value=effect]')
         s = until(lambda s: s.get("wled_fx") not in (None, 0))
         page.wait_for_selector("#fx-tiles .tile[aria-pressed=true]", timeout=4000)
@@ -3733,6 +3793,10 @@ def test_page_in_browser(base):
         s = until(lambda s: s["bed_mode"] == "colour")
         page.wait_for_selector("#bed-colour-box:not([hidden])", timeout=4000)
         check("the bed can take its own colour while the rest syncs", s["bed_mode"] == "colour" and s["running"])
+        mid_x, mid_y, rim = wheel("bed-colour")
+        page.mouse.click(mid_x, mid_y - rim + 2)
+        s = until(lambda s: s["bed_colour"] == "ff0000")
+        check("...picked on its own wheel", s["bed_colour"] == "ff0000" and s["running"], s["bed_colour"])
         page.click('[data-action=bed-mode][data-value=screen]')
         s = until(lambda s: s["bed_mode"] == "screen")
         page.wait_for_selector("#bed-screen:not([hidden])", timeout=4000)

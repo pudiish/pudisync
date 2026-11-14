@@ -34,7 +34,7 @@
 }}
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;scroll-padding-bottom:calc(var(--tabbar) + 12px + env(safe-area-inset-bottom))}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--font);
   -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
 button,input,select{font:inherit;color:inherit}
@@ -80,6 +80,7 @@ main{max-width:1080px;margin:0 auto;padding:4px 16px calc(var(--tabbar) + 24px +
   .tab[aria-current=page]{background:var(--raised)}
   .link{margin-left:0;order:3}
   main{padding-bottom:40px}
+  html{scroll-padding-bottom:0}
   #tab-home{grid-template-columns:1.05fr 1fr;max-width:none;align-items:start}
 }
 
@@ -175,7 +176,20 @@ input[type=color]::-webkit-color-swatch{border:2px solid var(--line-hi);border-r
 .swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:10px}
 .swatch{aspect-ratio:1;min-height:44px;border:2px solid var(--line-hi);border-radius:50%}
 .swatch[aria-pressed=true]{outline:3px solid var(--accent);outline-offset:2px}
-.custom{display:flex;align-items:center;gap:12px;font-size:15px;font-weight:500;color:var(--ink)}
+.wheel{display:grid;justify-items:center;gap:12px}
+.wheel .seg{justify-self:stretch}
+.wheel-disc{position:relative;width:min(232px,72vw);aspect-ratio:1;border-radius:50%;touch-action:none;cursor:crosshair;
+  background:radial-gradient(closest-side,#fff,rgb(255 255 255/0)),conic-gradient(red,#ff0,lime,cyan,blue,#f0f,red);
+  box-shadow:0 0 0 1px var(--line-hi),0 10px 40px -12px var(--glow)}
+.wheel-disc[data-mode=white]{background:var(--whites)}
+.wheel-disc:focus-visible{outline:3px solid var(--accent);outline-offset:4px}
+.wheel-thumb{position:absolute;width:32px;height:32px;margin:-16px 0 0 -16px;border:3px solid #fff;border-radius:50%;
+  box-shadow:0 0 0 1px rgb(0 0 0/.2),0 2px 8px rgb(0 0 0/.4);pointer-events:none;transition:transform .12s}
+.wheel-disc[data-dragging] .wheel-thumb{transform:scale(1.25)}
+.wheel-said{font:500 13px/1.2 var(--mono);color:var(--dim)}
+.recent{display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-self:stretch}
+.recent .swatch{width:32px;min-height:32px}
+.recent span{font-size:12px;color:var(--dim);margin-right:2px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px}
 .tile{display:grid;gap:2px;align-content:start;min-height:64px;padding:10px 12px;text-align:left;
   background:var(--raised);border:1px solid var(--line);border-radius:var(--r-sm)}
@@ -326,7 +340,7 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
         </div>
         <div class="stack" id="pane-colour" hidden>
           <div class="swatches" id="swatches" role="group" aria-label="Colours"></div>
-          <label class="custom"><input type="color" id="colour" value="#ffb46b">Any colour</label>
+          <div class="wheel" id="colour" data-value="#ffb46b" data-label="Colour for every light"></div>
         </div>
         <div class="stack" id="pane-effect" hidden>
           <div class="tiles" id="fx-tiles"><p class="hint">Loading effects…</p></div>
@@ -392,7 +406,7 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
               <p class="hint" id="bed-hint"></p>
               <div class="stack" id="bed-colour-box" hidden>
                 <div class="swatches" id="bed-swatches" role="group" aria-label="Bed colours"></div>
-                <label class="custom"><input type="color" id="bed-colour" value="#ffb060">Any colour</label>
+                <div class="wheel" id="bed-colour" data-value="#ffb060" data-label="Bed colour"></div>
               </div>
               <div class="stack" id="bed-effect-box" hidden>
                 <div class="field"><label for="bed-effect">Effect</label><select id="bed-effect"></select></div>
@@ -472,7 +486,7 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
         </div>
         <div class="stack" id="part-colour-box">
           <div class="swatches" id="part-swatches" role="group" aria-label="Colours for the selection"></div>
-          <label class="custom"><input type="color" id="part-colour" value="#ff2010">Any colour</label>
+          <div class="wheel" id="part-colour" data-value="#ff2010" data-label="Colour for the selection"></div>
         </div>
         <div class="fader" id="part-bri" data-fader="part_brightness"></div>
         <button class="switch" type="button" role="switch" aria-checked="true" id="part-keep" data-action="part-keep">
@@ -753,6 +767,9 @@ const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g
   "led_gamma", "contrast", "black_level", "colour_weight", "spread"];
 const SWATCHES = [["Warm white", "#ffb46b"], ["Cool white", "#ffffff"], ["Red", "#ff2010"],
   ["Amber", "#ff8c00"], ["Green", "#20e050"], ["Cyan", "#00c8ff"], ["Blue", "#2040ff"], ["Magenta", "#e030ff"]];
+const HUE_NAMES = [[18, "Red"], [40, "Orange"], [66, "Yellow"], [100, "Lime"], [155, "Green"], [195, "Cyan"],
+  [220, "Sky blue"], [255, "Blue"], [285, "Purple"], [320, "Magenta"], [345, "Pink"], [360, "Red"]];
+const WARMEST_K = 2200, COOLEST_K = 6500, RECENT_KEY = "pudisync-recent-colours", RECENT_MAX = 6;
 const STYLES = {movie: "Cinema glides, and fills the room with the film's colour.",
   game: "Gaming reacts in a tenth of a second, with punchier colour.",
   enriched: "Enriched is sharp and true to the screen: deep blacks, bright highlights."};
@@ -906,6 +923,18 @@ const press = (el, on, attr = "aria-pressed") => el.setAttribute(attr, String(!!
 function debounce(fn, ms) {
   let timer = 0;
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
+
+/* First call at once, then at most one per `ms`, and always the last: a drag the lights follow live. */
+function throttle(fn, ms) {
+  let last = 0, timer = 0;
+  return (...args) => {
+    clearTimeout(timer);
+    const run = () => { last = Date.now(); fn(...args); };
+    const wait = last + ms - Date.now();
+    if (wait <= 0) run();
+    else timer = setTimeout(run, wait);
+  };
 }
 
 function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
@@ -1074,7 +1103,16 @@ async function actHeld(keys, path, params) {
   return body;
 }
 
-const swatchName = hex => (SWATCHES.find(([, h]) => h === hex) || [`Colour ${hex}`])[0];
+function colourName(hex) {
+  const swatch = SWATCHES.find(([, h]) => h === hex);
+  if (swatch) return swatch[0];
+  const k = kelvinOf(hex);
+  if (k) return k < 3300 ? "Warm white" : k < 4800 ? "Natural white" : k < 5800 ? "Cool white" : "Daylight";
+  const {h, s} = hexToHsv(hex);
+  if (s < 0.12) return "White";
+  const name = HUE_NAMES.find(([upTo]) => h < upTo)[1];
+  return s < 0.45 ? `Pale ${name.toLowerCase()}` : name;
+}
 
 function effectName(fx) {
   const curated = effects.find(e => e.fx === fx);
@@ -1089,7 +1127,7 @@ function heroView(s, {offline, scene, effectName}) {
     ? {lamp: "fault", word: "No link", state: "Syncing, board not answering", hint: "The hub keeps sending; the board may be restarting."}
     : {lamp: "on", word: "Syncing", state: "Following your screen", hint: "Tap to turn every light off."};
   if (fault) return {lamp: "fault", word: "No board", state: "Can't reach the board", hint: "Tap to start screen sync once it's back."};
-  if (scene === "colour") return {lamp: "effect", word: "Colour", state: s.wled_col ? swatchName(`#${s.wled_col}`) : "Colour",
+  if (scene === "colour") return {lamp: "effect", word: "Colour", state: s.wled_col ? colourName(`#${s.wled_col}`) : "Colour",
     hint: "Tap to turn every light off."};
   if (scene === "effect") return {lamp: "effect", word: "Effect", state: effectName(s.wled_fx), hint: "Tap to turn every light off."};
   return {lamp: "off", word: "Off", state: "Off", hint: "Tap to start screen sync."};
@@ -1393,6 +1431,214 @@ function buildSwatches(host, pick) {
     b.setAttribute("aria-pressed", "false");
     return b;
   }));
+}
+
+/* ---------- colour wheel: red at the top and round clockwise, white at the centre ---------- */
+function hexToHsv(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const v = Math.max(r, g, b), d = v - Math.min(r, g, b);
+  const h = d === 0 ? 0 : v === r ? ((g - b) / d + 6) % 6 : v === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return {h: h * 60, s: v ? d / v : 0, v};
+}
+
+function hsvToHex(h, s, v = 1) {
+  const f = n => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return "#" + [f(5), f(3), f(1)].map(c => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
+}
+
+/* A white of that colour temperature as an RGB strip makes it (Tanner Helland's fit to the blackbody curve). */
+function kelvinToHex(kelvin) {
+  const t = kelvin / 100;
+  const r = t <= 66 ? 255 : 329.698727446 * (t - 60) ** -0.1332047592;
+  const g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * (t - 60) ** -0.0755148492;
+  const b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  return "#" + [r, g, b].map(c => Math.round(Math.max(0, Math.min(255, c))).toString(16).padStart(2, "0")).join("");
+}
+
+/* The temperature a colour is the white of, or null when it is a colour rather than a white. */
+function kelvinOf(hex) {
+  const channels = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const want = channels(hex);
+  let best = null, gap = 7;
+  for (let k = WARMEST_K; k <= COOLEST_K; k += 50) {
+    const d = channels(kelvinToHex(k)).reduce((sum, c, i) => sum + Math.abs(c - want[i]), 0);
+    if (d < gap) { best = k; gap = d; }
+  }
+  return best;
+}
+
+const WHITES = `linear-gradient(${[COOLEST_K, 5500, 4500, 3500, 2800, WARMEST_K].map(kelvinToHex).join(",")})`;
+
+function readRecent() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter(h => /^#[0-9a-f]{6}$/.test(h)); }
+  catch (err) { console.warn("recent colours unavailable", err); return []; }
+}
+
+let recentColours = readRecent();
+
+function rememberColour(hex) {
+  recentColours = [hex, ...recentColours.filter(h => h !== hex)].slice(0, RECENT_MAX);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentColours)); }
+  catch (err) { console.warn("recent colours kept for this visit only", err); }
+  $$(".wheel").forEach(w => w.showRecent());
+}
+
+/* Turns <div class="wheel"> into a picker that behaves like an input: .value is "#rrggbb", "input" fires while
+   it moves and "change" when it is let go. Colour is hue round the rim; White is cool at the top, warm below. */
+function buildWheel(host) {
+  const thumb = make("span", {className: "wheel-thumb"});
+  const disc = make("div", {className: "wheel-disc", tabIndex: 0}, thumb);
+  const said = make("output", {className: "wheel-said"});
+  const recent = make("div", {className: "recent"});
+  const modes = make("div", {className: "seg"});
+  modes.setAttribute("role", "group");
+  modes.setAttribute("aria-label", "Colour or white");
+  for (const [name, label] of [["colour", "Any colour"], ["white", "Whites"]]) {
+    const b = button(label, "", () => pickMode(name));
+    b.dataset.wheelMode = name;
+    modes.append(b);
+  }
+  disc.style.setProperty("--whites", WHITES);
+  disc.setAttribute("role", "slider");
+  disc.setAttribute("aria-roledescription", "colour wheel");
+  disc.setAttribute("aria-label", host.dataset.label);
+  host.append(modes, disc, said, recent);
+
+  let hex = "", mode = "colour", pos = {x: 0, y: 0}, dragging = false, calm = 0;
+
+  function draw() {
+    disc.dataset.mode = mode;
+    [...modes.children].forEach(b => press(b, b.dataset.wheelMode === mode));
+    thumb.style.left = `${50 + 50 * pos.x}%`;
+    thumb.style.top = `${50 + 50 * pos.y}%`;
+    thumb.style.background = hex;
+    const k = mode === "white" && kelvinOf(hex);
+    const words = `${colourName(hex)} · ${k ? `${k} K` : hex.toUpperCase()}`;
+    setText(said, words);
+    disc.setAttribute("aria-valuetext", words);
+  }
+
+  /* Where a colour sits: round the rim by hue in Colour, top to bottom by temperature in White. */
+  function place(next) {
+    hex = next;
+    const k = kelvinOf(hex);
+    if (mode === "white" && !k) mode = "colour";
+    if (mode === "white") {
+      pos = {x: 0, y: -1 + 2 * (COOLEST_K - k) / (COOLEST_K - WARMEST_K)};
+    } else {
+      const {h, s} = hexToHsv(hex), a = h * Math.PI / 180;
+      pos = {x: s * Math.sin(a), y: -s * Math.cos(a)};
+    }
+    draw();
+  }
+
+  /* Status polls leave the wheel alone while it is held and for a moment after. */
+  function settle() {
+    clearTimeout(calm);
+    calm = setTimeout(() => { if (!dragging) delete host.dataset.dirty; }, HOLD_MS);
+  }
+
+  function edit(next, at, kind) {
+    hex = next;
+    pos = at;
+    host.dataset.dirty = "1";
+    settle();
+    draw();
+    host.dispatchEvent(new Event(kind));
+  }
+
+  const done = () => { rememberColour(hex); host.dispatchEvent(new Event("change")); };
+
+  /* The outer few pixels count as the edge, so a fingertip still reaches full colour. */
+  function at(event) {
+    const box = disc.getBoundingClientRect(), r = box.width / 2 - 6;
+    let x = (event.clientX - box.left - box.width / 2) / r, y = (event.clientY - box.top - box.height / 2) / r;
+    const far = Math.hypot(x, y);
+    if (far > 1) { x /= far; y /= far; }
+    if (mode === "white") {
+      const k = Math.round((COOLEST_K - (y + 1) / 2 * (COOLEST_K - WARMEST_K)) / 50) * 50;
+      return [kelvinToHex(k), {x, y}];
+    }
+    const h = (Math.round(Math.atan2(x, -y) * 180 / Math.PI) + 360) % 360, s = Math.min(1, Math.hypot(x, y));
+    const a = h * Math.PI / 180;
+    return [hsvToHex(h, s), {x: s * Math.sin(a), y: -s * Math.cos(a)}];
+  }
+
+  disc.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    disc.focus({preventScroll: true});
+    disc.setPointerCapture(event.pointerId);
+    dragging = true;
+    disc.dataset.dragging = "";
+    edit(...at(event), "input");
+  });
+  disc.addEventListener("pointermove", event => { if (dragging) edit(...at(event), "input"); });
+  const letGo = () => {
+    if (!dragging) return;
+    dragging = false;
+    delete disc.dataset.dragging;
+    settle();
+    done();
+  };
+  disc.addEventListener("pointerup", letGo);
+  disc.addEventListener("pointercancel", letGo);
+  disc.addEventListener("lostpointercapture", letGo);
+
+  const STEPS = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1]};
+  disc.addEventListener("keydown", event => {
+    const step = STEPS[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const n = event.shiftKey ? 3 : 1;
+    if (mode === "white") {
+      place(kelvinToHex(clamp((kelvinOf(hex) || 4000) + (step[0] || step[1]) * 100 * n, WARMEST_K, COOLEST_K)));
+    } else {
+      const {h, s} = hexToHsv(hex);
+      place(hsvToHex((Math.round(h) + step[0] * 5 * n + 360) % 360, clamp(s + step[1] * 0.05 * n, 0, 1)));
+    }
+    edit(hex, pos, "input");
+    done();
+  });
+
+  function pickMode(next) {
+    if (next === mode) return;
+    mode = next;
+    if (mode === "colour") return draw();
+    place(kelvinToHex(kelvinOf(hex) || 2700));
+    edit(hex, pos, "input");
+    host.dispatchEvent(new Event("change"));   // lit at once, but not a pick worth keeping under Recent
+  }
+
+  function pickRecent(h) {
+    if (!kelvinOf(h)) mode = "colour";
+    place(h);
+    edit(hex, pos, "input");
+    done();
+  }
+
+  host.showRecent = () => {
+    const tiles = recentColours.map(h => {
+      const b = button("", "swatch", () => pickRecent(h), `Recent: ${colourName(h)}`);
+      b.dataset.hex = h;
+      b.style.background = h;
+      return b;
+    });
+    recent.hidden = !tiles.length;
+    recent.replaceChildren(make("span", {textContent: "Recent"}), ...tiles);
+  };
+
+  Object.defineProperty(host, "value", {
+    get: () => hex,
+    set: value => {
+      if (dragging) return;
+      const next = `#${String(value).replace("#", "").toLowerCase()}`;
+      if (!/^#[0-9a-f]{6}$/.test(next)) throw new Error(`not a colour: ${value}`);
+      if (next !== hex) place(next);
+    },
+  });
+  host.value = host.dataset.value;
+  host.showRecent();
 }
 
 async function loadMeta(force) {
@@ -2158,7 +2404,7 @@ function wire() {
   onSubmit("form-profile", saveProfile);
   onSubmit("form-bed", bedSetup);
   wirePaint();
-  $("colour").addEventListener("input", debounce(() => runColour($("colour").value), 200));
+  $("colour").addEventListener("input", throttle(() => runColour($("colour").value), 150));
   $("bed-colour").addEventListener("change", () => setKey("bed_colour", $("bed-colour").value.slice(1)));
   onChange("bed-effect", v => setKey("bed_effect", v));
   onChange("wled-fx", v => runEffect(Number(v)));
@@ -2199,6 +2445,7 @@ function wire() {
 }
 
 $$("[data-fader]").forEach(buildFader);
+$$(".wheel").forEach(buildWheel);
 ["fx_speed", "fx_intensity"].forEach(k => setFader(k, 128, true));
 setFader("part_brightness", 1, true);
 buildSwatches($("swatches"), runColour);

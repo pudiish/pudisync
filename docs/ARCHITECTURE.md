@@ -74,7 +74,7 @@ pipeline, a way of controlling it, or a one-off setup tool.
 | `ambilight/config.py` | 427 | All settings, their defaults and valid ranges, saved to `config.json`. |
 | `ambilight/discovery.py` | 74 | Bonjour name, the hub's addresses, and where the board's own page is. |
 | `ambilight/qr.py` | 42 | QR codes for pairing a phone, drawn by macOS's CoreImage. |
-| `ambilight/web/index.html` | 2212 | The PudiSync phone page (3 tabs: Home, Tune, Settings). Home runs every light at once: power, brightness and one scene, with each light's own options. HTML, CSS and JS in one file, served gzipped. |
+| `ambilight/web/index.html` | 2459 | The PudiSync phone page (3 tabs: Home, Tune, Settings). Home runs every light at once: power, brightness and one scene, with each light's own options. Every colour is picked on one round wheel (any colour, or whites by temperature, with recent picks). HTML, CSS and JS in one file, served gzipped. |
 | `ambilight/web/calibrate.html` | 231 | Calibration page. |
 | `macapp/` | about 1,550 Swift | Native Mac app. A client of the same HTTP API. `Connection.swift` holds its link states, `PairSheet.swift` the pairing QR. |
 
