@@ -249,6 +249,14 @@ function runColour(rgb) {
   queue({on: true, lor: 1}, {fx: 0, col: [rgb]});
 }
 
+/* Power alone keeps the sync preset, and the Mac's stream would light the strip
+   again: switching off during sync leaves it too, for the remembered look. */
+function powerChange(state, last) {
+  const on = !(state && state.on);
+  if (on || !state || state.ps !== SYNC_PRESET) return [{on}];
+  return [{on: false, lor: 1}, {fx: last.fx, sx: last.sx, ix: last.ix, pal: 0, col: [last.rgb]}];
+}
+
 async function toggleSync() {
   touch();
   if (state && state.ps === SYNC_PRESET) {
@@ -416,7 +424,12 @@ function bindTabs() {
 }
 
 function bindControls() {
-  $("power").addEventListener("click", () => { touch(); queue({on: !(state && state.on)}); });
+  $("power").addEventListener("click", () => {
+    touch();
+    const change = powerChange(state, last);
+    if (change[0].on === false) wantSync = false;
+    queue(...change);
+  });
   $("sync").addEventListener("click", toggleSync);
   $("bri").addEventListener("input", () => { touch(); outputs(); queue({bri: Number($("bri").value)}); });
   $("speed").addEventListener("input", () => { touch(); remember({sx: Number($("speed").value)}); outputs(); queue({lor: 1}, {sx: Number($("speed").value)}); });

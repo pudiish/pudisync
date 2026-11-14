@@ -1847,6 +1847,21 @@ console.log(JSON.stringify(out));
     results = json.loads(run.stdout) if run.returncode == 0 else []
     check("the colour wheel maps angle and distance to the right colours", results and all(results), run.stderr[:200] or results)
 
+    power = run_node("const SYNC_PRESET = 1;\n" + js_block(script, "function powerChange") + r"""
+const last = {fx: 63, sx: 90, ix: 128, rgb: [255, 170, 80]};
+console.log(JSON.stringify({
+  offSyncing: powerChange({on: true, ps: 1}, last),
+  offEffect: powerChange({on: true, ps: -1}, last),
+  on: powerChange({on: false, ps: -1}, last),
+}));
+""") if "function powerChange" in script else None
+    check("switching off during sync leaves sync too, or the Mac's stream would light the strip again",
+          isinstance(power, dict) and power["offSyncing"][0] == {"on": False, "lor": 1}
+          and power["offSyncing"][1].get("fx") == 63, power)
+    check("...and otherwise power is all it touches",
+          isinstance(power, dict) and power["offEffect"] == [{"on": False}] and power["on"] == [{"on": True}], power)
+    check("the power button uses it", "queue(...change)" in script)
+
     constants = re.search(r"^const POLL_MS.*$", script, re.M).group(0)
     with silent_server() as silent:
         result = run_node(constants + "\n" + js_block(script, "async function ask") + f"""
