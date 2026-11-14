@@ -178,8 +178,9 @@ class Hub:
     def status(self):
         state = self.engine.status()
         # While streaming, the sync watcher's last look stands in for a request
-        # of our own: the board is busy enough.
-        wled_state = (self.intent.last_state or {}) if self.engine.running else self.wled_state()
+        # of our own: the board is busy enough. A held-off watcher looks no more.
+        watched = self.engine.running and not self.intent.paused()
+        wled_state = (self.intent.last_state or {}) if watched else self.wled_state()
         if self.engine.running:
             mode = "sync"
         else:

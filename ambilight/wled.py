@@ -144,9 +144,6 @@ class WLEDClient:
     def set_power(self, on):
         return self._post({"on": bool(on)})
 
-    def set_brightness(self, value):
-        return self._post({"bri": max(0, min(255, int(value)))})
-
     def set_preset(self, preset_id):
         return self._post({"ps": int(preset_id)})
 

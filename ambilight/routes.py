@@ -19,6 +19,7 @@ from .provision import esptool_available, known_networks
 from .recorder import RECORDINGS_DIR, replay
 
 OK = 200
+BRIGHTNESS_SETTLE_S = 1.5   # the board loads a preset in its next loop; give it time before looking
 CONFIG_SAVE_S = 1.0     # the board writes new settings to flash in its next loop; reboot after that
 
 
@@ -191,9 +192,18 @@ def wled_power(hub, q):
 
 
 def wled_brightness(hub, q):
-    ok = hub.wled.set_brightness(q.one("value", "128"))
-    hub.intent.nudge()      # while syncing, status shows the watcher's view of the board
-    return {"ok": ok}, OK
+    """The board's own brightness: every light, whatever it shows.
+
+    A manual change may end the board's active preset, and with it "monitor
+    sync" (board.py). While syncing, the same command loads the sync preset
+    again, which leaves brightness alone, and the watcher is held off until
+    the board has settled.
+    """
+    payload = {"bri": max(0, min(255, int(float(q.one("value", "128")))))}
+    if hub.engine.running:
+        hub.intent.pause(BRIGHTNESS_SETTLE_S)
+        payload["ps"] = hub.cfg.get("sync_preset")
+    return {"ok": hub.wled.apply(payload)}, OK
 
 
 def hand_to_controller(hub):

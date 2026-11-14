@@ -36,9 +36,12 @@ class SyncIntent:
     def resume(self):
         self.paused_until = 0.0
 
+    def paused(self):
+        return self.clock() < self.paused_until
+
     def tick(self):
         """One look at the board. Returns "started", "stopped" or None."""
-        if self.clock() < self.paused_until:
+        if self.paused():
             return None
         state = self.wled.state()
         if state is None:       # an unreachable board says nothing about intent

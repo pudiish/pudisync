@@ -1676,6 +1676,21 @@ def test_sync_routes():
           order == [1] and code == 200, (order, hub.wled.sent))
     check("...and answers with the status the page renders", body.get("running") is False, body)
 
+    # A manual brightness change may end the board's active preset, and with it
+    # "monitor sync" (board.py). The master brightness must never stop sync.
+    hub.wled.sent.clear()
+    routes.handle(hub, "/api/wled/brightness", parse_qs("value=90"))
+    check("brightness with sync off is the brightness alone", hub.wled.sent == [("apply", {"bri": 90})], hub.wled.sent)
+    routes.handle(hub, "/api/sync/on", parse_qs(""))
+    hub.wled.sent.clear()
+    routes.handle(hub, "/api/wled/brightness", parse_qs("value=300"))
+    check("brightness while syncing keeps the sync preset chosen, in the same command",
+          hub.wled.sent == [("apply", {"bri": 255, "ps": 1})], hub.wled.sent)
+    check("...and holds the watcher off while the board settles", hub.intent.paused())
+    hub.intent.resume()
+    check("the watcher is not held off otherwise", not hub.intent.paused())
+    routes.handle(hub, "/api/sync/off", parse_qs(""))
+
     routes.handle(hub, "/api/wizard/gradient", parse_qs(""))
     check("a test pattern pauses the watcher so it cannot restart sync", hub.intent.paused_until > 0)
     routes.handle(hub, "/api/wizard/stop", parse_qs(""))
