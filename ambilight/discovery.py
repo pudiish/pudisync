@@ -10,7 +10,7 @@ import subprocess
 
 log = logging.getLogger(__name__)
 
-SERVICE_NAME = "Ambilight Hub"
+SERVICE_NAME = "PudiSync"
 
 
 def lan_ip():

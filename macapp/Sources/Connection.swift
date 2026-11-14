@@ -34,7 +34,7 @@ enum LinkState: Equatable {
         case .connecting, .online:
             return nil
         case .locked:
-            return "The hub has a PIN. Enter it in Ambilight Hub ▸ Settings."
+            return "The hub has a PIN. Enter it in PudiSync ▸ Settings."
         case .throttled:
             return "Too many wrong PINs from this Mac. Wait a minute, then try again."
         case .offline(let since):

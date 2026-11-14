@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ambilight Hub">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PudiSync">
   <rect width="512" height="512" rx="96" fill="#0c0c0b"/>
   <rect x="120" y="156" width="272" height="168" rx="6" fill="#151513" stroke="#3b3a35" stroke-width="6"/>
   <g fill="#ffb000">

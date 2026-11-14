@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ambilight Hub -- screen-synced LED lighting for WLED, controlled from a phone.
+"""PudiSync -- screen-synced LED lighting for WLED, controlled from a phone.
 
     python hub.py                       # uses config.json next to this file
     python hub.py --config other.json --port 8790 --no-bonjour

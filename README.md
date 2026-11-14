@@ -1,4 +1,4 @@
-# Ambilight Hub
+# PudiSync
 
 Screen-synced LED lighting for a WLED strip, driven from your phone's browser.
 Runs as one Python process on a Mac. No app, no cloud, no account — your home

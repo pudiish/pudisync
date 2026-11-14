@@ -4032,7 +4032,7 @@ def test_connect_api(base):
 
 def main():
     print("=" * 62)
-    print("AMBILIGHT HUB -- ACCEPTANCE TESTS")
+    print("PUDISYNC -- ACCEPTANCE TESTS")
     print("=" * 62)
     test_packets()
     test_ddp_packets()

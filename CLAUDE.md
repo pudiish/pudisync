@@ -1,4 +1,4 @@
-# Ambilight Hub
+# PudiSync
 
 `hub.py` runs on the Mac, captures the screen, grades the colour and streams it
 to a WLED board (ESP8266) that drives the monitor strip and a bed strip. The

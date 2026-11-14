@@ -6,8 +6,8 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0c10">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Ambilight">
-<title>Ambilight</title>
+<meta name="apple-mobile-web-app-title" content="PudiSync">
+<title>PudiSync</title>
 <style>
 :root{--bg:#0b0c10;--surface:#14161c;--raise:#1d2028;--line:#2b303a;--text:#f3f4f6;--muted:#a3a9b5;
   --accent:#ffb347;--ink:#1b1204;--radius:18px;color-scheme:dark}
@@ -89,7 +89,7 @@ input[type=range]::-moz-range-thumb{width:28px;height:28px;border-radius:50%;bac
 </head>
 <body>
 <header>
-  <h1>Ambilight</h1>
+  <h1>PudiSync</h1>
   <button id="power" class="switch" role="switch" aria-checked="true" aria-label="Lights"></button>
 </header>
 
@@ -314,7 +314,7 @@ function syncText(syncing) {
     waitingSince = waitingSince || Date.now();
     const late = Date.now() - waitingSince > WAIT_MS;
     label.textContent = late ? "Waiting for your Mac" : "Connecting…";
-    note.textContent = late ? "Your Mac needs to be on and running Ambilight. Sync will start by itself the moment it is ready; until then the strip glows a soft warm white."
+    note.textContent = late ? "Your Mac needs to be on and running PudiSync. Sync will start by itself the moment it is ready; until then the strip glows a soft warm white."
       : "Starting up…";
   }
 }

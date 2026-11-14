@@ -5,7 +5,7 @@ struct AmbilightHubApp: App {
     @StateObject private var store = HubStore()
 
     var body: some Scene {
-        Window("Ambilight Hub", id: "main") {
+        Window("PudiSync", id: "main") {
             ContentView()
                 .environmentObject(store)
                 .frame(minWidth: 960, minHeight: 640)
@@ -214,7 +214,7 @@ struct MenuBarPanel: View {
             }
             Divider()
             HStack {
-                KeyButton(title: "Open Ambilight Hub") {
+                KeyButton(title: "Open PudiSync") {
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }

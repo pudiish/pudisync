@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build the Ambilight Hub Mac app with the Command Line Tools (no Xcode needed).
-#   ./build.sh           build build/Ambilight Hub.app
+# Build the PudiSync Mac app with the Command Line Tools (no Xcode needed).
+#   ./build.sh           build build/PudiSync.app
 #   ./build.sh test      run the app's logic tests
 #   ./build.sh install   build, then copy the app to /Applications
 set -euo pipefail
@@ -14,10 +14,10 @@ if [[ "${1:-}" == "test" ]]; then
   exec build/layout-tests
 fi
 
-APP="build/Ambilight Hub.app"
+APP="build/PudiSync.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-swiftc "${FLAGS[@]}" -parse-as-library Sources/*.swift -o "$APP/Contents/MacOS/AmbilightHub"
+swiftc "${FLAGS[@]}" -parse-as-library Sources/*.swift -o "$APP/Contents/MacOS/PudiSync"
 cp Info.plist "$APP/Contents/Info.plist"
 
 ICONSET=build/AppIcon.iconset
@@ -35,7 +35,8 @@ codesign --verify --strict "$APP"
 echo "Built $APP"
 
 if [[ "${1:-}" == "install" ]]; then
-  rm -rf "/Applications/Ambilight Hub.app"
+  # The app was called Ambilight Hub before; one copy is enough.
+  rm -rf "/Applications/Ambilight Hub.app" "/Applications/PudiSync.app"
   cp -R "$APP" /Applications/
-  echo "Installed /Applications/Ambilight Hub.app"
+  echo "Installed /Applications/PudiSync.app"
 fi

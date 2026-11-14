@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Ambilight Hub</string>
-  <key>CFBundleDisplayName</key><string>Ambilight Hub</string>
+  <key>CFBundleName</key><string>PudiSync</string>
+  <key>CFBundleDisplayName</key><string>PudiSync</string>
   <key>CFBundleIdentifier</key><string>com.pudisync.ambilight-hub</string>
-  <key>CFBundleExecutable</key><string>AmbilightHub</string>
+  <key>CFBundleExecutable</key><string>PudiSync</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
@@ -18,6 +18,6 @@
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>NSLocalNetworkUsageDescription</key>
-  <string>Ambilight Hub talks to the lighting hub on your home network.</string>
+  <string>PudiSync talks to the lighting hub on your home network.</string>
 </dict>
 </plist>
