@@ -2725,7 +2725,7 @@ def test_enriched():
     print("\n40b. Enriched: deep blacks, bright highlights, true colour")
     import colour
     from ambilight import color, enrich
-    from ambilight.config import PROFILE_KEYS, PROFILES
+    from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
 
     with tempfile.TemporaryDirectory() as folder:
         cfg = Config(os.path.join(folder, "config.json"))
@@ -2769,6 +2769,23 @@ def test_enriched():
     check("...and saturation is kept, not boosted (median within 5%)",
           abs(float(np.median(ratio_out / ratio_in)) - 1.0) < 0.05, float(np.median(ratio_out / ratio_in)))
     check("at zero it leaves colours untouched", np.array_equal(enrich.apply(colours, 0.0), colours))
+
+    def film(low, high, saturation=0.5):
+        hsv = np.stack([rng.random(120), np.full(120, saturation), rng.uniform(low, high, 120)], 1).astype(np.float32)
+        return color.srgb_to_linear(color.hsv_to_rgb(hsv))
+
+    def drive(linear, tone):
+        look = {**DEFAULTS, **PROFILES["enriched"], "enrich": tone}
+        return color.to_led(color.grade(linear, look), look).max(axis=1)
+
+    for name, scene in (("a dark film scene", film(0.05, 0.35)), ("a mid-lit one", film(0.2, 0.6)),
+                        ("a bright one", film(0.5, 1.0, 0.4)), ("a vivid one", film(0.6, 1.0, 0.95))):
+        flat, toned = drive(scene, 0.0), drive(scene, 1.0)
+        check(f"the tone gives {name} contrast without dimming it overall (within 3%)",
+              toned.mean() >= 0.97 * flat.mean(), (round(float(flat.mean()), 1), round(float(toned.mean()), 1)))
+        order = np.argsort(flat)
+        check(f"...its dimmest LEDs still sink and its brightest still lift",
+              toned[order[:12]].mean() < flat[order[:12]].mean() and toned[order[-12:]].mean() > flat[order[-12:]].mean())
 
     frame = rng.random((400, 3)).astype(np.float32)
     enrich.apply(frame, 1.0)
