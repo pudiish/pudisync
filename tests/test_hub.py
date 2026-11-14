@@ -3098,6 +3098,9 @@ def test_bed_strip():
     offered = re.findall(r'<option value="(\d+)">(\w+)</option>', picker)
     check("the page offers TX (GPIO1) first, the free hardware pin with memory for a long bed strip",
           offered[:1] == [("1", "TX")] and ("3", "RX") in offered, offered)
+    swift = open("macapp/Sources/SettingsPage.swift").read()
+    app_pins = [(pin, name) for name, pin in re.findall(r'\("(\w+)", (\d+)\)', swift.split("static let pins", 1)[1].split("\n", 1)[0])]
+    check("the Mac app offers the same pins in the same order", app_pins == offered, app_pins)
     check("each strip is limited to its own adapter (WLED's per-output limiter)",
           payload["hw"]["led"]["maxpwr"] == 0 and second["maxpwr"] == 2500 and monitor["maxpwr"] == 2800)
     check("realtime data drives only the main segment, so a bed effect keeps running",

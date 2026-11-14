@@ -56,7 +56,7 @@ struct BedWiringCard: View {
     @State private var amps = ""
     @State private var pin = 5
 
-    private static let pins = [("D1", 5), ("D2", 4), ("D5", 14), ("D6", 12), ("D7", 13), ("RX", 3)]
+    static let pins = [("TX", 1), ("D1", 5), ("D2", 4), ("D5", 14), ("D6", 12), ("D7", 13), ("RX", 3)]
 
     var body: some View {
         let status = store.status
@@ -71,7 +71,7 @@ struct BedWiringCard: View {
                 field("Power limit (A)") { TextField("Amps", text: $amps).textFieldStyle(.roundedBorder).labelsHidden() }
             }
             Text("The amps are the bed's share of the adapter both strips may be on. The board restarts for about "
-                 + "10 seconds. RX leaves the board the least memory, so keep strips there short.").hint()
+                 + "10 seconds. TX suits a long strip; RX leaves the board the least memory, so keep strips there short.").hint()
             Button("Apply and restart the board") { store.setupBed(leds: leds, amps: amps, pin: pin) }
                 .disabled(Int(leds) == nil || Double(amps) == nil)
             SwitchRow(title: "First LED is the far end", detail: "Leave off when the strip starts next to the monitor.",
