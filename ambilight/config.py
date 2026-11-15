@@ -99,6 +99,10 @@ DEFAULTS = {
     # bright scene held for minutes settles at 3A.
     "power_limit_ma": 3800,
     "sustained_ma": 3000,
+    # The rating of the adapter the strips share. Their limits together (the
+    # monitor strip's alone without a bed) stay within 80% of it
+    # (safety.shares). 0 = each strip has an adapter of its own.
+    "supply_ma": 5000,
     "spread": 0.4,
     "sync_on_start": False,
     # The WLED preset that means "follow my monitor" (saved on the board).
@@ -130,7 +134,8 @@ DEFAULTS = {
     # A Logitech LIGHTSYNC mouse follows the screen while sync runs.
     "mouse_sync": False,
     # A second strip (round a bed) on the board's second output (bed.py).
-    # 0 LEDs = none. Its adapter is separate, so it has its own current limit.
+    # 0 LEDs = none. It has its own current limit; on the monitor strip's
+    # adapter the two limits share supply_ma.
     "bed_leds": 0,
     # The board's GPIO for the bed strip's data (5 = D1). 1 and 3 are the ESP8266's
     # TX and RX; other pins are driven in software by WLED.
@@ -313,6 +318,7 @@ _LIMITS = {
     "adaptive": (0.0, 1.0),
     "power_limit_ma": (200, 20000),
     "sustained_ma": (200, 20000),
+    "supply_ma": (0, 50000),
     "spread": (0.0, 0.8),
     "sync_preset": (1, 250),
     "led_count": (1, 1500),

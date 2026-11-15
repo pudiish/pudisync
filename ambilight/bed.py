@@ -17,7 +17,7 @@ import numpy as np
 
 from . import color
 from .board import SYNC_LOOK, SYNC_NAME
-from .safety import Guard
+from .safety import Guard, shares
 from .smoothing import Quantizer, Smoother, settle_seconds
 
 SAVE_GAP_S = 1.5        # the sync preset is rewritten at most this often (flash wear)
@@ -201,6 +201,4 @@ class BedStage:
         self.smoother.set_target(wanted, now)
         shown = self.smoother.step(now, settle)
         levels = color.to_led(shown, cfg) * cfg["bed_brightness"] * fade
-        limits = {**cfg, "power_limit_ma": cfg["bed_power_ma"],
-                  "sustained_ma": cfg["bed_power_ma"] * cfg["sustained_ma"] / cfg["power_limit_ma"]}
-        return self.quantizer.apply(self.guard.apply(levels, now, limits))
+        return self.quantizer.apply(self.guard.apply(levels, now, {**cfg, **shares(cfg)[1]}))
