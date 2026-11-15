@@ -4,7 +4,7 @@ Screen-synced LED lighting for a WLED strip, driven from your phone's browser.
 Runs as one Python process on a Mac. No app, no cloud, no account — your home
 network only.
 
-![tests](https://img.shields.io/badge/tests-874%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-884%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 - A phone page stored **on the WLED board**: monitor sync, effects and a colour
@@ -487,6 +487,10 @@ This is built for a home LAN. It has no encryption and no user accounts.
   checked against the release's size and SHA-256 before anything is erased
 
 **Do not port-forward it or expose it to the internet.**
+
+## Contributing
+
+Branches, versions, experiments and what gets recorded: `docs/ENGINEERING.md`. Changes are listed in `CHANGELOG.md`.
 
 ## Licence
 
