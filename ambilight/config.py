@@ -9,6 +9,8 @@ import tempfile
 import threading
 from pathlib import Path
 
+from . import journal
+
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
 log = logging.getLogger(__name__)
@@ -276,6 +278,7 @@ class Config:
             if not after["unprotected"] and not after["pin"]:
                 raise ValueError("protected mode needs a PIN; set one first")
             changed = [k for k, v in clean.items() if self._data.get(k) != v]
+            before = {k: self._data.get(k) for k in changed}
             self._data.update(clean)
             # A shorter strip invalidates any zone that ran off the old end.
             if "led_count" in clean and self._data["zones"]:
@@ -283,11 +286,17 @@ class Config:
 
                 reclamped = normalize(self._data["zones"], self._data["led_count"])
                 if reclamped != self._data["zones"]:
+                    before.setdefault("zones", None)
                     self._data["zones"] = reclamped
                     changed.append("zones")
+            after = {k: self._data[k] for k in changed}
         if changed:
             self.save()
+            journal.record(self.journal_path(), {k: (before[k], after[k]) for k in changed})
         return changed
+
+    def journal_path(self):
+        return str(self._path.with_suffix(".journal.jsonl"))
 
     def apply_profile(self, name):
         saved = self.get("user_profiles")

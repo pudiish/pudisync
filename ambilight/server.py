@@ -9,7 +9,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import hostcache, routes
+from . import hostcache, routes, version
 from .access import PinGate, allowed_fetch_site, allowed_host
 from .bed import Keeper
 from .camrun import CameraJob
@@ -216,6 +216,7 @@ class Hub:
                 "wled_reachable": board_answering(self.wled.reachable, self.engine.running,
                                                   self.engine.errors["output"]),
                 "mode": mode,
+                "version": version.build_id(),
                 "urls": hub_urls(self.port),
                 "board_urls": self.board_urls()}
 

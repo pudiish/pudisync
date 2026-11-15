@@ -15,7 +15,7 @@ import signal
 import sys
 import threading
 
-from ambilight import board
+from ambilight import board, journal, version
 from ambilight.config import CONFIG_PATH, Config
 from ambilight.discovery import Advertiser, hub_urls
 from ambilight.engine import Engine
@@ -108,6 +108,8 @@ def main():
     if exit_code is not None:
         sys.exit(exit_code)
     compatibility_check()
+    logging.getLogger("hub").info("PudiSync %s starting", version.build_id())
+    journal.record(config.journal_path(), {}, event="start")
 
     engine = Engine(config)
     wled = WLEDClient(config)
