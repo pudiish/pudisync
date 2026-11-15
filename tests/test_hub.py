@@ -4118,6 +4118,37 @@ def test_soak_live():
     check("the summary covers every stage", all(any(name in line for line in soak.summary(samples)) for name in STAGES))
 
 
+def test_sync_worktrees():
+    print("\n46. Keeping worktrees in step with the shared branch")
+    import sync_worktrees as sw
+
+    def tree(branch, dirty=False, ahead=0, behind=0, up_ahead=0):
+        return {"branch": branch, "dirty": dirty, "ahead_base": ahead, "behind_base": behind,
+                "ahead_upstream": up_ahead, "behind_upstream": 0}
+
+    base = sw.BASE
+    check("a clean checkout of the shared branch that is behind is fast-forwarded",
+          sw.decide(tree(base, behind=2, ahead=0))[0] == "fast-forward")
+    check("one with uncommitted work is left alone, however far behind",
+          sw.decide(tree(base, dirty=True, behind=2))[0] == "skip")
+    check("a shared branch that has diverged is reported, never merged",
+          sw.decide(tree(base, behind=1, ahead=1))[0] == "report")
+    check("unpushed commits on the shared branch are reported",
+          sw.decide(tree(base, ahead=1, up_ahead=1))[0] == "report")
+    check("a shared branch already level needs nothing", sw.decide(tree(base))[0] == "ok")
+    check("a workstream branch that is behind is reported for its own session, not changed",
+          sw.decide(tree("ws/capture", behind=3, ahead=2))[0] == "report")
+    check("a workstream branch with unpushed commits is reported",
+          sw.decide(tree("ws/capture", up_ahead=2))[0] == "report")
+    check("a level workstream branch needs nothing", sw.decide(tree("ws/capture"))[0] == "ok")
+    check("a detached checkout is skipped", sw.decide(tree(None))[0] == "skip")
+    check("main is never touched, even when behind", sw.decide(tree("main", behind=5))[0] == "skip")
+    check("only a fast-forward is ever applied",
+          {sw.decide(tree(b, d, a, bh, u))[0] for b in (base, "ws/x", "main", None)
+           for d in (False, True) for a in (0, 1) for bh in (0, 1) for u in (0, 1)}
+          <= {"fast-forward", "report", "skip", "ok"})
+
+
 def test_latency_script():
     print("\n45. The camera latency script, in a simulated room")
     import latency
@@ -4379,6 +4410,7 @@ def main():
     test_soak_verdict()
     test_soak_live()
     test_latency_script()
+    test_sync_worktrees()
     with sandbox_hub() as base:
         test_telemetry_api(base)
         test_api(base)
