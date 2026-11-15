@@ -75,7 +75,9 @@ Notes:
   (and ideally the middle) as well as the start
 - The hub keeps every frame inside a **power budget** (`power_limit_ma`, default
   3.8A for a 5A supply) and lets a bright scene held for minutes settle to
-  `sustained_ma` (default 3A). Set both for your supply. Keep WLED's own current
+  `sustained_ma` (default 3A). Set both for your supply. With a bed strip on the
+  same adapter, both strips together stay within 80% of `supply_ma` (default
+  5000); see `docs/wiring.md` §7. Keep WLED's own current
   limiter (**Config ▸ LED Preferences**) set to the supply rating as a backstop
 
 ## 2. Install

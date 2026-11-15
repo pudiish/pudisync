@@ -1189,7 +1189,7 @@ def test_recorder():
     cfg = {"wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "saturation": 1.2, "led_gamma": 1.5,
            "black_level": 0.03, "blend": 0.35, "spread": 0.0, "brightness": 1.0,
            "colour_match": True, "white_kelvin": 4500, "contrast": 1.5,
-           "power_limit_ma": 3800, "sustained_ma": 3000}
+           "power_limit_ma": 3800, "sustained_ma": 3000, "supply_ma": 5000}
     first, stats = replay(path, cfg)
     second, _ = replay(path, cfg)
     check("replay is deterministic", np.array_equal(first, second))
@@ -1255,7 +1255,7 @@ def test_safety():
 
     stage = OutputStage()
     live = {"blend": 1.0, "led_gamma": 1.0, "contrast": 1.0, "black_level": 0.0, "colour_match": False,
-            "zones": [], "led_count": 4, "brightness": 1.0, "power_limit_ma": 3800, "sustained_ma": 3000,
+            "zones": [], "led_count": 4, "brightness": 1.0, "power_limit_ma": 3800, "sustained_ma": 3000, "supply_ma": 5000,
             "wb_r": 1.0, "wb_g": 1.0, "wb_b": 1.0, "bed_leds": 0}
     stage.set_target(np.full((4, 3), 0.8, np.float32), 0.0)
     fresh = stage.frame(0.5, live)
@@ -3133,8 +3133,9 @@ def test_bed_strip():
           code == 200 and boardfake.configs[-1]["hw"]["led"]["ins"][1]["len"] == 72 and boardfake.reboots == 1,
           (code, body))
     check("and remembers the strip and its adapter", cfg.get("bed_leds") == 72 and cfg.get("bed_power_ma") == 3000)
-    check("the board holds the monitor strip to the hub's own power limit",
-          boardfake.configs[-1]["hw"]["led"]["ins"][0]["maxpwr"] == cfg.get("power_limit_ma"))
+    from ambilight.safety import shares
+    check("the board holds the monitor strip to the hub's own share of the adapter",
+          boardfake.configs[-1]["hw"]["led"]["ins"][0]["maxpwr"] == round(shares(cfg.snapshot())[0]["power_limit_ma"]))
     check("and remembers where the bed starts on the board", cfg.get("bed_start") == 180)
     body, code = routes.handle(hub, "/api/bed/setup", parse_qs("leds=5000&amps=3"))
     check("an impossible LED count is refused", code == 400 or "error" in body, (code, body))
@@ -3252,6 +3253,59 @@ def test_bed_strip():
           padded.shape == (210, 3) and not padded[97:180].any() and padded[180:].any())
     check("and the bed's segments start there too",
           bed.layout({**live, "led_count": 97, "bed_start": 180, "bed_mode": "colour"})[1]["start"] == 180)
+
+
+def test_shared_supply():
+    print("\n39b. Both strips on one adapter: their currents together stay inside it")
+    from urllib.parse import parse_qs
+    from ambilight import routes
+    from ambilight.engine import OutputStage
+    from ambilight.safety import estimate_ma
+
+    path = os.path.join(tempfile.mkdtemp(prefix="ambilight-supply-"), "config.json")
+    cfg = Config(path)
+    # The defaults, plus a 200-LED bed set up with the form's suggested 2 A.
+    cfg.update({"led_count": 180, "bed_leds": 200, "bed_start": 180, "bed_mode": "screen",
+                "bed_brightness": 1.0, "black_level": 0.0})
+    budget = 5000 * 0.8
+    check("a fresh install assumes the 5 A adapter its limits were sized for",
+          cfg.snapshot().get("supply_ma") == 5000)
+
+    stage = OutputStage()
+    stage.set_target(np.ones((180, 3), np.float32), 0.0)
+    out = stage.frame(0.0, cfg.snapshot())
+    total = estimate_ma(out[:180]) + estimate_ma(out[180:])
+    check("full white on both strips stays under 80% of the adapter's rating",
+          total <= budget * 1.02, round(total))
+    check("and both strips still light", out[:180].any() and out[180:].any())
+
+    alone = OutputStage()
+    alone.set_target(np.ones((180, 3), np.float32), 0.0)
+    own = alone.frame(0.0, {**cfg.snapshot(), "supply_ma": 0})
+    check("0 means each strip has an adapter of its own: each keeps its own limit",
+          estimate_ma(own[180:]) > 1900 and estimate_ma(own[:180]) > 3700,
+          (round(estimate_ma(own[:180])), round(estimate_ma(own[180:]))))
+
+    board = FakeBedBoard(ps=-1)
+
+    class Hub:
+        wled = board
+
+        def __init__(self):
+            self.cfg = cfg
+
+        def status(self):
+            return {}
+
+    hub = Hub()
+    body, code = routes.handle(hub, "/api/bed/setup", parse_qs("leds=200&amps=2"))
+    monitor, second = board.configs[-1]["hw"]["led"]["ins"]
+    check("the board's own limits for the two outputs add up to no more than that share too",
+          code == 200 and monitor["maxpwr"] + second["maxpwr"] <= budget, (code, monitor["maxpwr"], second["maxpwr"]))
+    check("the bed's share keeps the proportion that was asked for",
+          abs(second["maxpwr"] / monitor["maxpwr"] - 2000 / 3800) < 0.01, (monitor["maxpwr"], second["maxpwr"]))
+    check("what was typed in is kept, so a bigger adapter later gives it back", cfg.get("bed_power_ma") == 2000)
+    check("the adapter's rating is a checked setting", cfg.validate("supply_ma", "8000") == 8000)
 
 
 class FakeProcess:
@@ -4183,6 +4237,7 @@ def main():
     test_colour_locks()
     test_webcam_job()
     test_bed_strip()
+    test_shared_supply()
     test_engine_parts()
     test_telemetry()
     test_engine_telemetry()

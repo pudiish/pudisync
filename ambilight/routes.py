@@ -17,6 +17,7 @@ from .effects import catalogue as effect_catalogue, state_for
 from .plugins.output_serial import list_ports, required_baud
 from .provision import esptool_available, known_networks
 from .recorder import RECORDINGS_DIR, replay
+from .safety import shares
 
 OK = 200
 BRIGHTNESS_SETTLE_S = 1.5   # the board loads a preset in its next loop; give it time before looking
@@ -352,8 +353,10 @@ def bed_setup(hub, q):
     board = hub.wled.config()
     if not board:
         return {"error": "the board is not answering; try again once it is back"}, 503
-    payload = bed.bus_config(board["hw"]["led"], hub.cfg.get("led_count"), hub.cfg.get("power_limit_ma"),
-                             leds, milliamps, pin)
+    # The board's limits are the hub's shares of the adapter, so they hold while it renders its own looks.
+    monitor_share, bed_share = shares({**hub.cfg.snapshot(), "bed_leds": leds, "bed_power_ma": milliamps})
+    payload = bed.bus_config(board["hw"]["led"], hub.cfg.get("led_count"), round(monitor_share["power_limit_ma"]),
+                             leds, round(bed_share["power_limit_ma"]), pin)
     if not hub.wled.set_config(payload):
         return {"error": "the board did not take the new output; nothing changed"}, 502
     time.sleep(CONFIG_SAVE_S)

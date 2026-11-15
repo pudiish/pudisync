@@ -2,7 +2,8 @@
 
 Runs on every output frame, after zones and brightness, before quantizing:
 
-- power budget: the estimated current never exceeds `power_limit_ma`. Over
+- power budget: the estimated current never exceeds `power_limit_ma` (less
+  when the bed strip shares the adapter: see shares()). Over
   budget the frame scales down at once; it comes back over RELEASE_S, so the
   limit glides instead of pumping. WLED's own limiter stays configured as a
   hardware-side backstop.
@@ -27,6 +28,28 @@ STROBE_SWING = 0.10         # a whole-strip jump of 10% of full counts as a flas
 STROBE_WINDOW_S = 1.0
 STROBE_MAX = 3              # flashes allowed per window (WCAG 2.3.1)
 STROBE_DAMP = 0.15          # while strobing, output moves this share toward each frame
+# Both strips together peak at this share of their adapter's rating: budget
+# adapters often deliver less than the label, and run hot near it.
+SUPPLY_HEADROOM = 0.8
+
+
+def shares(cfg):
+    """Each strip's current limits now: (monitor, bed), as {power_limit_ma, sustained_ma}.
+
+    The strips on one adapter (`supply_ma`) keep their limits together within
+    SUPPLY_HEADROOM of its rating, as two limits that each fit the adapter can
+    still overload it together; without a bed that caps the monitor strip alone. Over that, both shrink by the same
+    factor, so the split asked for is kept. supply_ma 0 means each strip has
+    an adapter of its own. A bed counts whenever it is set up: running an
+    effect of its own, it draws from the same adapter.
+    """
+    monitor_ma, bed_ma = cfg["power_limit_ma"], cfg["bed_power_ma"] if cfg["bed_leds"] > 0 else 0
+    budget = cfg["supply_ma"] * SUPPLY_HEADROOM
+    factor = min(1.0, budget / (monitor_ma + bed_ma)) if cfg["supply_ma"] > 0 else 1.0
+    sustained_share = cfg["sustained_ma"] / monitor_ma
+    monitor = {"power_limit_ma": monitor_ma * factor, "sustained_ma": cfg["sustained_ma"] * factor}
+    bed = {"power_limit_ma": bed_ma * factor, "sustained_ma": bed_ma * factor * sustained_share}
+    return monitor, bed
 
 
 def estimate_ma(levels):

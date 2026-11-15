@@ -12,7 +12,7 @@ from . import bed, color, mouse, processing, zones as zonelib
 from .plugins import CAPTURES, OUTPUTS
 from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
-from .safety import Guard
+from .safety import Guard, shares
 from .smoothing import Quantizer, Smoother, settle_seconds
 from .telemetry import Telemetry
 
@@ -154,7 +154,7 @@ class OutputStage:
             # Zones paint over the sync layer after smoothing, so a solid zone
             # is not dragged toward screen colour.
             composed = zonelib.composite(levels, cfg["zones"], cfg["led_count"])
-            safe = self.guard.apply(composed * cfg["brightness"], now, cfg)
+            safe = self.guard.apply(composed * cfg["brightness"], now, {**cfg, **shares(cfg)[0]})
             pixels = self.quantizer.apply(safe)
             if not bed.streams(cfg):
                 return pixels

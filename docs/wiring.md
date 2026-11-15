@@ -217,5 +217,11 @@ adapter** as the monitor strip.
 
 ### Current limits on one adapter
 
-The hub holds the monitor strip to 2.8 A and the bed to 1.0 A (3.8 A on a 4 A
-adapter), and sets the board to limit each output separately.
+Each strip has its own limit (`power_limit_ma` and the bed's amps), but on one
+adapter the two together stay within 80% of its rating (`supply_ma`, default
+5000 for a 5 A adapter): over that, both shrink by the same factor. With the
+defaults, 3.8 A and 2 A become about 2.6 A and 1.4 A, 4 A in all. Bed setup
+writes those same shares to the board's per-output limits. Set `supply_ma` to
+your adapter's rating with `/api/set?supply_ma=5000`, or to 0 when each strip
+has an adapter of its own. Changing a limit later updates the hub's limiter at
+once, but the board's limits only when bed setup runs again.
