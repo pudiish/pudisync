@@ -39,6 +39,8 @@ pipeline, a way of controlling it, or a one-off setup tool.
 | `ambilight/zones.py` | 140 | Splits the strip into regions, each with its own mode (screen, colour, effect). |
 | `ambilight/safety.py` | 99 | Brightness and current limits so the strip and 5V supply are not overdriven. |
 | `ambilight/telemetry.py` | 99 | Live timing per stage (capture, process, colour, smooth, send), delivered fps, drops and picture age, for the status API. |
+| `ambilight/version.py` | 19 | The running build: the `VERSION` file plus the git commit. |
+| `ambilight/journal.py` | 32 | Append-only journal of every settings change (`config.journal.jsonl`). |
 
 ### C. Hardware plugins (swappable in and out)
 | File | Lines | What it is for |
@@ -94,7 +96,7 @@ manual steps: `docs/CONNECT.md`.
 ### H. Dev tooling
 | File | Lines | What it is for |
 |---|---|---|
-| `tests/test_hub.py` | 4318 | 62 test functions, 874 checks. Starts a fake board and a sandbox hub. |
+| `tests/test_hub.py` | 4318 | 63 test functions, 884 checks. Starts a fake board and a sandbox hub. |
 | `tools/fake_wled.py` | 227 | Pretend WLED board for tests; checks DNRGB and DDP packets. |
 | `tools/hardware_sim.py` | 356 | Puts a hub through failures (reboot, drops) against the fake board. |
 | `tools/soak.py` | 256 | Runs a sandbox hub for hours; checks memory stays flat and fps steady. `--dry-run` for one minute. |
