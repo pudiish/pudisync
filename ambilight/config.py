@@ -40,12 +40,14 @@ PROFILES = {
     # 2026-11-16 (experiments/2026-11-16-best-mode.md) found a boost and a heavy
     # flood pull the wall's colour away from the screen's: lowest mean mismatch
     # of the modes tried, and the best on a bright sky and grass scene.
-    "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.0, "immersion": 0.15, "spread": 0.2,
+    # Spread 0.3: on a 30 s live recording more spread cut LED-to-LED shimmer
+    # (1.44 to 1.34) for a small loss of sharpness.
+    "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.0, "immersion": 0.15, "spread": 0.3,
               "colour_weight": 0.5, "enrich": 1.0},
 }
 # What a profile of your own saves: the whole look, not the strip's setup.
 PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
-                "colour_weight", "spread", "black_level", "enrich", "dark_boost", "adaptive", "hue_balance", "mouse_sync",
+                "colour_weight", "spread", "black_level", "enrich", "dark_boost", "adaptive", "hue_balance", "adaptive_pace", "mouse_sync",
                 "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect", "bed_speed",
                 "bed_brightness")
 PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
@@ -109,6 +111,10 @@ DEFAULTS = {
     # brightness headroom, never dimming the others (color.hue_balance).
     # 0 off, 1 full; below 1 because blue and red already look brighter than their light.
     "hue_balance": 0.35,
+    # Adaptive pace: the light's speed follows how fast the picture changes, gliding
+    # slower in calm scenes and following faster in action (smoothing.Smoother.pace).
+    # 0 off (Response alone), 1 full.
+    "adaptive_pace": 1.0,
     # LED safety (safety.py). Defaults suit a 5V 5A supply: peaks stay under
     # 3.8A (WLED's own limiter, set to 4A, is the hardware-side backstop) and a
     # bright scene held for minutes settles at 3A.
@@ -338,6 +344,7 @@ _LIMITS = {
     "dark_boost": (0.0, 1.0),
     "adaptive": (0.0, 1.0),
     "hue_balance": (0.0, 1.0),
+    "adaptive_pace": (0.0, 1.0),
     "power_limit_ma": (200, 20000),
     "sustained_ma": (200, 20000),
     "supply_ma": (0, 50000),

@@ -199,6 +199,6 @@ class BedStage:
         else:
             wanted = side_colours(targets, cfg, count)
         self.smoother.set_target(wanted, now)
-        shown = self.smoother.step(now, settle)
+        shown = self.smoother.step(now, settle, cfg.get("adaptive_pace", 0.0))
         levels = color.to_led(shown, cfg, cfg["bed_brightness"]) * cfg["bed_brightness"] * fade
         return self.quantizer.apply(self.guard.apply(levels, now, {**cfg, **shares(cfg)[1]}))

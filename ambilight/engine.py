@@ -143,7 +143,7 @@ class OutputStage:
     def frame(self, now, cfg):
         """Bytes to send now, or None before the first target."""
         with self.lock:
-            shown = self.smoother.step(now, settle_seconds(cfg["blend"]))
+            shown = self.smoother.step(now, settle_seconds(cfg["blend"]), cfg.get("adaptive_pace", 0.0))
             if shown is None:
                 return None
             # A frozen or lost capture must not hold the last bright frame on
