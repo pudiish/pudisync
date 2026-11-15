@@ -36,13 +36,12 @@ PROFILES = {
                  "colour_weight": 0.3, "enrich": 1.0},
     # Vivid keeps Enriched's tone stage (highlights reach full, shadows sink) and
     # adds back a little of Cinema's flood so a dark scene still lights the room.
-    # Saturation stays at 1.0 and immersion low because the webcam trial of
-    # 2026-11-16 (experiments/2026-11-16-best-mode.md) found a boost and a heavy
-    # flood pull the wall's colour away from the screen's: lowest mean mismatch
-    # of the modes tried, and the best on a bright sky and grass scene.
+    # Immersion stays low: a heavy flood pulls the wall's colour away from the
+    # screen's. Saturation 1.2 was the owner's pick by eye on 2026-11-16; the
+    # webcam had suggested 1.0, but its own colour mixing made it unreliable.
     # Spread 0.3: on a 30 s live recording more spread cut LED-to-LED shimmer
     # (1.44 to 1.34) for a small loss of sharpness.
-    "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.0, "immersion": 0.15, "spread": 0.3,
+    "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.2, "immersion": 0.15, "spread": 0.3,
               "colour_weight": 0.5, "enrich": 1.0},
 }
 # What a profile of your own saves: the whole look, not the strip's setup.
@@ -73,9 +72,9 @@ DEFAULTS = {
     "right_led": 239,
     "fade_leds": 12,
     "band_height": 150,
-    "profile": "movie",
+    "profile": "vivid",
     "saturation": 1.2,
-    "blend": 0.3,
+    "blend": 0.5,
     "brightness": 1.0,
     "fps": 60,
     # Colour engine. colour_match converts screen colour into the WS2812B's own
@@ -94,13 +93,13 @@ DEFAULTS = {
     # S-curve after the LED gamma: brights brighter, darks darker. 1.0 = none.
     "contrast": 1.5,
     "black_level": 0.03,
-    "colour_weight": 0.6,
+    "colour_weight": 0.5,
     # 0..1: deep shades lifted and the strip flooded with the scene's colour
     # (color.immerse). 0 leaves colours exactly as graded. A fresh install
     # starts in Cinema, so this and the other look settings are its recipe.
-    "immersion": 0.4,
+    "immersion": 0.15,
     # The Enriched tone stage (enrich.py): 0 off, 1 full.
-    "enrich": 0.0,
+    "enrich": 1.0,
     # Dark scenes: how far a dark frame relaxes LED gamma and contrast so shadows
     # still light up and react (color.dark_lift). 0 off, 1 fully neutral.
     "dark_boost": 0.4,
@@ -124,7 +123,7 @@ DEFAULTS = {
     # monitor strip's alone without a bed) stay within 80% of it
     # (safety.shares). 0 = each strip has an adapter of its own.
     "supply_ma": 5000,
-    "spread": 0.4,
+    "spread": 0.3,
     "sync_on_start": False,
     # The WLED preset that means "follow my monitor" (saved on the board).
     "sync_preset": 1,

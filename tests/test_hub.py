@@ -1091,6 +1091,42 @@ def test_color_engine():
     check("a plain strip does not wrap", pr.spread(ring, 0.4)[4, 0] == 0)
 
 
+def test_adaptive_pace():
+    print("\n14b. Adaptive pace: the light's speed follows how fast the picture changes")
+    from ambilight.smoothing import BUSY_FACTOR, CALM_FACTOR, Smoother
+
+    def fed(rate_per_s, seconds=2.0, fps=30):
+        """A smoother fed a picture whose LEDs change by `rate_per_s` (0..1 units) every second."""
+        s, now, level = Smoother(), 0.0, 0.2
+        for _ in range(int(seconds * fps)):
+            level = 0.2 + (now * rate_per_s) % 0.6
+            s.set_target(np.full((10, 3), level, np.float32), now)
+            s.step(now, 0.2, 1.0)
+            now += 1 / fps
+        return s
+
+    calm, busy = fed(0.02), fed(3.0)
+    check("a calm picture slows the light down", abs(calm.pace(1.0) - CALM_FACTOR) < 0.05, round(calm.pace(1.0), 2))
+    check("fast action speeds it up", abs(busy.pace(1.0) - BUSY_FACTOR) < 0.05, round(busy.pace(1.0), 2))
+    check("at zero the Response setting alone decides", calm.pace(0.0) == 1.0 and busy.pace(0.0) == 1.0)
+
+    def biggest_step(start, end):
+        s, now, frames = Smoother(), 0.0, []
+        s.set_target(np.full((10, 3), start, np.float32), now)
+        s.step(now, 0.2, 1.0)
+        s.set_target(np.full((10, 3), end, np.float32), 0.0)
+        for _ in range(30):
+            now += 1 / 60
+            frames.append(s.step(now, 0.2, 1.0)[0, 0])
+        return float(np.max(np.abs(np.diff([start] + frames))))
+    check("a cut to full eases in over several frames, never one jump", biggest_step(0.0, 1.0) < 0.35, round(biggest_step(0.0, 1.0), 3))
+    check("a cut to black is eased the same way", biggest_step(1.0, 0.0) < 0.35, round(biggest_step(1.0, 0.0), 3))
+    s = Smoother()
+    s.set_target(np.full((10, 3), 0.5, np.float32), 1.0)
+    s.set_target(np.full((10, 3), 0.9, np.float32), 1.0)       # two targets at the same moment
+    check("two pictures at the same instant do not break the rate", np.isfinite(s.rate))
+
+
 def test_smoothing():
     print("\n13. Temporal smoothing (spring, scene cuts, flash limit, anti-flicker)")
     from ambilight.smoothing import Quantizer, Smoother, settle_seconds
@@ -2744,8 +2780,8 @@ def test_immersion():
           night[-1].max() < 0.08, night[-1])
     check("black stays black", np.allclose(on[5], 0.0, atol=1e-3), on[5])
     from ambilight.config import PROFILES
-    check("immersion is a setting from 0 to 1, starting at Cinema's level",
-          Config(os.path.join(tempfile.mkdtemp(), "c.json")).get("immersion") == PROFILES["movie"]["immersion"])
+    check("immersion is a setting from 0 to 1, starting at the default mode's (Vivid's) level",
+          Config(os.path.join(tempfile.mkdtemp(), "c.json")).get("immersion") == PROFILES["vivid"]["immersion"])
 
 
 def test_user_profiles():
@@ -3003,8 +3039,8 @@ def test_sync_modes():
           set(cinema) == set(gaming) == set(PROFILES["enriched"]) == set(PROFILES["vivid"]) == recipe,
           (sorted(cinema), sorted(gaming)))
     check("and only what a profile of your own also keeps", recipe <= set(PROFILE_KEYS))
-    check("a fresh install starts in Cinema, exactly",
-          DEFAULTS["profile"] == "movie" and all(DEFAULTS[k] == v for k, v in cinema.items()))
+    check("a fresh install starts in Vivid, exactly",
+          DEFAULTS["profile"] == "vivid" and all(DEFAULTS[k] == v for k, v in PROFILES["vivid"].items()))
 
     check("Cinema glides: a change settles in about a third of a second",
           0.3 < settle_seconds(cinema["blend"]) < 0.45, round(settle_seconds(cinema["blend"]), 3))
@@ -4420,6 +4456,7 @@ def main():
     test_frame_layout()
     test_color_engine()
     test_smoothing()
+    test_adaptive_pace()
     test_recorder()
     test_safety()
     test_config()
