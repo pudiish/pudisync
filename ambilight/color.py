@@ -294,11 +294,50 @@ def curve(cfg, lift):
     return (gamma - max(0.0, gamma - 1.0) * lift, contrast - max(0.0, contrast - 1.0) * lift)
 
 
-def to_led(perceptual, cfg):
+# Share of a white LED's light that each channel gives. WS2812B datasheet luminous
+# intensity: the original table has red 550-700, green 1100-1400, blue 200-400 mcd; the
+# V6 table at 12 mA has about 400, 800, 250. These are rounded mid values of both, so
+# they hold for either revision; the exact figures vary from strip to strip.
+CHANNEL_LIGHT = np.array([0.28, 0.56, 0.16], np.float32)
+BALANCE_REF = 0.45      # a colour whose light share is below this is lifted toward it; brighter hues are left alone
+
+
+def hue_balance(levels, amount, brightness=1.0):
+    """Lift the hues that give little light; nothing is ever dimmed.
+
+    At the same drive a green LED shows about 3.5 times the light of a blue one,
+    so blue and deep red look dim and fade out beside green and yellow. Each
+    colour's light share (its light over its strongest channel's: 1 for white,
+    0.16 for pure blue) says how dim it is; its level is scaled by
+    (reference / share) ** (amount * saturation), when that is above 1. Whites,
+    greys and the bright hues (green, yellow) are left alone, and the whole
+    colour is scaled together, so its hue never changes. Dimming the bright
+    hues instead would only cost highlights and overall brightness. Brightness is perceived roughly as the log of the
+    light, and saturated blue and red already look brighter than their light
+    predicts (Helmholtz-Kohlrausch), so `amount` stays below 1: full
+    equalising would overshoot. A lift never takes the strongest channel past
+    255 at the current `brightness`: with no headroom nothing changes.
+    """
+    levels = np.asarray(levels, dtype=np.float32)
+    if amount <= 0 or not len(levels):
+        return levels
+    top = levels.max(axis=1, keepdims=True)
+    safe = np.maximum(top, 1e-6)
+    share = np.maximum((levels @ CHANNEL_LIGHT)[:, None] / safe, 0.05)
+    saturation = 1.0 - levels.min(axis=1, keepdims=True) / safe
+    gain = np.maximum((BALANCE_REF / share) ** (amount * saturation), 1.0)
+    headroom = np.maximum(255.0 / np.maximum(top * brightness, 1e-6), 1.0)
+    return levels * np.minimum(gain, headroom)
+
+
+def to_led(perceptual, cfg, brightness=None):
     """Perceptual colours -> 0..255 LED drive levels (float, not yet quantized).
 
-    Below `black_level` the light fades out rather than glowing on noise.
+    Below `black_level` the light fades out rather than glowing on noise. The
+    result is hue-balanced for the `brightness` it will be shown at (the monitor
+    strip's unless the caller says otherwise).
     """
+    brightness = cfg.get("brightness", 1.0) if brightness is None else brightness
     p = np.clip(np.asarray(perceptual, dtype=np.float32), 0.0, 1.0)
     black = cfg["black_level"]
     if black > 0:
@@ -309,7 +348,8 @@ def to_led(perceptual, cfg):
     balance = np.array([cfg["wb_r"], cfg["wb_g"], cfg["wb_b"]], dtype=np.float32)
     gamma, contrast = curve(cfg, dark_lift(p, cfg))
     if not cfg["colour_match"]:
-        return contrast_curve(p ** gamma, contrast) * balance * adaptive_gain(p, cfg) * 255.0
+        return hue_balance(contrast_curve(p ** gamma, contrast) * balance * adaptive_gain(p, cfg) * 255.0,
+                           cfg.get("hue_balance", 0.0), brightness)
 
     linear = srgb_to_linear(p)
     # A webcam-measured matrix (camcal.py) beats the datasheet model when present.
@@ -332,4 +372,5 @@ def to_led(perceptual, cfg):
     # unmatched curve, taken from the screen colour itself, so a saturated
     # red is as bright on the wall as it is on screen.
     level = contrast_curve(p.max(axis=1, keepdims=True) ** gamma, contrast)
-    return light * (level * adaptive_gain(p, cfg) / np.maximum(peak, 1e-12)) * 255.0
+    return hue_balance(light * (level * adaptive_gain(p, cfg) / np.maximum(peak, 1e-12)) * 255.0,
+                       cfg.get("hue_balance", 0.0), brightness)

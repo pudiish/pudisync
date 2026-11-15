@@ -2864,6 +2864,48 @@ def test_adaptive_brightness():
           levels.min() > 0.6 * levels.max(), [round(float(levels[i * 20] / levels.max()), 2) for i in range(5)])
 
 
+def test_hue_balance():
+    print("\n40e. Hue balance: dim hues (blue, red) lifted within the headroom, nothing dimmed")
+    from ambilight import color
+    from ambilight.config import DEFAULTS, PROFILE_KEYS
+
+    def level(rgb, amount, brightness=1.0):
+        return color.hue_balance(np.array([rgb], np.float32), amount, brightness)[0]
+
+    blue, red, green, yellow = (0, 0, 150), (150, 0, 0), (0, 150, 0), (150, 150, 0)
+    check("at zero nothing changes", np.array_equal(level(blue, 0.0, 0.5), np.array(blue, np.float32)))
+    check("blue, which gives the least light, is lifted", level(blue, 0.5, 0.5)[2] > 1.3 * 150, level(blue, 0.5, 0.5))
+    check("red is lifted too, by less", 150 < level(red, 0.5, 0.5)[0] < level(blue, 0.5, 0.5)[2], level(red, 0.5, 0.5))
+    check("green and yellow, which give the most light, are left alone: nothing is ever dimmed",
+          np.array_equal(level(green, 1.0, 0.5), np.array(green, np.float32))
+          and np.array_equal(level(yellow, 1.0, 0.5), np.array(yellow, np.float32)))
+    check("white and greys keep their level: only colour is rebalanced",
+          np.allclose(level((150, 150, 150), 1.0, 0.5), 150) and np.allclose(level((40, 40, 40), 1.0, 0.5), 40))
+    mixed = level((0, 90, 150), 0.7, 0.5)
+    check("the colour never changes, only how bright it is", np.allclose(mixed / mixed.max(), np.array([0, 90, 150]) / 150, atol=1e-4))
+    check("nothing is pushed past what the strip can show at the current brightness",
+          level(blue, 1.0, 0.8).max() * 0.8 <= 255.001 and level((0, 0, 250), 1.0, 1.0).max() <= 255.001,
+          (level(blue, 1.0, 0.8), level((0, 0, 250), 1.0, 1.0)))
+    check("at full brightness with the strip already at full, there is no headroom and nothing changes",
+          np.allclose(level((0, 0, 255), 1.0, 1.0), (0, 0, 255)))
+    check("black stays black", np.array_equal(level((0, 0, 0), 1.0, 0.5), np.zeros(3, np.float32)))
+
+    with tempfile.TemporaryDirectory() as folder:
+        cfg = {**Config(os.path.join(folder, "config.json")).snapshot(), "dark_boost": 0.0, "brightness": 0.55}
+    bars = np.repeat(np.array([[0.92, 0.86, 0.16], [0.12, 0.24, 0.90], [0.90, 0.12, 0.12],
+                               [0.12, 0.78, 0.24], [0.86, 0.16, 0.75]], np.float32), 20, axis=0)
+    light = lambda drive: (drive @ color.CHANNEL_LIGHT)[[0, 20, 40, 60, 80]]      # what the eye gets from each bar
+    flat = light(color.to_led(bars, {**cfg, "hue_balance": 0.0}))
+    balanced = light(color.to_led(bars, cfg))
+    check("on colour bars the dimmest hue's light moves closer to the brightest hue's",
+          balanced.min() / balanced.max() > flat.min() / flat.max() + 0.05,
+          (round(float(flat.min() / flat.max()), 2), round(float(balanced.min() / balanced.max()), 2)))
+    check("and no bar shows less light than before", bool(np.all(balanced >= flat - 1e-3)), np.round(balanced / flat, 2))
+    check("it is on by default, between none and full, and a profile of your own keeps it",
+          0.0 < DEFAULTS["hue_balance"] < 1.0 and "hue_balance" in PROFILE_KEYS)
+    check("it is a checked setting", Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-hb-"), "c.json")).validate("hue_balance", "0.4") == 0.4)
+
+
 def test_enriched():
     print("\n40b. Enriched: deep blacks, bright highlights, true colour")
     import colour
@@ -2918,7 +2960,7 @@ def test_enriched():
         return color.srgb_to_linear(color.hsv_to_rgb(hsv))
 
     def drive(linear, tone):
-        look = {**DEFAULTS, **PROFILES["enriched"], "enrich": tone}
+        look = {**DEFAULTS, **PROFILES["enriched"], "enrich": tone, "hue_balance": 0.0}   # the tone stage alone
         return color.to_led(color.grade(linear, look), look).max(axis=1)
 
     for name, scene in (("a dark film scene", film(0.05, 0.35)), ("a mid-lit one", film(0.2, 0.6)),
@@ -4410,6 +4452,7 @@ def main():
     test_enriched()
     test_dark_scenes()
     test_adaptive_brightness()
+    test_hue_balance()
     test_colour_locks()
     test_webcam_job()
     test_bed_strip()

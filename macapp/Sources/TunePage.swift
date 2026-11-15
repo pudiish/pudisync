@@ -38,6 +38,9 @@ struct PictureCard: View {
             settingFader("adaptive", "Adaptive brightness",
                          hint: "Each LED takes its brightness from what it faces, so a bright screen no longer floods the wall.",
                          format: offOrPercent, store: store)
+            settingFader("hue_balance", "Colour balance",
+                         hint: "Lifts the colours an LED shows dimly, like blue and deep red, when there is brightness to spare. Nothing is dimmed.",
+                         format: offOrPercent, store: store)
             settingFader("dark_boost", "Dark scenes",
                          hint: "How much the light still shows and reacts when the whole picture is dark.",
                          format: offOrPercent, store: store)

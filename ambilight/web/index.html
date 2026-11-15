@@ -442,6 +442,8 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
         data-hint="Lifts deep colours and floods the room with the scene's colour. Skin and greys stay true."></div>
       <div class="fader" data-fader="adaptive"
         data-hint="Each LED takes its brightness from what it faces: highlights stay bright, dull areas dim."></div>
+      <div class="fader" data-fader="hue_balance"
+        data-hint="Lifts the colours an LED shows dimly, like blue and deep red, when there is brightness to spare. Nothing is dimmed."></div>
       <div class="fader" data-fader="dark_boost"
         data-hint="How much the light still shows and reacts when the whole picture is dark."></div>
       <div class="fader" data-fader="blend" data-hint="How long the light takes to settle on a new colour."></div>
@@ -795,6 +797,7 @@ const FADERS = {
   white_kelvin: {label: "Warmth", min: 2700, max: 6500, step: 100, fmt: v => `${v} K`},
   immersion: {label: "Immersion", min: 0, max: 100, scale: 100, fmt: offOr},
   adaptive: {label: "Adaptive brightness", min: 0, max: 100, scale: 100, fmt: offOr},
+  hue_balance: {label: "Colour balance", min: 0, max: 100, scale: 100, fmt: offOr},
   dark_boost: {label: "Dark scenes", min: 0, max: 100, scale: 100, fmt: offOr},
   blend: {label: "Response", min: 1, max: 100, scale: 100, fmt: v => `${two(settle(v))} s`,
     say: v => `settles in ${two(settle(v))} seconds`},
