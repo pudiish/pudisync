@@ -378,6 +378,8 @@ def test_api(base):
     check("engine reports a live frame rate", s["measured_fps"] > 20,
           f"{s['measured_fps']} fps")
     check("status carries a preview for the UI", len(s.get("preview", [])) > 0)
+    from ambilight import version
+    check("status names the running build", s.get("version") == version.build_id(), s.get("version"))
     check("while syncing, status still carries the board's brightness for the master slider",
           isinstance(s.get("wled_bri"), int) and s.get("wled_on") is True, (s.get("wled_bri"), s.get("wled_on")))
     check("status never leaks the PIN", "pin" not in s)
@@ -1262,6 +1264,39 @@ def test_safety():
     stale = stage.frame(6.0, live)
     check("a frozen capture fades the strip out instead of holding it",
           fresh.max() > 150 and stale.max() == 0, (fresh.max(), stale.max()))
+
+
+def test_run_record():
+    print("\n15b. Run record: the build is named, and every settings change is journalled")
+    import re
+    from ambilight import journal, version
+
+    check("the build is a semantic version, with the commit when there is one",
+          re.fullmatch(r"\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?(\+[0-9a-f]{7,})?", version.build_id()), version.build_id())
+    check("it starts with the VERSION file", version.build_id().startswith(open("VERSION").read().strip()))
+
+    folder = tempfile.mkdtemp(prefix="ambilight-journal-")
+    cfg = Config(os.path.join(folder, "config.json"))
+    path = os.path.join(folder, "config.journal.jsonl")
+    check("nothing is written before something changes", not os.path.exists(path))
+    cfg.update({"brightness": 0.5, "pin": "4321"})
+    cfg.update({"brightness": 0.5})
+    cfg.update({"profile": "vivid", "zones": []})
+    lines = [json.loads(line) for line in open(path)]
+    check("each change that matters is one line; an unchanged value writes none", len(lines) == 2, len(lines))
+    first = lines[0]
+    check("the line says when, which build, and the old and new value",
+          first["build"] == version.build_id() and re.match(r"\d{4}-\d\d-\d\dT", first["t"])
+          and first["changed"]["brightness"] == [1.0, 0.5], first)
+    check("the PIN is recorded as changed, never its value",
+          first["changed"]["pin"] == "changed" and "4321" not in open(path).read())
+    cfg.update({"zones": [{"start": 0, "end": 9, "mode": "warm", "color": "#ff2010", "brightness": 1.0, "keep": True}]})
+    check("big values are noted as changed, not copied",
+          json.loads(open(path).readlines()[-1])["changed"]["zones"] == "changed")
+    journal.record(path, {"fps": (60, 61)}, event="start", max_bytes=100)
+    check("the journal rolls over instead of growing without limit", os.path.exists(path + ".1"))
+    journal.record(os.path.join(folder, "missing-dir", "x.jsonl"), {"fps": (60, 61)})
+    check("an unwritable journal never stops a settings change", cfg.update({"fps": 62}) == ["fps"])
 
 
 def test_config():
@@ -4254,6 +4289,7 @@ def main():
     test_smoothing()
     test_recorder()
     test_safety()
+    test_run_record()
     test_config()
     test_access()
     test_board_answering()
