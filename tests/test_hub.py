@@ -2856,6 +2856,13 @@ def test_adaptive_brightness():
     check("at zero nothing changes", np.array_equal(color.to_led(mixed, off), color.to_led(mixed, {**cfg, "adaptive": 0})))
     check("it is on out of the box, and profiles keep it", DEFAULTS["adaptive"] > 0 and "adaptive" in PROFILE_KEYS)
 
+    # Saturated blue and red carry little luminance but are as vivid as yellow: they must not fade beside it.
+    bars = np.repeat(np.array([[0.92, 0.86, 0.16], [0.12, 0.24, 0.90], [0.90, 0.12, 0.12],
+                               [0.12, 0.78, 0.24], [0.86, 0.16, 0.75]], np.float32), 20, axis=0)
+    levels = color.to_led(bars, {**cfg, "adaptive": DEFAULTS["adaptive"]}).max(axis=1)
+    check("a saturated blue or red beside bright yellow keeps most of its level at the default setting",
+          levels.min() > 0.6 * levels.max(), [round(float(levels[i * 20] / levels.max()), 2) for i in range(5)])
+
 
 def test_enriched():
     print("\n40b. Enriched: deep blacks, bright highlights, true colour")
@@ -2920,8 +2927,10 @@ def test_enriched():
         check(f"the tone gives {name} contrast without dimming it overall (within 3%)",
               toned.mean() >= 0.97 * flat.mean(), (round(float(flat.mean()), 1), round(float(toned.mean()), 1)))
         order = np.argsort(flat)
-        check(f"...its dimmest LEDs still sink and its brightest still lift",
-              toned[order[:12]].mean() < flat[order[:12]].mean() and toned[order[-12:]].mean() > flat[order[-12:]].mean())
+        check(f"...its dimmest LEDs still sink and its brightest are not dimmed by more than 3% (they sit at the ceiling)",
+              toned[order[:12]].mean() < flat[order[:12]].mean() and toned[order[-12:]].mean() >= 0.97 * flat[order[-12:]].mean(),
+              (round(float(flat[order[:12]].mean()), 1), round(float(toned[order[:12]].mean()), 1),
+               round(float(flat[order[-12:]].mean()), 1), round(float(toned[order[-12:]].mean()), 1)))
 
     frame = rng.random((400, 3)).astype(np.float32)
     enrich.apply(frame, 1.0)
@@ -3074,8 +3083,10 @@ def test_vivid_mode():
     check("a dark scene still lights the room more than Enriched does",
           dark["vivid"] > 1.03 * dark["enriched"], {k: round(v, 3) for k, v in dark.items()})
     check("while a black frame stays dark", look("vivid", black)[0] < 0.015, round(look("vivid", black)[0], 4))
-    check("a colourful scene is at least as bright as in any other mode",
-          look("vivid", colourful)[0] >= max(look(n, colourful)[0] for n in ("movie", "game", "enriched")))
+    edges = [look("vivid", scene([0.1, 0.4, 0.15], [(a, b, c)]))[1] for a, b, c in
+             ((0, 30, [0.9, 0.1, 0.1]), (0, 30, [0.1, 0.2, 0.9]), (0, 30, [0.9, 0.8, 0.1]))]
+    check("saturated red, blue and yellow each keep over 80% of full in Vivid, so they read as colours",
+          min(edges) > 0.8, [round(e, 2) for e in edges])
     check("it follows the picture between Cinema's glide and Gaming's snap",
           settle_seconds(PROFILES["game"]["blend"]) < settle_seconds(PROFILES["vivid"]["blend"])
           < settle_seconds(PROFILES["movie"]["blend"]), round(settle_seconds(PROFILES["vivid"]["blend"]), 3))

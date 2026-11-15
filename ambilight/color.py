@@ -268,10 +268,13 @@ def adaptive_gain(perceptual, cfg):
 
     Two parts. Exposure: the brighter the frame on average, the more every LED
     is held back, so a white desktop does not blast the wall (dark scenes are
-    left alone). Emphasis: an LED facing pixels lighter than the frame's
+    left alone). Emphasis: an LED facing pixels brighter than the frame's
     average keeps (or regains) its full level, one facing duller pixels dims in
     proportion, down to FLOOR, so highlights stand out and backgrounds recede.
-    Brighter pixels never end up dimmer than darker ones; colour is untouched.
+    Emphasis judges a pixel by its strongest channel, not its luminance: a
+    saturated blue or red has little luminance but is as vivid as a yellow, and
+    must not fade beside it. Brighter pixels never end up dimmer than darker
+    ones; colour is untouched.
     """
     strength = cfg.get("adaptive", 0.0)
     if strength <= 0 or not len(perceptual):
@@ -280,7 +283,8 @@ def adaptive_gain(perceptual, cfg):
     key = float(lightness.mean())
     exposure = 1.0 / (1.0 + EXPOSURE * strength * max(0.0, key - BRIGHT_KEY))
     emphasis = EMPHASIS * strength
-    follow = (1.0 + emphasis) - emphasis * key / np.maximum(lightness, 1e-6)
+    vividness = perceptual.max(axis=1, keepdims=True)
+    follow = (1.0 + emphasis) - emphasis * float(vividness.mean()) / np.maximum(vividness, 1e-6)
     return np.clip(exposure * follow, FLOOR, 1.0)
 
 
