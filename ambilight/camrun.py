@@ -33,6 +33,7 @@ VERIFY_SETTLE_S = 1.2   # sync smoothing on top of that
 MAX_STEPS = 10          # matching steps per colour
 MATCHED = 0.03          # mismatch at which a colour counts as matched
 SCREEN_LEVEL_RETRIES = 3   # halve the test level this many times if the screen patch blows out
+WALL_RETRIES = 3           # halve the strip's drive this many times if the wall glow blows out
 WORK_WIDTH = 640        # camera pictures are analysed at this width
 SETTINGS = ("led_matrix", "wb_r", "wb_g", "wb_b", "saturation")    # what calibration may change
 NOT_SHOWN = ("the test colours did not show on the monitor (another window on top?), "
@@ -373,15 +374,22 @@ def match(window, hub, cam, screen, wall, name):
     colour = camcal.PRIMARIES[name]
     drive = camcal.first_guess(colour)
     closest = (float("inf"), drive)
+    strength = 1.0      # share of the usual drive; a wall that overexposes the camera needs less light
     for _ in range(MAX_STEPS):
-        level = camcal.SCREEN_LEVEL
-        for attempt in range(SCREEN_LEVEL_RETRIES):
-            light(window, hub, camcal.dimmed(colour, level), np.round(drive * 255).astype(int), STEP_S)
+        level, screen_tries, wall_tries = camcal.SCREEN_LEVEL, 0, 0
+        while True:
+            light(window, hub, camcal.dimmed(colour, level), np.round(drive * strength * 255).astype(int), STEP_S)
             try:
                 seen_screen, seen_wall = read_test(cam, screen, wall, name)
                 break
+            except WallLost:
+                wall_tries += 1
+                if wall_tries > WALL_RETRIES:
+                    raise
+                strength /= 2
             except RuntimeError:
-                if attempt == SCREEN_LEVEL_RETRIES - 1:
+                screen_tries += 1
+                if screen_tries >= SCREEN_LEVEL_RETRIES:
                     raise
                 level /= 2
         off = camcal.mismatch([(seen_screen, seen_wall)])
@@ -393,14 +401,18 @@ def match(window, hub, cam, screen, wall, name):
     return closest[1], closest[0]
 
 
+class WallLost(RuntimeError):
+    """The wall glow could not be read: too bright for the camera, or too dim."""
+
+
 def read_test(cam, screen, wall, name):
     """read(), refusing pictures that cannot be trusted while `name` is on screen."""
     seen_screen, seen_wall = read(cam, screen, wall)
     if seen_screen is None:
         raise RuntimeError(NOT_SHOWN + ", or the camera is blown out by it")
     if seen_wall is None:
-        raise RuntimeError("the camera lost the wall glow (blown out or too dark); "
-                           "move it further back")
+        raise WallLost("the camera lost the wall glow (blown out or too dark, even with the "
+                       "strip dimmed); move it further back or darken the room")
     # A hidden test window shows the video instead: its colour does not follow.
     if name != "white" and int(np.argmax(seen_screen)) != "rgb".index(name[0]):
         raise RuntimeError(NOT_SHOWN)

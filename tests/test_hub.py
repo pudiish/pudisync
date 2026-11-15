@@ -2433,6 +2433,15 @@ class BlownOutPrimaryRoom(SimulatedRoom):
     A = np.array([[0.80, 0.15, 0.05], [0.20, 0.75, 0.05], [0.05, 0.10, 4.0]])
 
 
+class BlownOutWallRoom(SimulatedRoom):
+    """A wall that turns the strip's blue into far more light than the camera can take.
+
+    At the usual drive the glow clips solid white; only a dimmer strip reads
+    cleanly. Like the real wall and webcam, where blue was the step that stopped.
+    """
+    M = np.array([[0.55, 0.10, 0.02], [0.08, 0.90, 0.05], [0.02, 0.06, 5.0]])
+
+
 def test_camera_calibration_flow():
     print("\n31. The webcam calibration runs end to end in a simulated room")
     from ambilight import camcal, camrun
@@ -2506,6 +2515,15 @@ def test_camera_calibration_flow():
         check("a primary that blows out the screen at the usual level still matches, "
               "by retrying dimmer instead of aborting",
               result["kept"] and result["after"] < 0.2, round(result["after"], 3))
+
+        room = BlownOutWallRoom()
+        try:
+            result, stopped = camrun.calibrate(room, room, room, dict(room.settings), lambda line: None), ""
+        except RuntimeError as exc:
+            result, stopped = {"kept": False, "after": 1.0}, str(exc)
+        check("a wall glow too bright for the camera at the usual drive still matches, "
+              "by dimming the strip instead of stopping",
+              not stopped and result["kept"] and result["after"] < 0.25, (stopped, round(result["after"], 3)))
     finally:
         camrun.RECORDINGS_DIR, camcal.matrix_from_primaries = saved_dir, saved_fit
 
