@@ -4,7 +4,7 @@ Screen-synced LED lighting for a WLED strip, driven from your phone's browser.
 Runs as one Python process on a Mac. No app, no cloud, no account — your home
 network only.
 
-![tests](https://img.shields.io/badge/tests-360%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-874%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 - A phone page stored **on the WLED board**: monitor sync, effects and a colour
@@ -426,7 +426,7 @@ notarisation. The hub address and PIN are under PudiSync ▸ Settings.
 ## 10. Testing without hardware
 
 ```bash
-python3 tests/test_hub.py           # ~360 checks; starts its own fake WLED and sandbox hub
+python3 tests/test_hub.py           # ~870 checks; starts its own fake WLED and sandbox hub
 ```
 
 The test run starts a fake WLED and a sandbox hub on ports 8790-8791 with a

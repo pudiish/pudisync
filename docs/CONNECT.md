@@ -9,7 +9,7 @@ drops out, and the few steps only you can do.
 |---|---|---|
 | Hub page (full controls) | `http://<your-mac>.local:8080` | The Mac is awake and the hub is running |
 | Strip's own page (sync, effects, colour) | The board's address, e.g. `http://wled-6b0bc6.local` | The strip has power. The Mac can be off |
-| Mac app | `/Applications/Ambilight Hub.app`, talks to `127.0.0.1:8080` | The hub is running on this Mac |
+| Mac app | `/Applications/PudiSync.app`, talks to `127.0.0.1:8080` | The hub is running on this Mac |
 
 ## Pair a phone or tablet
 

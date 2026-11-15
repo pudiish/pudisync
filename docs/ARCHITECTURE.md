@@ -94,7 +94,7 @@ manual steps: `docs/CONNECT.md`.
 ### H. Dev tooling
 | File | Lines | What it is for |
 |---|---|---|
-| `tests/test_hub.py` | 3603 | 54 test functions, 720 checks. Starts a fake board and a sandbox hub. |
+| `tests/test_hub.py` | 4318 | 62 test functions, 874 checks. Starts a fake board and a sandbox hub. |
 | `tools/fake_wled.py` | 227 | Pretend WLED board for tests; checks DNRGB and DDP packets. |
 | `tools/hardware_sim.py` | 356 | Puts a hub through failures (reboot, drops) against the fake board. |
 | `tools/soak.py` | 256 | Runs a sandbox hub for hours; checks memory stays flat and fps steady. `--dry-run` for one minute. |
