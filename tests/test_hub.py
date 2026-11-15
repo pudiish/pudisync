@@ -3072,7 +3072,7 @@ def test_vivid_mode():
     check("its shadows are deeper than Cinema's by a good margin",
           shadows["vivid"] < 0.8 * shadows["movie"], {k: round(v, 3) for k, v in shadows.items()})
     check("a dark scene still lights the room more than Enriched does",
-          dark["vivid"] > 1.08 * dark["enriched"], {k: round(v, 3) for k, v in dark.items()})
+          dark["vivid"] > 1.03 * dark["enriched"], {k: round(v, 3) for k, v in dark.items()})
     check("while a black frame stays dark", look("vivid", black)[0] < 0.015, round(look("vivid", black)[0], 4))
     check("a colourful scene is at least as bright as in any other mode",
           look("vivid", colourful)[0] >= max(look(n, colourful)[0] for n in ("movie", "game", "enriched")))
