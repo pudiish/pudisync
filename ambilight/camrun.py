@@ -292,8 +292,7 @@ def locate(window, hub, cam):
     screen_lit = cam.snapshot(8)
     light(window, hub, (0, 0, 0), (round(255 * camcal.DRIVE_PEAK),) * 3)
     strip_lit = cam.snapshot(8)
-    screen, wall = camcal.find_regions(screen_lit, strip_lit)
-    screen = largest_region(screen)     # not a laptop screen or a lamp elsewhere in view
+    screen, wall = find_screen(screen_lit, strip_lit)
     if not camcal.looks_like_screen(screen):
         save_view(strip_lit, screen, wall)
         raise RuntimeError(NOT_SHOWN)
@@ -302,6 +301,25 @@ def locate(window, hub, cam):
     if screen.sum() < camcal.MIN_PIXELS or wall.sum() < camcal.MIN_PIXELS:
         raise RuntimeError("the camera cannot see both the monitor and the glow on the wall "
                            "around it; aim it so both are in view")
+    return screen, wall
+
+
+SCREEN_SHARES = (0.1, 0.3, 0.5)    # how bright, against the screen's peak, a pixel must be to count as screen
+
+
+def find_screen(screen_lit, strip_lit):
+    """(screen mask, wall mask) from the two pictures.
+
+    The light a lit screen throws on the keyboard and desk below it can join the
+    screen's region and make it ragged. A stricter brightness cut drops that
+    spill, so the cut is raised until the region is one clean rectangle. If none
+    is, the last try comes back and the caller refuses the setup.
+    """
+    for share in SCREEN_SHARES:
+        screen, wall = camcal.find_regions(screen_lit, strip_lit, screen_share=share)
+        screen = largest_region(screen)     # not a laptop screen or a lamp elsewhere in view
+        if camcal.looks_like_screen(screen):
+            break
     return screen, wall
 
 

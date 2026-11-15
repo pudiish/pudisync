@@ -2245,6 +2245,24 @@ def test_camera_calibration_maths():
     check("the wall glow is found beside it", wall_mask[60, 30] and wall_mask[60, 160])
     check("the screen is never counted as wall", not (screen_mask & wall_mask).any())
 
+    # Light the screen throws on the desk and keyboard beside it can join its region.
+    from ambilight import camrun
+    spill_on = base.copy(); spill_on[20:70, 50:150] = 230
+    spill_on[70:115, 140:150] = 105; spill_on[60:65, 150:195] = 105
+    spill_on = np.pad(spill_on, ((0, 5), (0, 0), (0, 0)), constant_values=20)[:h + 5]
+    strip_only = np.full(spill_on.shape, 20, np.uint8); strip_only[:, :20] = 140
+    plain = camrun.largest_region(camcal.find_regions(spill_on, strip_only)[0])
+    check("with the default cut that spill makes the screen region ragged",
+          not camcal.looks_like_screen(plain), round(float(plain.sum() / ((np.ptp(np.flatnonzero(plain.any(axis=1))) + 1)
+                                                         * (np.ptp(np.flatnonzero(plain.any(axis=0))) + 1))), 2))
+    clean, _ = camrun.find_screen(spill_on, strip_only)
+    check("a stricter cut drops it, leaving the monitor as one clean rectangle",
+          camcal.looks_like_screen(clean) and clean[40, 100] and not clean[90, 145])
+    scattered = base.copy(); scattered[10:20, 10:20] = 230; scattered[80:90, 150:160] = 230
+    ragged, _ = camrun.find_screen(scattered, np.full(scattered.shape, 20, np.uint8))
+    check("a picture with no rectangle still comes back as not a screen, so the setup is refused",
+          not camcal.looks_like_screen(ragged))
+
 
 def test_fitted_matrix_in_use():
     print("\n29. A camera-fitted matrix drives the strip's colours")
