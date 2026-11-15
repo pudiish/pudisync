@@ -5,13 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com). Versions: [SemVer](https
 ## [Unreleased]
 
 ### Added
-- Vivid sync mode: deep shadows and full highlights that still light the room in dark scenes.
+- Vivid sync mode, now the fresh-install default: Enriched's tone (deep shadows, full highlights), a light colour flood so dark scenes still light the room, saturation 1.2.
+- Adaptive pace (`adaptive_pace`, default 1): the light glides up to 1.8x slower in calm scenes and follows up to 1.7x faster in action, from the picture's rate of colour change. Cuts ease in over several frames, and drops in brightness are limited like rises.
+- Hue balance (`hue_balance`, default 0.35): blue and deep red, which a WS2812B shows dimly, are lifted within the brightness headroom; nothing is dimmed. Slider on the phone page and in the Mac app.
 - `supply_ma`: both strips' current limits together stay within 80% of the shared adapter (default 5000 mA; 0 = separate adapters).
 - Build id (`VERSION` plus the git commit) in `/api/status` and the startup log.
 - Settings journal: every settings change is appended to `config.journal.jsonl` with the build, old and new value.
 
 ### Changed
 - TX (GPIO1) is offered first in the bed strip's pin picker, on the phone page and in the Mac app.
+- Adaptive brightness judges a colour by its strongest channel, so saturated blue and red no longer fade beside bright yellow or green.
+
+### Fixed
+- Webcam calibration finds the monitor when the screen lights the desk below it, and dims the strip when the wall glow overexposes the camera.
 
 ## prototype-v1
 

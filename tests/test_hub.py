@@ -1317,7 +1317,7 @@ def test_run_record():
     check("nothing is written before something changes", not os.path.exists(path))
     cfg.update({"brightness": 0.5, "pin": "4321"})
     cfg.update({"brightness": 0.5})
-    cfg.update({"profile": "vivid", "zones": []})
+    cfg.update({"profile": "game", "zones": []})
     lines = [json.loads(line) for line in open(path)]
     check("each change that matters is one line; an unchanged value writes none", len(lines) == 2, len(lines))
     first = lines[0]
