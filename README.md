@@ -289,8 +289,9 @@ Colour zones underneath, so they also show under Advanced ▸ Zones.
 
 ### Profiles and immersion
 
-**Cinema**, **Gaming** and **Enriched** are the three sync modes, each a whole
-look. Cinema glides (about 0.37 s), lifts deep film colours and floods dark parts
+**Cinema**, **Gaming**, **Enriched** and **Vivid** are the four sync modes, each a
+whole look. Vivid keeps Enriched's full highlights and deep shadows but still
+lights the room in dark scenes (response about 0.2 s). Cinema glides (about 0.37 s), lifts deep film colours and floods dark parts
 of the room with the scene's colour. Gaming settles in about 0.1 s, with punchier
 colour and light kept where the action is. Enriched is sharp and true to the
 screen: no saturation boost, LEDs kept distinct, and a tone stage that sinks

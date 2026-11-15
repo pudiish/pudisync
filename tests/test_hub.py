@@ -431,7 +431,7 @@ def test_api(base):
     check("and switched back to by name", s["profile"] == "Late Night" and abs(s["immersion"] - 0.7) < 1e-6)
     listed = get("/api/profiles")
     check("profiles are listed, built-in and your own",
-          listed["builtin"] == ["movie", "game", "enriched"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
+          listed["builtin"] == ["movie", "game", "enriched", "vivid"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
     s = get("/api/profiles/delete?name=Late%20Night")
     check("and deleted", "Late Night" not in get("/api/profiles")["user"])
 
@@ -2799,7 +2799,7 @@ def test_enriched():
         cfg = Config(os.path.join(folder, "config.json"))
         cfg.apply_profile("enriched")
         look = cfg.snapshot()
-        check("Enriched is a built-in mode next to Cinema and Gaming", list(PROFILES) == ["movie", "game", "enriched"])
+        check("Enriched is a built-in mode next to Cinema and Gaming", list(PROFILES)[:3] == ["movie", "game", "enriched"])
         check("it is true colour: no saturation boost, no immersion flood",
               look["saturation"] == 1.0 and look["immersion"] == 0.0, (look["saturation"], look["immersion"]))
         check("it is sharp: fast response and almost no spread between LEDs",
@@ -2871,15 +2871,17 @@ def test_enriched():
 
 
 def test_sync_modes():
-    print("\n40. Sync modes: Cinema, Gaming and Enriched, each a whole tuned look")
+    print("\n40. Sync modes: Cinema, Gaming, Enriched and Vivid, each a whole tuned look")
     from ambilight import color
     from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
     from ambilight.smoothing import settle_seconds
 
     cinema, gaming = PROFILES.get("movie", {}), PROFILES.get("game", {})
-    check("there are exactly three sync modes: Cinema, Gaming and Enriched", list(PROFILES) == ["movie", "game", "enriched"], list(PROFILES))
+    check("there are exactly four sync modes: Cinema, Gaming, Enriched and Vivid",
+          list(PROFILES) == ["movie", "game", "enriched", "vivid"], list(PROFILES))
     recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight", "enrich"}
-    check("each sets motion and colour feel together", set(cinema) == set(gaming) == set(PROFILES["enriched"]) == recipe,
+    check("each sets motion and colour feel together",
+          set(cinema) == set(gaming) == set(PROFILES["enriched"]) == set(PROFILES["vivid"]) == recipe,
           (sorted(cinema), sorted(gaming)))
     check("and only what a profile of your own also keeps", recipe <= set(PROFILE_KEYS))
     check("a fresh install starts in Cinema, exactly",
@@ -2965,6 +2967,53 @@ class FakeBedBoard:
     def reboot(self):
         self.reboots += 1
         return True
+
+
+def test_vivid_mode():
+    print("\n40b. Vivid: Enriched's bright highlights and deep shadows, with Cinema's lit room")
+    from ambilight import color
+    from ambilight.config import DEFAULTS, PROFILES
+    from ambilight.smoothing import settle_seconds
+
+    rng = np.random.default_rng(3)
+
+    def scene(background, spots=()):
+        frame = np.tile(np.asarray(background, np.float32), (97, 1))
+        for first, last, colour in spots:
+            frame[first:last] = colour
+        return frame + rng.normal(0, 0.004, frame.shape).astype(np.float32).clip(-0.01, 0.01)
+
+    dark_film = scene([0.04, 0.05, 0.09], [(40, 50, [0.9, 0.7, 0.4])])
+    night_city = scene([0.02, 0.02, 0.04], [(10, 20, [0.9, 0.2, 0.1]), (60, 70, [0.2, 0.5, 0.95])])
+    mid_grade = scene([0.2, 0.18, 0.15], [(30, 45, [0.7, 0.55, 0.35])])
+    colourful = scene([0.1, 0.4, 0.15], [(0, 30, [0.9, 0.1, 0.1]), (60, 97, [0.1, 0.2, 0.9])])
+    black = scene([0.0, 0.0, 0.0])
+
+    def look(name, frame):
+        """How the LEDs would show `frame` in a mode: (average, brightest, dimmest tenth) of each LED's level."""
+        cfg = {**DEFAULTS, **PROFILES[name], "brightness": 1.0}
+        level = (color.to_led(color.grade(frame, cfg), cfg) / 255.0).max(axis=1)
+        return float(level.mean()), float(level.max()), float(np.percentile(level, 10))
+
+    dark = {name: np.mean([look(name, f)[0] for f in (dark_film, night_city)]) for name in PROFILES}
+    shadows = {name: np.mean([look(name, f)[2] for f in (dark_film, night_city)]) for name in PROFILES}
+    peak = {name: np.mean([look(name, f)[1] for f in (dark_film, night_city, mid_grade)]) for name in PROFILES}
+
+    check("Vivid highlights reach full, like Enriched's and well above Cinema's",
+          peak["vivid"] > 0.98 and peak["vivid"] > peak["movie"] + 0.04, {k: round(v, 3) for k, v in peak.items()})
+    check("its shadows are deeper than Cinema's by a good margin",
+          shadows["vivid"] < 0.8 * shadows["movie"], {k: round(v, 3) for k, v in shadows.items()})
+    check("a dark scene still lights the room more than Enriched does",
+          dark["vivid"] > 1.08 * dark["enriched"], {k: round(v, 3) for k, v in dark.items()})
+    check("while a black frame stays dark", look("vivid", black)[0] < 0.015, round(look("vivid", black)[0], 4))
+    check("a colourful scene is at least as bright as in any other mode",
+          look("vivid", colourful)[0] >= max(look(n, colourful)[0] for n in ("movie", "game", "enriched")))
+    check("it follows the picture between Cinema's glide and Gaming's snap",
+          settle_seconds(PROFILES["game"]["blend"]) < settle_seconds(PROFILES["vivid"]["blend"])
+          < settle_seconds(PROFILES["movie"]["blend"]), round(settle_seconds(PROFILES["vivid"]["blend"]), 3))
+    web = open("ambilight/web/index.html").read()
+    swift = open("macapp/Sources/Hub.swift").read()
+    check("the phone page and the Mac app offer it", 'data-value="vivid"' in web and '"vivid"' in swift)
 
 
 def test_bed_strip():
@@ -4231,6 +4280,7 @@ def main():
     test_immersion()
     test_user_profiles()
     test_sync_modes()
+    test_vivid_mode()
     test_enriched()
     test_dark_scenes()
     test_adaptive_brightness()
