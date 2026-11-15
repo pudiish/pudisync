@@ -72,7 +72,8 @@ class Handler(BaseHTTPRequestHandler):
     def pin_verdict(self, query):
         """The header is what the UI sends; ?pin= remains for Shortcuts."""
         given = self.headers.get("X-Ambilight-Pin") or query.get("pin", [""])[0]
-        return self.gate.check(given, self.hub.cfg.get("pin"), self.client_address[0])
+        return self.gate.check(given, self.hub.cfg.get("pin"), self.client_address[0],
+                               unprotected=self.hub.cfg.get("unprotected"))
 
     def request_allowed(self):
         """Refuse other websites and DNS-rebinding names before doing anything."""
@@ -108,8 +109,9 @@ class Handler(BaseHTTPRequestHandler):
 
         verdict = self.pin_verdict(query)
         if verdict != "ok":
-            message = ("too many wrong PINs from this device; try again in a minute"
-                       if verdict == "locked" else "PIN required or incorrect")
+            message = {"locked": "too many wrong PINs from this device; try again in a minute",
+                       "unconfigured": "protected mode is on but no PIN is set; fix it in config.json",
+                       }.get(verdict, "PIN required or incorrect")
             self._json({"error": message}, 429 if verdict == "locked" else 403)
             return
 

@@ -479,6 +479,10 @@ This is built for a home LAN. It has no encryption and no user accounts.
   rebinding). Shortcuts and curl are unaffected
 - The optional PIN is checked in constant time, and a device that guesses wrong
   five times is locked out for a minute. The PIN is never returned by the API
+- `unprotected` is `true` for now, so the PIN stays optional on a home LAN. Set
+  `unprotected=0` (together with a PIN, `/api/set?new_pin=1234&unprotected=0`) and
+  every API call needs the PIN; with none set the hub refuses all of them instead
+  of letting everyone in. The flag cannot be turned on without a PIN
 - Flashing only targets a board that is actually plugged in, and firmware is
   checked against the release's size and SHA-256 before anything is erased
 

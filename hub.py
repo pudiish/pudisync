@@ -127,7 +127,10 @@ def main():
     for url in hub_urls(port):
         print(f"    {url}")
     print(f"  WLED target: {config.get('wled_ip')}:{config.get('wled_port')}")
-    if config.get("pin"):
+    if not config.get("unprotected"):
+        print("  PROTECTED mode -- every request needs the PIN" if config.get("pin")
+              else "  PROTECTED mode but no PIN is set -- every request will be refused")
+    elif config.get("pin"):
         print("  PIN is on -- the page will ask for it")
     print("\nHome LAN only. Ctrl-C to stop.\n")
 

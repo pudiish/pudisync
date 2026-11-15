@@ -48,10 +48,14 @@ class PinGate:
         self.failures = {}
         self.locked_until = {}
 
-    def check(self, given, pin, client, now=None):
-        """Returns "ok", "denied" or "locked"."""
+    def check(self, given, pin, client, now=None, unprotected=True):
+        """Returns "ok", "denied", "locked" or "unconfigured".
+
+        "unconfigured" is protected mode with no PIN to check against: it
+        refuses rather than letting everyone in.
+        """
         if not pin:
-            return "ok"
+            return "ok" if unprotected else "unconfigured"
         now = time.monotonic() if now is None else now
         with self.lock:
             if self.locked_until.get(client, 0) > now:

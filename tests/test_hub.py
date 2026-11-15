@@ -1367,6 +1367,38 @@ def test_access():
     check("other devices are not locked out", gate.check("1234", "1234", "10.0.0.3", now=4) == "ok")
     check("the lockout expires", gate.check("1234", "1234", "10.0.0.2", now=70) == "ok")
 
+    protected = PinGate()
+    check("protected with no PIN set refuses everyone, it never falls open",
+          protected.check("", "", "10.0.0.2", now=0, unprotected=False) == "unconfigured")
+    check("protected with a PIN still accepts the right one",
+          protected.check("1234", "1234", "10.0.0.2", now=0, unprotected=False) == "ok")
+    check("protected with a PIN refuses a wrong one",
+          protected.check("0000", "1234", "10.0.0.2", now=0, unprotected=False) == "denied")
+    check("unprotected is the default and keeps today's open-LAN behaviour",
+          PinGate().check("", "", "10.0.0.2", now=0) == "ok")
+
+    import os, tempfile
+    from ambilight.config import Config, DEFAULTS
+    cfg = Config(os.path.join(tempfile.mkdtemp(), "config.json"))
+    check("a new install is unprotected for now", DEFAULTS["unprotected"] is True and cfg.get("unprotected") is True)
+    try:
+        cfg.update({"unprotected": "0"})
+        refused = False
+    except ValueError:
+        refused = True
+    check("protected mode cannot be switched on without a PIN", refused and cfg.get("unprotected") is True)
+    cfg.update({"pin": "4321", "unprotected": "0"})
+    check("a PIN and protected mode can be set in one request", cfg.get("unprotected") is False)
+    try:
+        cfg.update({"pin": ""})
+        cleared = True
+    except ValueError:
+        cleared = False
+    check("the PIN cannot be cleared while protected", not cleared and cfg.get("pin") == "4321")
+    cfg.update({"pin": "", "unprotected": "1"})
+    check("going back to unprotected and clearing the PIN works together",
+          cfg.get("unprotected") is True and cfg.get("pin") == "")
+
 
 def test_board_answering():
     print("\n41. Clients are told when the LED board stops answering")
@@ -4183,6 +4215,22 @@ def test_security_api(base):
     check("and it can be cleared again",
           call("/api/set?new_pin=", {"X-Ambilight-Pin": "4321"})[0] == 200
           and call("/api/status")[0] == 200)
+
+    check("the hub reports that it is unprotected for now", call("/api/config")[1].get("unprotected") is True)
+    check("protected mode is refused while no PIN is set", call("/api/set?unprotected=0")[0] == 400
+          and call("/api/status")[0] == 200)
+    pinned = {"X-Ambilight-Pin": "4321"}
+    check("a PIN and protected mode go on together",
+          call("/api/set?new_pin=4321&unprotected=0")[0] == 200)
+    try:
+        check("protected: no PIN is refused", call("/api/status")[0] == 403)
+        check("protected: the PIN header unlocks it", call("/api/status", pinned)[0] == 200)
+        check("protected: the config says so", call("/api/config", pinned)[1].get("unprotected") is False)
+        check("protected: the PIN cannot be cleared", call("/api/set?new_pin=", pinned)[0] == 400)
+    finally:
+        call("/api/set?unprotected=1&new_pin=", pinned)
+    check("unprotected again, and the PIN is cleared", call("/api/status")[0] == 200
+          and call("/api/config")[1].get("unprotected") is True)
 
 
 def test_connect_api(base):

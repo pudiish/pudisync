@@ -58,6 +58,9 @@ DEFAULTS = {
     "wled_http_port": 80,
     "http_port": 8080,
     "pin": "",
+    # True: the PIN is optional, as on a trusted home LAN. False: protected, so
+    # every API call needs the PIN and the hub refuses all of them without one.
+    "unprotected": True,
     # Which display to mirror: 0 = automatic (the external monitor when one is
     # connected, else the built-in screen); 1, 2... = that display.
     "monitor_index": 0,
@@ -256,6 +259,12 @@ class Config:
         if "zones" in changes:
             clean["zones"] = self.validate("zones", changes["zones"], clean.get("led_count"))
         with self._lock:
+            # Checked against the settings as they will be, so a PIN and
+            # protected mode can arrive together but never leave the hub with
+            # protection on and no way in.
+            after = {**self._data, **clean}
+            if not after["unprotected"] and not after["pin"]:
+                raise ValueError("protected mode needs a PIN; set one first")
             changed = [k for k, v in clean.items() if self._data.get(k) != v]
             self._data.update(clean)
             # A shorter strip invalidates any zone that ran off the old end.
