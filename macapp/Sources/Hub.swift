@@ -186,11 +186,9 @@ struct HubClient {
 
 @MainActor
 final class HubStore: ObservableObject {
-    static let builtinProfiles = [("movie", "Cinema"), ("game", "Gaming"), ("enriched", "Enriched"), ("vivid", "Vivid")]
-    static let styleHints = ["movie": "Cinema glides, and fills the room with the film's colour.",
-                             "game": "Gaming reacts in a tenth of a second, with punchier colour.",
-                             "enriched": "Enriched is sharp and true to the screen: deep blacks, bright highlights.",
-                             "vivid": "Vivid has deep shadows and full highlights, and still lights the room in dark scenes."]
+    static let builtinProfiles = [("vivid", "Vivid"), ("immersive", "Immersive")]
+    static let styleHints = ["vivid": "Vivid has deep shadows and full highlights, and still lights the room in dark scenes.",
+                             "immersive": "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action."]
     /// How long a click shows before the hub's reply has to agree with it.
     static let holdSeconds = 2.0
 

@@ -4,6 +4,9 @@ Format: [Keep a Changelog](https://keepachangelog.com). Versions: [SemVer](https
 
 ## [Unreleased]
 
+### Changed
+- Two sync modes instead of four: Vivid and Immersive. Immersive folds Cinema, Gaming and Enriched into one: low contrast (1.2) and a strong flood so dark scenes light the whole room, punchier colour, a wider wash, a glide that adaptive pace speeds up in action. Modes now set contrast and dark lift too (Vivid 2.0 / 0.4, Immersive 1.2 / 0.8); a config in a retired mode keeps its look without the name.
+
 ### Added
 - Vivid sync mode, now the fresh-install default: Enriched's tone (deep shadows, full highlights), a light colour flood so dark scenes still light the room, saturation 1.2.
 - Adaptive pace (`adaptive_pace`, default 1): the light glides up to 1.8x slower in calm scenes and follows up to 1.7x faster in action, from the picture's rate of colour change. Cuts ease in over several frames, and drops in brightness are limited like rises.

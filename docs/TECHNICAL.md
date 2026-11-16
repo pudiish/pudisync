@@ -157,8 +157,8 @@ it through steps 4–11 for repeatable tuning.
   - pairing QR codes;
   - diagnostics.
 - **`config.py`**: one JSON file, validated per key (ranges, regexes, enums)
-  and saved on every change. It also holds the built-in looks (Cinema, Gaming,
-  Enriched, Vivid) and the user's own.
+  and saved on every change. It also holds the built-in looks (Vivid,
+  Immersive) and the user's own.
 - **`intent.py`**: who decides sync. Sync is on exactly while WLED preset 1
   ("Monitor sync") is active on the board, so the phone, the Mac app and the
   board's own page all agree without talking to each other.

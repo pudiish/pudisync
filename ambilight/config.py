@@ -15,37 +15,34 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
 log = logging.getLogger(__name__)
 
-# The three sync modes, each a whole look: how fast the light follows and how
-# the colour feels. They never touch brightness, warmth, contrast or the
-# calibration, so picking one cannot undo a measured strip; the Home sliders
-# fine-tune whichever is chosen.
-# - Cinema glides (Response 0.3 settles in ~0.37s, cuts still snap), lifts the
-#   deep shades films live in and floods the dark parts of the room with the
-#   scene's colour, with a soft wall wash.
-# - Gaming settles in ~0.1s, with punchier colour, small vivid effects
-#   favoured over large grey areas, and light kept where the action is. It
-#   keeps a little spread, as without it fast motion jitters LED to LED.
-# - Enriched is sharp and true: the screen's own colour with no boost or
-#   flood, LEDs kept distinct, and a tone stage (enrich.py) that sinks
-#   darks and lifts brights without moving hue. Cinema and Gaming switch
-#   that stage off, so changing mode always undoes it.
+# The two sync modes, each a whole look: how fast the light follows, how the
+# colour feels and how deep the shadows go. They never touch brightness, warmth
+# or the calibration, so picking one cannot undo a measured strip; the Home
+# sliders fine-tune whichever is chosen. Both keep the Enriched tone stage (enrich.py),
+# which sinks darks and lifts brights without moving hue.
+# - Vivid stays close to the screen: full highlights, deep shadows, a light
+#   flood so a dark scene still lights the room.
+# - Immersive (2026-11-17) replaces Cinema, Gaming and Enriched, which the
+#   owner found hard to tell apart and flat. It takes the strongest part of
+#   each: Cinema's glide and room flood, Gaming's punchier colour and its pick
+#   of small vivid objects over grey, and Enriched's tone at reduced strength
+#   so the flood still reaches the shadows. Adaptive pace speeds it up in
+#   action, so the glide does not lag a game. Its contrast is low and its dark
+#   lift full: at contrast 2.0 a dark film scene lit only a tenth of the strip
+#   in every mode, which is why the old modes all looked alike.
 PROFILES = {
-    "movie": {"blend": 0.3, "fps": 60, "saturation": 1.2, "immersion": 0.4, "spread": 0.4, "colour_weight": 0.6,
-              "enrich": 0.0},
-    "game": {"blend": 0.8, "fps": 60, "saturation": 1.35, "immersion": 0.15, "spread": 0.2, "colour_weight": 0.75,
-             "enrich": 0.0},
-    "enriched": {"blend": 0.85, "fps": 60, "saturation": 1.0, "immersion": 0.0, "spread": 0.05,
-                 "colour_weight": 0.3, "enrich": 1.0},
-    # Vivid keeps Enriched's tone stage (highlights reach full, shadows sink) and
-    # adds back a little of Cinema's flood so a dark scene still lights the room.
-    # Immersion stays low: a heavy flood pulls the wall's colour away from the
-    # screen's. Saturation 1.2 was the owner's pick by eye on 2026-11-16; the
-    # webcam had suggested 1.0, but its own colour mixing made it unreliable.
+    # Vivid's immersion stays low: a heavy flood pulls the wall's colour away from
+    # the screen's. Saturation 1.2 was the owner's pick by eye on 2026-11-16.
     # Spread 0.3: on a 30 s live recording more spread cut LED-to-LED shimmer
     # (1.44 to 1.34) for a small loss of sharpness.
     "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.2, "immersion": 0.15, "spread": 0.3,
-              "colour_weight": 0.5, "enrich": 1.0},
+              "colour_weight": 0.5, "enrich": 1.0, "contrast": 2.0, "dark_boost": 0.4},
+    "immersive": {"blend": 0.35, "fps": 60, "saturation": 1.35, "immersion": 0.7, "spread": 0.55,
+                  "colour_weight": 0.75, "enrich": 0.5, "contrast": 1.2, "dark_boost": 0.8},
 }
+# Modes that existed before Immersive. A config naming one keeps its settings
+# but loses the name, since no built-in mode matches that look any more.
+RETIRED_PROFILES = ("movie", "game", "enriched")
 # What a profile of your own saves: the whole look, not the strip's setup.
 PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
                 "colour_weight", "spread", "black_level", "enrich", "dark_boost", "adaptive", "hue_balance", "adaptive_pace", "mouse_sync",
@@ -93,12 +90,12 @@ DEFAULTS = {
     "wb_b": 1.0,
     "led_gamma": 1.5,
     # S-curve after the LED gamma: brights brighter, darks darker. 1.0 = none.
-    "contrast": 1.5,
+    "contrast": 2.0,
     "black_level": 0.03,
     "colour_weight": 0.5,
     # 0..1: deep shades lifted and the strip flooded with the scene's colour
     # (color.immerse). 0 leaves colours exactly as graded. A fresh install
-    # starts in Cinema, so this and the other look settings are its recipe.
+    # starts in Vivid, so this and the other look settings are its recipe.
     "immersion": 0.15,
     # The Enriched tone stage (enrich.py): 0 off, 1 full.
     "enrich": 1.0,
@@ -218,6 +215,8 @@ class Config:
                 log.warning("ignoring stored %s: %s", key, exc)
         if "zones" in clean:
             clean["zones"] = [z for z in clean["zones"] if z["keep"]]
+        if clean.get("profile") in RETIRED_PROFILES and clean["profile"] not in clean.get("user_profiles", {}):
+            clean["profile"] = ""
         with self._lock:
             self._data.update(clean)
 

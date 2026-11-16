@@ -332,10 +332,8 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
         <div class="stack" id="pane-screen">
           <p class="label" id="styles-label">Style</p>
           <div class="chips" id="styles" role="group" aria-labelledby="styles-label">
-            <button class="chip" type="button" data-action="profile" data-value="movie" aria-pressed="false">Cinema</button>
-            <button class="chip" type="button" data-action="profile" data-value="game" aria-pressed="false">Gaming</button>
-            <button class="chip" type="button" data-action="profile" data-value="enriched" aria-pressed="false">Enriched</button>
             <button class="chip" type="button" data-action="profile" data-value="vivid" aria-pressed="false">Vivid</button>
+            <button class="chip" type="button" data-action="profile" data-value="immersive" aria-pressed="false">Immersive</button>
           </div>
           <p class="hint" id="style-hint"></p>
         </div>
@@ -774,10 +772,8 @@ const SWATCHES = [["Warm white", "#ffb46b"], ["Cool white", "#ffffff"], ["Red", 
 const HUE_NAMES = [[18, "Red"], [40, "Orange"], [66, "Yellow"], [100, "Lime"], [155, "Green"], [195, "Cyan"],
   [220, "Sky blue"], [255, "Blue"], [285, "Purple"], [320, "Magenta"], [345, "Pink"], [360, "Red"]];
 const WARMEST_K = 2200, COOLEST_K = 6500, RECENT_KEY = "pudisync-recent-colours", RECENT_MAX = 6;
-const STYLES = {movie: "Cinema glides, and fills the room with the film's colour.",
-  game: "Gaming reacts in a tenth of a second, with punchier colour.",
-  enriched: "Enriched is sharp and true to the screen: deep blacks, bright highlights.",
-  vivid: "Vivid has deep shadows and full highlights, and still lights the room in dark scenes."};
+const STYLES = {vivid: "Vivid has deep shadows and full highlights, and still lights the room in dark scenes.",
+  immersive: "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action."};
 const PART_NAMES = {sync: "Scene", warm: "Lamp", solid: "Colour", off: "Off"};
 const PART_TINT = {warm: "#ffb46b"};
 const BAUDS = [115200, 230400, 460800, 500000, 921600, 1000000, 2000000];

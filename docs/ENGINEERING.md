@@ -51,7 +51,7 @@ on this board?" or "which mode scores best against the wall?".
 4. Decide: a winner is rebuilt as a clean `feat/<name>`; a loser is deleted. Either
    way the note is committed, so the result is never lost.
 
-Looks (Cinema, Gaming, Enriched, Vivid) are the toggles for visual experiments.
+Looks (Vivid, Immersive) are the toggles for visual experiments.
 Output and capture choices are the plugin registries in `ambilight/plugins/`.
 There is no feature-flag system; add one only when an experiment needs two
 variants in the same build.

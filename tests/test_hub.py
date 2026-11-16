@@ -416,14 +416,20 @@ def test_api(base):
     check("screen sync comes back from all off", s["running"] is True and s["mode"] == "sync")
 
     from ambilight.config import PROFILES
-    s = get("/api/profile/movie")
-    check("/api/profile/movie applies", s["profile"] == "movie")
-    check("Cinema arrives as its whole look", all(s[k] == v for k, v in PROFILES["movie"].items()),
-          {k: s[k] for k in PROFILES["movie"]})
-    s = get("/api/profile/game")
-    check("/api/profile/game applies", s["profile"] == "game")
-    check("Gaming arrives as its whole look", all(s[k] == v for k, v in PROFILES["game"].items()),
-          {k: s[k] for k in PROFILES["game"]})
+    s = get("/api/profile/immersive")
+    check("/api/profile/immersive applies", s["profile"] == "immersive")
+    check("Immersive arrives as its whole look", all(s[k] == v for k, v in PROFILES["immersive"].items()),
+          {k: s[k] for k in PROFILES["immersive"]})
+    s = get("/api/profile/vivid")
+    check("/api/profile/vivid applies", s["profile"] == "vivid")
+    check("Vivid arrives as its whole look", all(s[k] == v for k, v in PROFILES["vivid"].items()),
+          {k: s[k] for k in PROFILES["vivid"]})
+    try:
+        get("/api/profile/movie")
+        refused_retired = False
+    except urllib.error.HTTPError as exc:
+        refused_retired = exc.code == 400
+    check("a retired mode is refused, not half-applied", refused_retired and get("/api/status")["profile"] == "vivid")
 
     s = get("/api/set?immersion=0.7")
     s = get("/api/profiles/save?name=Late%20Night")
@@ -433,7 +439,7 @@ def test_api(base):
     check("and switched back to by name", s["profile"] == "Late Night" and abs(s["immersion"] - 0.7) < 1e-6)
     listed = get("/api/profiles")
     check("profiles are listed, built-in and your own",
-          listed["builtin"] == ["movie", "game", "enriched", "vivid"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
+          listed["builtin"] == ["vivid", "immersive"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
     s = get("/api/profiles/delete?name=Late%20Night")
     check("and deleted", "Late Night" not in get("/api/profiles")["user"])
 
@@ -1317,7 +1323,7 @@ def test_run_record():
     check("nothing is written before something changes", not os.path.exists(path))
     cfg.update({"brightness": 0.5, "pin": "4321"})
     cfg.update({"brightness": 0.5})
-    cfg.update({"profile": "game", "zones": []})
+    cfg.update({"profile": "immersive", "zones": []})
     lines = [json.loads(line) for line in open(path)]
     check("each change that matters is one line; an unchanged value writes none", len(lines) == 2, len(lines))
     first = lines[0]
@@ -1379,11 +1385,12 @@ def test_config():
     check("a serial port must be a device path", rejects({"serial_port": "../../etc/passwd"}))
 
     recovered.update({"brightness": 0.55, "white_kelvin": 3200, "contrast": 1.1})
-    recovered.apply_profile("game")
-    kept = {k: recovered.get(k) for k in ("brightness", "white_kelvin", "contrast")}
-    check("a sync mode never touches brightness, warmth or contrast",
-          kept == {"brightness": 0.55, "white_kelvin": 3200, "contrast": 1.1}
-          and recovered.get("blend") == PROFILES["game"]["blend"], kept)
+    recovered.apply_profile("immersive")
+    kept = {k: recovered.get(k) for k in ("brightness", "white_kelvin")}
+    check("a sync mode never touches brightness or warmth, and brings its own contrast",
+          kept == {"brightness": 0.55, "white_kelvin": 3200}
+          and recovered.get("contrast") == PROFILES["immersive"]["contrast"]
+          and recovered.get("blend") == PROFILES["immersive"]["blend"], kept)
 
     # Zones in the same request as a new LED count are checked against the new
     # count, not the old one (an old count of 97 squeezed the "off" zone onto LED 96).
@@ -2836,8 +2843,8 @@ def test_user_profiles():
     check("switching back restores all of it", look == {"immersion": 0.8, "saturation": 1.6, "blend": 0.45,
                                                         "mouse_sync": True}, look)
     check("profiles survive a restart", set(Config(path).get("user_profiles")) == {"Immersive", "Everyday"})
-    cfg.apply_profile("game")
-    check("a built-in mode brings its own whole look", all(cfg.get(k) == v for k, v in PROFILES["game"].items()))
+    cfg.apply_profile("immersive")
+    check("a built-in mode brings its own whole look", all(cfg.get(k) == v for k, v in PROFILES["immersive"].items()))
 
     def refused(action, name):
         try:
@@ -2847,7 +2854,7 @@ def test_user_profiles():
         return ""
 
     check("an unknown profile is refused", "unknown profile" in refused(cfg.apply_profile, "Nope"))
-    check("a built-in name cannot be overwritten", "built-in" in refused(cfg.save_profile, "movie"))
+    check("a built-in name cannot be overwritten", "built-in" in refused(cfg.save_profile, "vivid"))
     check("odd names are refused", refused(cfg.save_profile, "../../etc") != ""
           and refused(cfg.save_profile, "") != "" and refused(cfg.save_profile, "x" * 40) != "")
     cfg.delete_profile("Everyday")
@@ -2978,24 +2985,14 @@ def test_hue_balance():
 
 
 def test_enriched():
-    print("\n40b. Enriched: deep blacks, bright highlights, true colour")
+    print("\n40b. The Enriched tone: deep blacks, bright highlights, true colour")
     import colour
     from ambilight import color, enrich
     from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
 
-    with tempfile.TemporaryDirectory() as folder:
-        cfg = Config(os.path.join(folder, "config.json"))
-        cfg.apply_profile("enriched")
-        look = cfg.snapshot()
-        check("Enriched is a built-in mode next to Cinema and Gaming", list(PROFILES)[:3] == ["movie", "game", "enriched"])
-        check("it is true colour: no saturation boost, no immersion flood",
-              look["saturation"] == 1.0 and look["immersion"] == 0.0, (look["saturation"], look["immersion"]))
-        check("it is sharp: fast response and almost no spread between LEDs",
-              look["blend"] >= 0.8 and look["spread"] <= 0.1, (look["blend"], look["spread"]))
-        check("it turns the Enriched tone on", look["enrich"] == 1.0)
-        cfg.apply_profile("movie")
-        check("Cinema turns it off again", cfg.get("enrich") == 0.0)
-    check("every mode sets the tone, so switching modes always undoes it",
+    check("Vivid uses the tone in full, Immersive in part so its flood still reaches the shadows",
+          PROFILES["vivid"]["enrich"] == 1.0 and 0.0 < PROFILES["immersive"]["enrich"] < 1.0)
+    check("every mode sets the tone, so switching modes always sets it",
           all("enrich" in mode for mode in PROFILES.values()) and "enrich" in PROFILE_KEYS)
 
     def lightness(rgb):
@@ -3031,7 +3028,8 @@ def test_enriched():
         return color.srgb_to_linear(color.hsv_to_rgb(hsv))
 
     def drive(linear, tone):
-        look = {**DEFAULTS, **PROFILES["enriched"], "enrich": tone, "hue_balance": 0.0}   # the tone stage alone
+        # The tone stage alone: true colour, no flood, no hue balance, the old default contrast.
+        look = {**DEFAULTS, "saturation": 1.0, "immersion": 0.0, "contrast": 1.5, "enrich": tone, "hue_balance": 0.0}
         return color.to_led(color.grade(linear, look), look).max(axis=1)
 
     for name, scene in (("a dark film scene", film(0.05, 0.35)), ("a mid-lit one", film(0.2, 0.6)),
@@ -3061,53 +3059,75 @@ def test_enriched():
 
 
 def test_sync_modes():
-    print("\n40. Sync modes: Cinema, Gaming, Enriched and Vivid, each a whole tuned look")
+    print("\n40. Sync modes: Vivid and Immersive, each a whole tuned look")
+    import json as json_module
     from ambilight import color
     from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
     from ambilight.smoothing import settle_seconds
 
-    cinema, gaming = PROFILES.get("movie", {}), PROFILES.get("game", {})
-    check("there are exactly four sync modes: Cinema, Gaming, Enriched and Vivid",
-          list(PROFILES) == ["movie", "game", "enriched", "vivid"], list(PROFILES))
-    recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight", "enrich"}
-    check("each sets motion and colour feel together",
-          set(cinema) == set(gaming) == set(PROFILES["enriched"]) == set(PROFILES["vivid"]) == recipe,
-          (sorted(cinema), sorted(gaming)))
+    vivid, immersive = PROFILES.get("vivid", {}), PROFILES.get("immersive", {})
+    check("there are exactly two sync modes: Vivid and Immersive", list(PROFILES) == ["vivid", "immersive"], list(PROFILES))
+    recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight", "enrich", "contrast", "dark_boost"}
+    check("each sets motion, colour and shadow depth together", set(vivid) == set(immersive) == recipe,
+          (sorted(vivid), sorted(immersive)))
     check("and only what a profile of your own also keeps", recipe <= set(PROFILE_KEYS))
     check("a fresh install starts in Vivid, exactly",
-          DEFAULTS["profile"] == "vivid" and all(DEFAULTS[k] == v for k, v in PROFILES["vivid"].items()))
+          DEFAULTS["profile"] == "vivid" and all(DEFAULTS[k] == v for k, v in vivid.items()))
 
-    check("Cinema glides: a change settles in about a third of a second",
-          0.3 < settle_seconds(cinema["blend"]) < 0.45, round(settle_seconds(cinema["blend"]), 3))
-    check("Gaming settles in about a tenth of a second, quicker than the old 0.13 s",
-          settle_seconds(gaming["blend"]) < 0.11, round(settle_seconds(gaming["blend"]), 3))
+    check("Immersive glides: a change settles in about a third of a second, slower than Vivid",
+          0.28 < settle_seconds(immersive["blend"]) < 0.45 and settle_seconds(immersive["blend"]) > settle_seconds(vivid["blend"]),
+          round(settle_seconds(immersive["blend"]), 3))
+    check("...and adaptive pace, on by default, speeds it up when the picture moves fast", DEFAULTS["adaptive_pace"] > 0)
 
-    film = color.srgb_to_linear(np.array([(0.45, 0.06, 0.06)] * 30 + [(0.03, 0.03, 0.03)] * 10, np.float32))
-    plain, cinematic = color.grade(film, {"saturation": 1.2}), color.grade(film, cinema)
-    check("Cinema lifts a dark film red",
-          cinematic[0, 0] > 1.15 * plain[0, 0], (plain[0].round(3), cinematic[0].round(3)))
-    check("and fills the dark parts of the room with it",
-          cinematic[-1, 0] > plain[-1, 0] + 0.02 and cinematic[-1, 0] > 2 * cinematic[-1, 1],
-          (plain[-1].round(3), cinematic[-1].round(3)))
+    def scene(background, spots=()):
+        frame = np.tile(np.asarray(background, np.float32), (97, 1))
+        for first, last, colour in spots:
+            frame[first:last] = colour
+        return color.srgb_to_linear(frame)
+
+    def levels(mode, frame):
+        look = {**DEFAULTS, **mode, "brightness": 1.0}
+        return (color.to_led(color.grade(frame, look), look) / 255.0).max(axis=1)
+
+    # A dark film scene: a dim blue room with one warm lamp. At contrast 2.0 every
+    # old mode left nine tenths of the strip dark here.
+    dark_film = scene([0.04, 0.05, 0.09], [(40, 50, [0.9, 0.7, 0.4])])
+    lit = {name: float(np.mean(levels(mode, dark_film) > 0.05)) for name, mode in PROFILES.items()}
+    check("Immersive lights the whole room in a dark film scene; Vivid keeps it to the lamp",
+          lit["immersive"] > 0.9 and lit["vivid"] < 0.3, lit)
+    black = scene([0.003, 0.003, 0.003])
+    check("while a black frame stays dark in both", all(levels(mode, black).max() < 0.02 for mode in PROFILES.values()))
+    check("Immersive's highlights still reach near full", levels(immersive, dark_film).max() > 0.95,
+          round(float(levels(immersive, dark_film).max()), 3))
 
     muted = color.srgb_to_linear(np.array([(0.6, 0.35, 0.3)], np.float32))
-    punch = [color.rgb_to_hsv(color.grade(muted, mode))[0, 1] for mode in (cinema, gaming)]
-    check("Gaming makes colour punchier than Cinema", punch[1] > punch[0] + 0.03, np.round(punch, 3))
+    punch = [color.rgb_to_hsv(color.grade(muted, mode))[0, 1] for mode in (vivid, immersive)]
+    check("Immersive makes colour punchier than Vivid", punch[1] > punch[0] + 0.03, np.round(punch, 3))
 
     band = np.full((40, 100, 3), 128, np.uint8)
     band[:, 45:55] = (230, 30, 30)
     mapping = {"starts": np.array([0]), "stops": np.array([100])}
     red_share = [float(c[0, 0] / c[0, 1]) for c in
-                 (processing.zone_colors(band, mapping, mode["colour_weight"]) for mode in (cinema, gaming))]
-    check("Gaming picks a small vivid object out of a grey edge more strongly", red_share[1] > red_share[0],
+                 (processing.zone_colors(band, mapping, mode["colour_weight"]) for mode in (vivid, immersive))]
+    check("Immersive picks a small vivid object out of a grey edge more strongly", red_share[1] > red_share[0],
           np.round(red_share, 2))
 
-    lit = np.zeros((9, 3), np.float32)
-    lit[4] = 1.0
-    kept = [processing.spread(lit, mode["spread"])[4, 0] for mode in (cinema, gaming)]
-    shared = processing.spread(lit, gaming["spread"])[3, 0]
-    check("Gaming keeps light where the action is; Cinema washes it wider", kept[1] > kept[0], np.round(kept, 2))
-    check("Gaming still shares a little, so fast motion does not jitter LED to LED", shared > 0.05, round(float(shared), 3))
+    one = np.zeros((9, 3), np.float32)
+    one[4] = 1.0
+    shared = [processing.spread(one, mode["spread"])[3, 0] for mode in (vivid, immersive)]
+    check("Immersive washes light wider than Vivid", shared[1] > shared[0], np.round(shared, 3))
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "config.json")
+        for old in ("movie", "game", "enriched"):
+            with open(path, "w") as f:
+                json_module.dump({"profile": old, "blend": 0.8, "saturation": 1.35}, f)
+            cfg = Config(path)
+            check(f"a config left in the retired {old!r} mode keeps its look but drops the name",
+                  cfg.get("profile") == "" and cfg.get("blend") == 0.8 and cfg.get("saturation") == 1.35)
+        with open(path, "w") as f:
+            json_module.dump({"profile": "game", "user_profiles": {"game": {"blend": 0.7}}}, f)
+        check("...unless it is a saved look of your own by that name", Config(path).get("profile") == "game")
 
 
 def test_colour_locks():
@@ -3160,10 +3180,9 @@ class FakeBedBoard:
 
 
 def test_vivid_mode():
-    print("\n40b. Vivid: Enriched's bright highlights and deep shadows, with Cinema's lit room")
+    print("\n40c. Vivid: bright highlights and deep shadows, close to the screen")
     from ambilight import color
     from ambilight.config import DEFAULTS, PROFILES
-    from ambilight.smoothing import settle_seconds
 
     rng = np.random.default_rng(3)
 
@@ -3176,7 +3195,6 @@ def test_vivid_mode():
     dark_film = scene([0.04, 0.05, 0.09], [(40, 50, [0.9, 0.7, 0.4])])
     night_city = scene([0.02, 0.02, 0.04], [(10, 20, [0.9, 0.2, 0.1]), (60, 70, [0.2, 0.5, 0.95])])
     mid_grade = scene([0.2, 0.18, 0.15], [(30, 45, [0.7, 0.55, 0.35])])
-    colourful = scene([0.1, 0.4, 0.15], [(0, 30, [0.9, 0.1, 0.1]), (60, 97, [0.1, 0.2, 0.9])])
     black = scene([0.0, 0.0, 0.0])
 
     def look(name, frame):
@@ -3185,27 +3203,16 @@ def test_vivid_mode():
         level = (color.to_led(color.grade(frame, cfg), cfg) / 255.0).max(axis=1)
         return float(level.mean()), float(level.max()), float(np.percentile(level, 10))
 
-    dark = {name: np.mean([look(name, f)[0] for f in (dark_film, night_city)]) for name in PROFILES}
-    shadows = {name: np.mean([look(name, f)[2] for f in (dark_film, night_city)]) for name in PROFILES}
+    shadows = {name: np.mean([look(name, f)[2] for f in (dark_film, night_city, mid_grade)]) for name in PROFILES}
     peak = {name: np.mean([look(name, f)[1] for f in (dark_film, night_city, mid_grade)]) for name in PROFILES}
-
-    check("Vivid highlights reach full, like Enriched's and well above Cinema's",
-          peak["vivid"] > 0.98 and peak["vivid"] > peak["movie"] + 0.04, {k: round(v, 3) for k, v in peak.items()})
-    check("its shadows are deeper than Cinema's by a good margin",
-          shadows["vivid"] < 0.8 * shadows["movie"], {k: round(v, 3) for k, v in shadows.items()})
-    check("a dark scene still lights the room more than Enriched does",
-          dark["vivid"] > 1.03 * dark["enriched"], {k: round(v, 3) for k, v in dark.items()})
+    check("Vivid highlights reach full", peak["vivid"] > 0.98, {k: round(v, 3) for k, v in peak.items()})
+    check("its shadows are deeper than Immersive's", shadows["vivid"] <= shadows["immersive"],
+          {k: round(v, 3) for k, v in shadows.items()})
     check("while a black frame stays dark", look("vivid", black)[0] < 0.015, round(look("vivid", black)[0], 4))
     edges = [look("vivid", scene([0.1, 0.4, 0.15], [(a, b, c)]))[1] for a, b, c in
              ((0, 30, [0.9, 0.1, 0.1]), (0, 30, [0.1, 0.2, 0.9]), (0, 30, [0.9, 0.8, 0.1]))]
     check("saturated red, blue and yellow each keep over 80% of full in Vivid, so they read as colours",
           min(edges) > 0.8, [round(e, 2) for e in edges])
-    check("it follows the picture between Cinema's glide and Gaming's snap",
-          settle_seconds(PROFILES["game"]["blend"]) < settle_seconds(PROFILES["vivid"]["blend"])
-          < settle_seconds(PROFILES["movie"]["blend"]), round(settle_seconds(PROFILES["vivid"]["blend"]), 3))
-    web = open("ambilight/web/index.html").read()
-    swift = open("macapp/Sources/Hub.swift").read()
-    check("the phone page and the Mac app offer it", 'data-value="vivid"' in web and '"vivid"' in swift)
 
 
 def test_bed_strip():
@@ -4105,9 +4112,9 @@ def test_page_in_browser(base):
         check("...and the slider stays where it was let go", page.input_value("#f-master") == "77")
         check("...and sync carries on", get("/api/status")["running"])
 
-        page.click('[data-action=profile][data-value=game]')
-        s = until(lambda s: s["profile"] == "game")
-        check("a style applies its look", s["profile"] == "game" and pressed('[data-action=profile][data-value=game]'))
+        page.click('[data-action=profile][data-value=immersive]')
+        s = until(lambda s: s["profile"] == "immersive")
+        check("a style applies its look", s["profile"] == "immersive" and pressed('[data-action=profile][data-value=immersive]'))
 
         page.click('[data-action=bed-mode][data-value=colour]')
         s = until(lambda s: s["bed_mode"] == "colour")
@@ -4178,7 +4185,7 @@ def test_page_in_browser(base):
     check("the page logged no errors along the way", not own, own[:5])
     get("/api/sync/off")
     get("/api/set?bed_leds=0&bed_mode=screen")
-    get("/api/profile/movie")
+    get("/api/profile/vivid")
 
 
 def test_soak_verdict():

@@ -289,15 +289,17 @@ Colour zones underneath, so they also show under Advanced ▸ Zones.
 
 ### Profiles and immersion
 
-**Cinema**, **Gaming**, **Enriched** and **Vivid** are the four sync modes, each a
-whole look. Vivid keeps Enriched's full highlights and deep shadows but still
-lights the room in dark scenes (response about 0.2 s). Cinema glides (about 0.37 s), lifts deep film colours and floods dark parts
-of the room with the scene's colour. Gaming settles in about 0.1 s, with punchier
-colour and light kept where the action is. Enriched is sharp and true to the
-screen: no saturation boost, LEDs kept distinct, and a tone stage that sinks
-darks and lifts brights in Oklab, so hue and saturation never shift
-(`ambilight/enrich.py`, using the colour-science library). None of them touches
-brightness, warmth, contrast or calibration; the Picture sliders fine-tune each. **Save this look**
+**Vivid** and **Immersive** are the two sync modes, each a whole look. Vivid
+stays close to the screen: full highlights, deep shadows (contrast 2.0) and a
+light flood, responding in about 0.2 s. Immersive fills the room: low contrast
+(1.2) and a strong flood of the scene's colour, so a dark film scene lights the
+whole strip instead of just its lamps, with punchier colour, a wider wash and a
+glide of about 0.3 s that adaptive pace speeds up in action. Both use a tone
+stage that sinks darks and lifts brights in Oklab, so hue and saturation never
+shift (`ambilight/enrich.py`, using the colour-science library); Vivid in full,
+Immersive in part. Cinema, Gaming and Enriched were folded into Immersive; a
+config left in one keeps its settings without the name. Neither mode touches
+brightness, warmth or calibration; the Picture sliders fine-tune each. **Save this look**
 stores the whole look under a name of your own: brightness, colour, immersion,
 contrast, warmth, response, spread and whether the mouse follows. Pick it again
 from Home, the Mac app or `/api/profile/<name>`.
@@ -409,8 +411,8 @@ every light at once (one power button, one brightness, a scene of Screen,
 Colour or Effect with the same colour wheel, then the bed and the mouse),
 **Tune** holds the picture, your looks and parts of the strip, and **Settings**
 the hub address, the bed's wiring and the webcam. A **Lights** menu has
-shortcuts (⇧⌘L lights on/off, ⇧⌘S follow the screen, ⌘1/⌘2/⌘3
-Cinema/Gaming/Enriched, ⌘4… your looks, ⇧⌘M mouse), and the menu bar has the
+shortcuts (⇧⌘L lights on/off, ⇧⌘S follow the screen, ⌘1/⌘2
+Vivid/Immersive, ⌘3… your looks, ⇧⌘M mouse), and the menu bar has the
 power, brightness and scene. It follows the Mac's light or dark appearance and
 talks to the hub's API, so the hub must be running (it starts at login). Built
 with the Command Line Tools, no Xcode needed:
