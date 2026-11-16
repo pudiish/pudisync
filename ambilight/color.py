@@ -347,16 +347,21 @@ def to_led(perceptual, cfg, brightness=None):
     # scales alike.
     balance = np.array([cfg["wb_r"], cfg["wb_g"], cfg["wb_b"]], dtype=np.float32)
     gamma, contrast = curve(cfg, dark_lift(p, cfg))
-    if not cfg["colour_match"]:
-        return hue_balance(contrast_curve(p ** gamma, contrast) * balance * adaptive_gain(p, cfg) * 255.0,
-                           cfg.get("hue_balance", 0.0), brightness)
 
     linear = srgb_to_linear(p)
-    # A webcam-measured matrix (camcal.py) beats the datasheet model when present.
+    # The channel mix: the screen's own linear light, or with colour_match the
+    # LEDs' primaries, a webcam-measured matrix (camcal.py) beating the
+    # datasheet model when present. Either way the curves below act on
+    # brightness only; curving each channel apart would shift hue.
     fitted = cfg.get("led_matrix") or []
-    neutral = np.array(fitted, np.float32).reshape(3, 3) if len(fitted) == 9 else None
+    if not cfg["colour_match"]:
+        neutral = np.eye(3, dtype=np.float32)
+    elif len(fitted) == 9:
+        neutral = np.array(fitted, np.float32).reshape(3, 3)
+    else:
+        neutral = None
     light = linear @ (neutral if neutral is not None else led_matrix(NEUTRAL_KELVIN)).T
-    kelvin = int(cfg["white_kelvin"])
+    kelvin = int(cfg.get("white_kelvin", NEUTRAL_KELVIN))
     if kelvin < NEUTRAL_KELVIN:
         # Warmth is for whites, greys and skin. The eye stays adapted to the
         # screen, so saturated colours keep the screen's own look; warming a

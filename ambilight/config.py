@@ -77,9 +77,12 @@ DEFAULTS = {
     "brightness": 1.0,
     "fps": 60,
     # Colour engine. colour_match converts screen colour into the WS2812B's own
-    # primaries (colour.LED_MATRIX), which already corrects its cold white; the
-    # white-balance gains are left neutral for fine-tuning on /calibrate.
-    "colour_match": True,
+    # primaries (colour.LED_MATRIX). Off by default since 2026-11-17: on the
+    # owner's strip the datasheet model cut blue to 44% at white, so pale colours
+    # turned lime and white yellow-green, and the webcam-fitted matrix washed
+    # colours out. Without it the drive keeps the screen's own hue. The
+    # white-balance gains stay for fine-tuning on /calibrate.
+    "colour_match": False,
     # Screen-to-strip colour matrix measured by the webcam calibration
     # (camcal.py), row-major 3x3; empty = the WS2812B datasheet model.
     "led_matrix": [],

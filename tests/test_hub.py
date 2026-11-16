@@ -1044,9 +1044,17 @@ def test_color_engine():
     warm_yellow = np.array([[1.0, 200 / 255, 90 / 255]], np.float32)
     plain_led = color.to_led(warm_yellow, cfg)[0]
     matched_led = color.to_led(warm_yellow, match)[0]
-    check("warm yellow drives far less blue once matched to the LEDs",
-          matched_led[2] / matched_led[0] < 0.5 * plain_led[2] / plain_led[0],
+    check("warm yellow drives less blue once matched to the LEDs",
+          matched_led[2] / matched_led[0] < plain_led[2] / plain_led[0],
           (plain_led.round(), matched_led.round()))
+    # Unmatched, the drive keeps the screen's own mix of light: curving each
+    # channel apart turned pale teal lime and stripped weak channels on the strip.
+    plain = dict(cfg, colour_match=False, contrast=2.0, hue_balance=0.0, adaptive=0.0)
+    teal = np.array([[0x9c / 255, 0xbb / 255, 0xaf / 255]], np.float32)
+    drive = color.to_led(teal, plain)[0]
+    light = color.srgb_to_linear(teal)[0]
+    check("unmatched, pale teal keeps its hue: drive in proportion to the screen's light",
+          np.allclose(drive / drive.max(), light / light.max(), atol=0.01), (drive.round(), light.round(3)))
     check("warm yellow keeps strong red and green",
           matched_led[1] > 0.6 * matched_led[0], matched_led.round())
     led_white = color.to_led(np.ones((1, 3), np.float32), match)[0]
