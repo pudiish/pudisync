@@ -3113,7 +3113,6 @@ def test_hue_balance():
 
 def test_enriched():
     print("\n40b. The Enriched tone: deep blacks, bright highlights, true colour")
-    import colour
     from ambilight import color, enrich
     from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
 
@@ -3122,8 +3121,15 @@ def test_enriched():
     check("every mode sets the tone, so switching modes always sets it",
           all("enrich" in mode for mode in PROFILES.values()) and "enrich" in PROFILE_KEYS)
 
-    def lightness(rgb):
-        return colour.XYZ_to_Oklab(colour.sRGB_to_XYZ(np.asarray(rgb, np.float64)))
+    # Answers recorded from colour-science 0.4.7 (sRGB_to_XYZ + XYZ_to_Oklab and
+    # back), including out-of-gamut inputs the gamut search produces.
+    ref = np.load(os.path.join(ROOT, "tests", "oklab_reference.npz"))
+    check("sRGB to Oklab matches colour-science",
+          np.allclose(enrich.to_oklab(ref["rgb"]), ref["rgb_to_lab"], rtol=0, atol=1e-12))
+    check("Oklab to sRGB matches colour-science",
+          np.allclose(enrich.from_oklab(ref["lab"]), ref["lab_to_rgb"], rtol=0, atol=1e-12))
+
+    lightness = enrich.to_oklab
 
     greys = np.array([[0.12] * 3, [0.5] * 3, [0.9] * 3], np.float32)
     toned = enrich.apply(greys, 1.0)

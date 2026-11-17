@@ -7,10 +7,11 @@ saturation (chroma relative to lightness): it only gets darker or lighter.
 A colour pushed past what the LEDs can show is brought back by giving up
 chroma, never by clipping a channel, which would shift its hue.
 
-The conversions come from colour-science, the reference Python colour library,
-not hand-copied matrices.
+The conversions use colour-science's own constants (sRGB per IEC 61966-2-1,
+Oklab per Ottosson), copied verbatim; tests/oklab_reference.npz pins the
+results to that library's output. Importing the library itself cost the hub
+~3 s of start-up and ~86 MB of memory for these two functions.
 """
-import colour
 import numpy as np
 
 TONE = 1.35        # S-curve strength on Oklab lightness at full Enriched (1 = none)
@@ -24,12 +25,44 @@ GAMUT_STEPS = 8    # halvings of the chroma range when a colour lands outside th
 SLACK = 1e-4       # conversion round-off that still counts as inside the gamut
 
 
+_RGB_TO_XYZ = np.array([[0.4124, 0.3576, 0.1805],
+                        [0.2126, 0.7152, 0.0722],
+                        [0.0193, 0.1192, 0.9505]])
+_XYZ_TO_RGB = np.array([[3.2406, -1.5372, -0.4986],
+                        [-0.9689, 1.8758, 0.0415],
+                        [0.0557, -0.2040, 1.0570]])
+_XYZ_TO_LMS = np.array([[0.8189330101, 0.3618667424, -0.1288597137],
+                        [0.0329845436, 0.9293118715, 0.0361456387],
+                        [0.0482003018, 0.2643662691, 0.6338517070]])
+_LMS_TO_LAB = np.array([[0.2104542553, 0.7936177850, -0.0040720468],
+                        [1.9779984951, -2.4285922050, 0.4505937099],
+                        [0.0259040371, 0.7827717662, -0.8086757660]])
+_LAB_TO_LMS = np.array([[0.9999999984505196, 0.3963377921737678, 0.21580375806075877],
+                        [1.0000000088817607, -0.10556134232365633, -0.0638541747717059],
+                        [1.0000000546724108, -0.08948418209496574, -1.2914855378640917]])
+_LMS_TO_XYZ = np.array([[1.2270138511035211, -0.5577999806518222, 0.2812561489664678],
+                        [-0.0405801784232806, 1.11225686961683, -0.07167667866560119],
+                        [-0.0763812845057069, -0.4214819784180127, 1.5861632204407947]])
+# One matrix per direction: the linear steps around the sRGB curve fold together.
+_LINEAR_TO_LMS = _XYZ_TO_LMS @ _RGB_TO_XYZ
+_LMS_TO_LINEAR = _XYZ_TO_RGB @ _LMS_TO_XYZ
+_SRGB_KNEE = 0.0031308
+
+
+def _spow(x, power):
+    """Sign-preserving power, so out-of-gamut negatives survive the round trip."""
+    return np.sign(x) * np.abs(x) ** power
+
+
 def to_oklab(perceptual):
-    return colour.XYZ_to_Oklab(colour.sRGB_to_XYZ(perceptual))
+    v = np.asarray(perceptual, dtype=np.float64)
+    linear = np.where(v <= _SRGB_KNEE * 12.92, v / 12.92, _spow((v + 0.055) / 1.055, 2.4))
+    return _spow(linear @ _LINEAR_TO_LMS.T, 1 / 3) @ _LMS_TO_LAB.T
 
 
 def from_oklab(lab):
-    return colour.XYZ_to_sRGB(colour.Oklab_to_XYZ(lab))
+    linear = _spow(np.asarray(lab, dtype=np.float64) @ _LAB_TO_LMS.T, 3) @ _LMS_TO_LINEAR.T
+    return np.where(linear <= _SRGB_KNEE, linear * 12.92, 1.055 * _spow(linear, 1 / 2.4) - 0.055)
 
 
 def tone(lightness, amount):
