@@ -9,7 +9,7 @@ import time
 import numpy as np
 
 from . import bed, color, mouse, processing, zones as zonelib
-from .plugins import CAPTURES, OUTPUTS
+from .plugins import CAPTURES, OUTPUTS, PERMISSION_HINT
 from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
 from .safety import Guard, shares
@@ -120,7 +120,10 @@ class _FrameSource:
                 self._next = now + SEARCH_EVERY_S
                 self._tracker.update(frame)
             rect = self._tracker.applied or rect
-        return processing.slice_edges(frame, rect, cfg["band_height"], cfg["edge_skip"])
+        # Settings are in screen pixels; the frame may arrive scaled down.
+        scale = capture.scale
+        return processing.slice_edges(frame, rect, max(1, round(cfg["band_height"] * scale)),
+                                      round(cfg["edge_skip"] * scale))
 
 
 class OutputStage:
@@ -278,10 +281,7 @@ class _BlackFrameWatchdog:
     """
 
     LIMIT = 30
-    MESSAGE = ("captured frames are all black -- grant Screen Recording "
-               "permission to the app that runs the hub (Terminal, or Python "
-               "when it starts at login) in System Settings > Privacy & "
-               "Security > Screen Recording, then restart it.")
+    MESSAGE = f"captured frames are all black -- {PERMISSION_HINT}"
 
     def __init__(self):
         self._dark = 0

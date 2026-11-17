@@ -303,6 +303,7 @@ def test_engine_parts():
         name = "fake"
         alive = False
         grabs = 0
+        scale = 1.0
 
         @staticmethod
         def available():
@@ -1680,8 +1681,8 @@ def test_quartz_capture():
     from ambilight.plugins import CAPTURES
     from ambilight.plugins.capture_quartz import QuartzCapture
 
-    check("native capture is preferred when available",
-          not QuartzCapture.available() or next(iter(CAPTURES)) == "quartz", list(CAPTURES))
+    check("ScreenCaptureKit is preferred, then Quartz",
+          list(CAPTURES)[:2] == ["screencapturekit", "quartz"], list(CAPTURES))
     check("mss stays registered as the fallback", "mss" in CAPTURES)
     if not QuartzCapture.available():
         print("    (skipped: pyobjc Quartz not installed)")
@@ -1702,6 +1703,82 @@ def test_quartz_capture():
     check("the inset lifts the band off the edge", cap.grab().shape == (120, width, 3))
     check("a search strip is taller", cap.grab_search(400).shape == (400, width, 3))
     cap.close()
+
+
+def test_sck_capture():
+    print("\n21b. ScreenCaptureKit capture plugin")
+    from ambilight.plugins.capture_sck import SCKCapture, _Latest
+
+    # Before the first frame the count is 0; a wait that treated that as news
+    # returned no frame at once, and the stream was closed before it began.
+    latest = _Latest()
+    started = time.perf_counter()
+    count, buffer = latest.wait(0, 0.15)
+    check("waiting for the first frame really waits",
+          buffer is None and time.perf_counter() - started >= 0.14, time.perf_counter() - started)
+    latest.put("frame")
+    check("a delivered frame wakes the wait", latest.wait(0, 1.0) == (1, "frame"))
+
+    if not SCKCapture.available():
+        print("    (skipped: pyobjc ScreenCaptureKit not installed)")
+        return
+    # Once a process has captured the screen (Quartz or ScreenCaptureKit), macOS
+    # will not start a ScreenCaptureKit stream for processes it launches
+    # afterwards. So the live checks run in a child of their own, and main()
+    # runs this test before any other test captures. Sandbox hubs launched
+    # later fall back to Quartz, which the engine tests cover.
+    run = subprocess.run([sys.executable, "-c", "import test_hub; test_hub.sck_live_report()"],
+                         cwd=os.path.join(ROOT, "tests"), capture_output=True, text=True, timeout=60)
+    try:
+        results = json.loads(run.stdout.strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        check("the live ScreenCaptureKit checks ran", False, run.stderr[-800:])
+        return
+    for name, ok, detail in results:
+        check(name, ok, detail)
+
+
+def sck_live_report():
+    """The live half of test_sck_capture, run in a child process; prints its results as JSON."""
+    from ambilight import engine
+    from ambilight.plugins import capture_sck
+    from ambilight.plugins.capture_sck import MAX_WIDTH, SCKCapture
+
+    results = []
+
+    def note(name, ok, detail=""):
+        results.append([name, bool(ok), str(detail)])
+
+    cap = SCKCapture()
+    try:
+        cap.open(99, 120)
+        note("a missing display is reported like the other plugins", False)
+    except IndexError as exc:
+        note("a missing display is reported like the other plugins", "not found" in str(exc), exc)
+    width, height = cap.open(1, 120)
+    try:
+        note("frames arrive scaled down to the stream width", width <= MAX_WIDTH, (width, height))
+        full = cap.grab_full()
+        note("a full grab matches the opened size", full.shape == (height, width, 3), full.shape)
+        note("it is RGB uint8", full.dtype == np.uint8)
+        band_rows = round(120 * cap.scale)
+        note("the band is the bottom rows, in the stream's own scale",
+             cap.grab().shape == (band_rows, width, 3), (cap.grab().shape, cap.scale))
+        started = time.perf_counter()
+        for _ in range(30):
+            cap.grab()
+        note("a grab never waits for the screen to change",
+             time.perf_counter() - started < 0.1, time.perf_counter() - started)
+        note("the stream runs no faster than the engine reads",
+             capture_sck.STREAM_FPS <= engine.CAPTURE_FPS_MAX)
+        cap.close()
+        reopened = SCKCapture()
+        reopened.open(1, 120)
+        note("the same process can reopen a stream it closed", reopened.grab().size > 0)
+        reopened.close()
+    finally:
+        cap.close()
+    print(json.dumps(results))
 
 
 def test_sync_intent():
@@ -4537,6 +4614,9 @@ def main():
     print("=" * 62)
     print("PUDISYNC -- ACCEPTANCE TESTS")
     print("=" * 62)
+    # First: its live child can only start a ScreenCaptureKit stream while
+    # this process has not captured the screen yet (see test_sck_capture).
+    test_sck_capture()
     test_packets()
     test_ddp_packets()
     test_mapping()
