@@ -22,6 +22,7 @@ FRAME_TIMEOUT_S = 2
 
 RETRY_DISPLAY_S = 2.0   # how often to look for a display that went to sleep
 DISPLAY_CHECK_S = 2.0   # how often to notice a monitor being plugged in or removed
+LOCK_CHECK_S = 1.0      # how often to ask whether the screen is locked
 # Every grab makes macOS composite the whole display (~35 ms of WindowServer
 # work on a Retina panel, whatever size is asked for), and grabbing at the
 # output rate kept the capture thread busy ~70% of the time. 30 readings a
@@ -475,6 +476,7 @@ class Engine:
         opened_with = (self.cfg.get("band_height"), self.cfg.get("monitor_index"),
                        resolve_display(self.cfg.get("monitor_index"), plugin.display_count()))
         next_display_check = time.perf_counter() + DISPLAY_CHECK_S
+        next_lock_check = 0.0
         tracker = _PictureTracker()
         next_search = 0.0
         frame_source = _FrameSource()
@@ -491,8 +493,11 @@ class Engine:
                 return      # a setting changed: reopen with the new one
 
             # A locked Mac shows the lock screen, not anything worth mirroring;
-            # without fresh targets the output stage fades the strip out.
-            self.paused = "screen locked" if screen_locked() else None
+            # without fresh targets the output stage fades the strip out. Asking
+            # is a round trip to WindowServer, so it is not done every frame.
+            if time.perf_counter() >= next_lock_check:
+                next_lock_check = time.perf_counter() + LOCK_CHECK_S
+                self.paused = "screen locked" if screen_locked() else None
             if self.paused:
                 stop.wait(0.5)
                 continue

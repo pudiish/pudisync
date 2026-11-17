@@ -369,6 +369,14 @@ def test_engine_parts():
         check("the lights still update at the full output rate",
               engine.output_fps > 45, f"{engine.output_fps:.0f} fps")
 
+        # Each lock check is a round trip to WindowServer; once a second is plenty.
+        lock_checks = []
+        eng.screen_locked = lambda: lock_checks.append(1) and False
+        time.sleep(2.0)
+        check("the lock screen is checked about once a second, not every frame",
+              1 <= len(lock_checks) <= 3, f"{len(lock_checks)} checks in 2 s")
+        eng.screen_locked = lambda: False
+
         FakeCapture.alive = False
         time.sleep(1.2)
         check("it survives the display sleeping again", engine.running is True)
