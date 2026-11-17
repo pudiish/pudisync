@@ -302,6 +302,7 @@ def test_engine_parts():
     class FakeCapture:
         name = "fake"
         alive = False
+        grabs = 0
 
         @staticmethod
         def available():
@@ -319,6 +320,7 @@ def test_engine_parts():
         def grab(self):
             if not FakeCapture.alive:
                 raise OSError("monitor 1 not found; 0 attached")
+            FakeCapture.grabs += 1
             band = np.zeros((150, 600, 3), np.uint8)
             band[:, :300] = (200, 30, 30)
             return band
@@ -355,6 +357,17 @@ def test_engine_parts():
               f"{engine.fps:.0f} fps")
         check("the sleep warning clears on wake", not engine.last_error,
               str(engine.last_error))
+
+        # Each grab costs macOS a full-screen composite, so capture is capped
+        # below the output rate; the output stage glides between readings.
+        sleep_cfg.update({"fps": 60})
+        FakeCapture.grabs, started = 0, time.perf_counter()
+        time.sleep(1.0)
+        grab_rate = FakeCapture.grabs / (time.perf_counter() - started)
+        check("capture is capped at the screen-reading rate, not the output rate",
+              grab_rate <= eng.CAPTURE_FPS_MAX + 3, f"{grab_rate:.0f} grabs/s")
+        check("the lights still update at the full output rate",
+              engine.output_fps > 45, f"{engine.output_fps:.0f} fps")
 
         FakeCapture.alive = False
         time.sleep(1.2)

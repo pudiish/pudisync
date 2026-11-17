@@ -22,6 +22,12 @@ FRAME_TIMEOUT_S = 2
 
 RETRY_DISPLAY_S = 2.0   # how often to look for a display that went to sleep
 DISPLAY_CHECK_S = 2.0   # how often to notice a monitor being plugged in or removed
+# Every grab makes macOS composite the whole display (~35 ms of WindowServer
+# work on a Retina panel, whatever size is asked for), and grabbing at the
+# output rate kept the capture thread busy ~70% of the time. 30 readings a
+# second is ample for ambient colour; the output thread still sends at
+# cfg["fps"], gliding the strip, bed and mouse between readings.
+CAPTURE_FPS_MAX = 30
 
 log = logging.getLogger(__name__)
 
@@ -534,7 +540,7 @@ class Engine:
             self.telemetry.captured(grabbed_at)
             self.record(now, linear)
 
-            self.fps = pacer.tick(cfg["fps"], stop)
+            self.fps = pacer.tick(min(cfg["fps"], CAPTURE_FPS_MAX), stop)
 
     def _grab(self, capture, stop, grab=None):
         """One frame, or None. Raises CaptureLost when the display went away."""
