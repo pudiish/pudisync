@@ -317,19 +317,22 @@ def test_engine_parts():
                 raise IndexError("monitor 1 not found; 0 attached")
             return 600, 150
 
-        def grab(self):
+        def _screen(self):
             if not FakeCapture.alive:
                 raise OSError("monitor 1 not found; 0 attached")
-            FakeCapture.grabs += 1
             band = np.zeros((150, 600, 3), np.uint8)
             band[:, :300] = (200, 30, 30)
             return band
 
         def grab_full(self):
-            return self.grab()
+            FakeCapture.grabs += 1      # per-frame reads, in either layout; not letterbox searches
+            return self._screen()
+
+        def grab(self):
+            return self.grab_full()
 
         def grab_search(self, rows):
-            return self.grab()
+            return self._screen()
 
         def set_inset(self, rows):
             pass
@@ -365,7 +368,7 @@ def test_engine_parts():
         time.sleep(1.0)
         grab_rate = FakeCapture.grabs / (time.perf_counter() - started)
         check("capture is capped at the screen-reading rate, not the output rate",
-              grab_rate <= eng.CAPTURE_FPS_MAX + 3, f"{grab_rate:.0f} grabs/s")
+              eng.CAPTURE_FPS_MAX - 6 <= grab_rate <= eng.CAPTURE_FPS_MAX + 3, f"{grab_rate:.0f} grabs/s")
         check("the lights still update at the full output rate",
               engine.output_fps > 45, f"{engine.output_fps:.0f} fps")
 
@@ -380,6 +383,24 @@ def test_engine_parts():
         FakeCapture.alive = False
         time.sleep(1.2)
         check("it survives the display sleeping again", engine.running is True)
+        engine.stop()
+
+        # ScreenCaptureKit can refuse to start (it does for a process launched by
+        # one that captured the screen); the next source must take over.
+        class Refusing(FakeCapture):
+            name = "refusing"
+
+            def open(self, monitor_index, band_height):
+                raise TimeoutError("ScreenCaptureKit did not answer while starting the stream")
+
+        FakeCapture.alive = True
+        eng.CAPTURES = {"refusing": Refusing, "fake": FakeCapture}
+        engine = Engine(sleep_cfg)
+        engine.start()
+        time.sleep(1.0)
+        check("a source that will not start falls back to the next one",
+              engine.capture_name == "fake" and engine.fps > 5, (engine.capture_name, engine.fps))
+        check("the fallback leaves no error behind", not engine.last_error, engine.last_error)
         engine.stop()
     finally:
         eng.CAPTURES, eng.RETRY_DISPLAY_S, eng.screen_locked = real_capture, real_retry, real_locked

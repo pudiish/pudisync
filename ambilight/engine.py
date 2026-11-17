@@ -423,24 +423,44 @@ class Engine:
                     stop.wait(RETRY_DISPLAY_S)
                     continue
                 try:
-                    self._loop(capture, stop)
+                    lost = self._loop(capture, stop)
                 finally:
                     capture.close()
+                if lost:
+                    # A display that opens but cannot be read would otherwise
+                    # be reopened and lost again in a tight, CPU-burning loop.
+                    stop.wait(RETRY_DISPLAY_S)
             except Exception as exc:
                 log.exception("sync loop failed")
                 self.errors["capture"] = f"sync hit an error and is retrying: {exc}"
                 stop.wait(RETRY_DISPLAY_S)
 
     def _open_capture(self):
-        """Start the capture plugin. Returns None and records why on failure."""
-        try:
-            plugin = capture_plugin()
-            capture = plugin()
-            width, height = capture.open(
-                resolve_display(self.cfg.get("monitor_index"), plugin.display_count()),
-                self.cfg.get("band_height"))
-        except Exception as exc:
-            self.errors["capture"] = capture_hint(exc)
+        """Start the first capture source that works. Returns None and records why on failure.
+
+        A missing display is missing for every source, so that stops the search.
+        Anything else (ScreenCaptureKit not answering, say) falls through to the
+        next source, so the lights keep following the screen.
+        """
+        capture, failure = None, None
+        for plugin in capture_plugins():
+            candidate = plugin()
+            try:
+                width, height = candidate.open(
+                    resolve_display(self.cfg.get("monitor_index"), plugin.display_count()),
+                    self.cfg.get("band_height"))
+            except IndexError as exc:
+                failure = exc
+                break
+            except Exception as exc:
+                log.warning("capture %s failed to start, trying the next: %s", plugin.name, exc)
+                failure = exc
+                continue
+            capture = candidate
+            break
+        if capture is None:
+            self.errors["capture"] = capture_hint(
+                failure or RuntimeError("no capture source available (is mss installed?)"))
             return None
         self.capture_name = capture.name
         self.capture_size = f"{width}x{height}"
@@ -524,7 +544,7 @@ class Engine:
                     capture, stop, (lambda: frame_source.grab(capture, cfg)) if wrapped else None)
             except CaptureLost as lost:
                 self.errors["capture"] = str(lost)
-                return      # _run reopens the capture once a display is back
+                return True     # _run reopens the capture once a display is back
             if band is None:
                 continue
             self.telemetry.record("capture", time.perf_counter() - grabbed_at)
@@ -646,12 +666,9 @@ class Engine:
         }
 
 
-def capture_plugin():
-    """The first capture source whose dependencies are present."""
-    for plugin in CAPTURES.values():
-        if plugin.available():
-            return plugin
-    raise RuntimeError("no capture source available (is mss installed?)")
+def capture_plugins():
+    """Capture sources whose dependencies are present, most preferred first."""
+    return [plugin for plugin in CAPTURES.values() if plugin.available()]
 
 
 def screen_locked():
