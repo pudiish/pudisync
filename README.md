@@ -32,7 +32,7 @@ network only.
 | Computer | A Mac (tested on Apple Silicon, macOS 26) |
 | Controller | ESP8266 / ESP32 running [WLED](https://kno.wled.ge) |
 | Strip | WS2812B or similar addressable strip |
-| Python | 3.10 or newer (tested on 3.12) |
+| Python | 3.12 from python.org (runs as Python.app, which keeps Screen Recording permission) |
 | Level shifter | **Recommended** — see below |
 | Power supply | 5V, sized for your strip — see below |
 
@@ -85,8 +85,8 @@ Notes:
 ```bash
 git clone https://github.com/pudiish/pudisync.git
 cd pudisync
-python3 -m pip install -r requirements.txt
-python3 hub.py
+make venv        # Python 3.12 (python.org) in a private .venv, exact versions from uv.lock (needs uv: brew install uv)
+make run
 ```
 
 On start it prints the addresses to open from any phone, tablet or computer on
@@ -128,7 +128,7 @@ If your board is brand new, the **Setup** tab can do the whole thing over the US
 cable — install WLED and join it to your Wi-Fi, with no hotspot step.
 
 ```bash
-python3 -m pip install esptool pyserial
+make venv EXTRAS=flash
 ```
 
 1. Plug the controller into the Mac over USB
@@ -224,8 +224,8 @@ sees the monitor **and** the wall glow around it, lock its position, and, with
 the hub running:
 
 ```bash
-python3 -m pip install opencv-python
-python3 hub.py --camera-calibrate    # --camera Lenovo to name the webcam
+make venv EXTRAS=camera
+.venv/bin/python hub.py --camera-calibrate    # --camera Lenovo to name the webcam
 ```
 
 The Mac's built-in camera is never used: cameras are chosen by name, and with
@@ -255,7 +255,6 @@ left, middle and right of the screen's bottom edge. No Logitech software is
 needed (quit G HUB if it runs, or the two will fight over the mouse).
 
 ```bash
-python3 -m pip install hidapi==0.15.0
 curl "http://yourmac.local:8080/api/set?mouse_sync=1"     # 0 turns it off
 ```
 
@@ -428,7 +427,7 @@ notarisation. The hub address and PIN are under PudiSync ▸ Settings.
 ## 10. Testing without hardware
 
 ```bash
-python3 tests/test_hub.py           # ~870 checks; starts its own fake WLED and sandbox hub
+make test                           # ~950 checks; starts its own fake WLED and sandbox hub
 ```
 
 The test run starts a fake WLED and a sandbox hub on ports 8790-8791 with a

@@ -1,0 +1,36 @@
+# PudiSync's dependencies. `make venv` installs the core set from uv.lock, which
+# pins every package to an exact version and hash; extras are opt-in.
+# The running build's version lives in VERSION, not here.
+[project]
+name = "pudisync"
+version = "0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.0,<3",
+    # Screen capture: ScreenCaptureKit first, Quartz as the fallback. Quartz
+    # also detects a locked screen and draws the pairing QR codes.
+    "pyobjc-framework-ScreenCaptureKit>=12,<14; sys_platform == 'darwin'",
+    "pyobjc-framework-CoreMedia>=12,<14; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=12,<14; sys_platform == 'darwin'",
+    # Lists displays for the Settings tab; portable capture where the macOS
+    # frameworks are missing.
+    "mss>=9.0,<11",
+    # The Logitech LIGHTSYNC mouse, one of the three synced lights.
+    "hidapi==0.15.0",
+]
+
+[project.optional-dependencies]
+# Flashing WLED onto a new board from the Setup tab.
+flash = ["esptool>=5,<6", "pyserial>=3.5,<4", "certifi>=2024.2"]
+# USB serial output (Adalight) instead of Wi-Fi.
+serial = ["pyserial>=3.5,<4"]
+# Camera day only: webcam calibration and latency tests.
+camera = ["opencv-python==4.14.0.94"]
+
+[tool.uv]
+# A set of scripts run in place, not an installable package.
+package = false
+
+[dependency-groups]
+# Only for `make test`: drives the phone page in a real browser.
+test = ["playwright>=1.40,<2"]

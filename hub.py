@@ -94,7 +94,7 @@ def compatibility_check():
         for key, plugin in registry.items():
             print(f"  [{'x' if plugin.available() else ' '}] {kind:<8} {key:<8} {plugin.name}")
     if not any(plugin.available() for plugin in CAPTURES.values()):
-        print("\nFATAL: no capture source. Run: python3 -m pip install -r requirements.txt")
+        print("\nFATAL: no capture source. Run: make venv, then start the hub with make run")
         sys.exit(1)
 
 

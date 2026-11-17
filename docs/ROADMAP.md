@@ -111,7 +111,7 @@ strip quietly goes dark mid-film.
 
 **Files.** `ambilight/plugins/capture_*.py` plus a new plugin,
 `ambilight/plugins/__init__.py`, the capture and watchdog parts of
-`ambilight/engine.py`, `requirements.txt`.
+`ambilight/engine.py`, `pyproject.toml` and `uv.lock`.
 
 **Done when.** Tests pass. CPU per frame is at or below the Quartz path, with
 numbers in the PR. Synthetic protected-video frames switch to the mood look

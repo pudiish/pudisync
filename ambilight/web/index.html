@@ -2066,7 +2066,7 @@ function flashCheck() {
       : [new Option("No board found: plug it into the Mac by USB", "")]));
     const missing = [!check.esptool && "esptool", !check.pyserial && "pyserial"].filter(Boolean);
     setText($("flash-tools"), missing.length
-      ? `The Mac needs ${missing.join(" and ")} first: python3 -m pip install ${missing.join(" ")}` : "");
+      ? `The Mac needs ${missing.join(" and ")} first: make venv EXTRAS=flash` : "");
     $("flash-go").disabled = missing.length > 0 || !ports.length;
   });
 }
@@ -2229,7 +2229,7 @@ function loadMonitors() {
 function loadPorts() {
   return load("/api/serial/ports", info => {
     const ports = info.ports || [], name = p => p.replace("/dev/cu.", "");
-    const options = !info.pyserial ? [new Option("USB support missing (pip install pyserial)", "")]
+    const options = !info.pyserial ? [new Option("USB support missing (make venv EXTRAS=serial)", "")]
       : ports.length ? ports.map(p => new Option(name(p), p)) : [new Option("No USB board found", "")];
     if (info.current && !ports.includes(info.current)) options.push(new Option(`${name(info.current)} (not connected)`, info.current));
     $("serial_port").replaceChildren(...options);
