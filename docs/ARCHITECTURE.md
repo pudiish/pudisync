@@ -101,7 +101,7 @@ manual steps: `docs/CONNECT.md`.
 | `tools/hardware_sim.py` | 356 | Puts a hub through failures (reboot, drops) against the fake board. |
 | `tools/soak.py` | 256 | Runs a sandbox hub for hours; checks memory stays flat and fps steady. `--dry-run` for one minute. |
 | `tools/latency.py` | 361 | Camera day: glass-to-LED latency through the webcam. `--dry-run` uses a simulated room. |
-| `Makefile`, `launchd/`, `requirements.txt` | | Commands, start-at-login, dependencies. |
+| `Makefile`, `launchd/`, `pyproject.toml`, `uv.lock`, `.python-version` | | Commands, start-at-login, dependencies pinned by hash, the Python version. |
 
 ## 3. Plan to understand it (about 2 to 3 hours, in this order)
 

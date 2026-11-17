@@ -185,22 +185,29 @@ change the other.
 
 ## 6. What PudiSync uses from others
 
-### Python packages (`requirements.txt`)
+### Python packages (`pyproject.toml`, locked in `uv.lock`)
 
-| Package | Pin | Needed? | Used in | What for |
+Python 3.12 from python.org (`.python-version`; it runs as Python.app, the identity macOS ties Screen Recording permission to) in the project's own `.venv`. `make venv` runs
+`uv sync --frozen`: every package at the exact version and SHA-256 hash in
+`uv.lock`, nothing else installed, and other Python tools on the Mac cannot
+change them. Extras are opt-in: `make venv EXTRAS="flash camera"`.
+
+| Package | Pin | Install | Used in | What for |
 |---|---|---|---|---|
-| **numpy** | ≥2.0, <3 | required | 19 modules | all frame maths, vectorised; no per-LED Python loops |
-| **mss** | ≥9.0, <11 | required (fallback) | `plugins/capture_mss.py` | portable screen capture where Quartz is unavailable |
-| **colour-science** | 0.4.7 | required | `enrich.py` only | four conversions: sRGB ↔ XYZ ↔ Oklab, for the Enriched look |
-| **pyobjc-framework-Quartz** | ≥10, macOS only | optional, used on the Mac | `capture_quartz.py`, `engine.py`, `qr.py`, `camrun.py` | native screen capture (about 30% faster than mss), detecting a locked screen, drawing QR codes, listing cameras |
-| **pyserial** | ≥3.5, <4 | optional | `output_serial.py`, `provision.py` | USB serial output (Adalight), talking to a board being set up |
-| **esptool** | ≥5, <6 | optional | `provision.py` (run as a command) | flashing WLED onto a new ESP board |
-| **certifi** | ≥2024.2 | optional | `provision.py` | trusted certificates for downloading WLED from GitHub |
-| **opencv-python** | 4.14.0.94 | optional, camera day only | `camrun.py`, `tools/latency.py` | reading the external webcam for calibration and latency tests |
-| **hidapi** | 0.15.0 | optional | `mouse.py` | sending LIGHTSYNC reports to the Logitech mouse |
+| **numpy** | ≥2.0, <3 | core | 19 modules | all frame maths, vectorised; no per-LED Python loops |
+| **pyobjc-framework-ScreenCaptureKit**, **-CoreMedia** | ≥12, <14, macOS | core | `capture_sck.py` | the default screen capture: small GPU-scaled frames, only when the screen changes |
+| **pyobjc-framework-Quartz** | ≥12, <14, macOS | core | `capture_quartz.py`, `engine.py`, `qr.py`, `camrun.py` | fallback screen capture, detecting a locked screen, drawing QR codes, listing cameras |
+| **mss** | ≥9.0, <11, not macOS | core elsewhere | `plugins/capture_mss.py` | portable screen capture where the macOS frameworks are missing |
+| **hidapi** | 0.15.0 | core | `mouse.py` | sending LIGHTSYNC reports to the Logitech mouse |
+| **esptool**, **pyserial**, **certifi** | ≥5,<6 / ≥3.5,<4 / ≥2024.2 | `flash` | `provision.py` | flashing WLED onto a new ESP board over USB |
+| **pyserial** | ≥3.5, <4 | `serial` | `output_serial.py` | USB serial output (Adalight) |
+| **opencv-python** | 4.14.0.94 | `camera`, camera day only | `camrun.py`, `tools/latency.py` | reading the external webcam for calibration and latency tests |
 
 Optional packages are imported inside the function that needs them, so the hub
-runs without them and the feature reports itself unavailable.
+runs without them and the feature reports itself unavailable. The Oklab maths
+in `enrich.py` is plain numpy with colour-science's own constants; the library
+itself cost ~3 s of start-up and ~86 MB for two conversions, and
+`tests/oklab_reference.npz` holds its answers to check against.
 
 ### Python's standard library
 

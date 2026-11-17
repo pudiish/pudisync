@@ -1,12 +1,30 @@
-PY ?= python3
+# Everything runs in the project's own environment; `make venv` builds it.
+PY ?= .venv/bin/python
+# python.org's framework build: it runs as Python.app, the identity macOS ties
+# Screen Recording permission to. uv's own downloads are bare binaries that
+# lose capture access when launched by another capturing process.
+BASE_PYTHON ?= /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+# Optional features to install too, e.g. `make venv EXTRAS="flash camera"`.
+EXTRAS ?=
 
-.PHONY: run test sim app clean
+.PHONY: venv lock run test sim app clean
+
+# Exactly what uv.lock pins, hashes checked; packages the lock doesn't list are removed.
+venv:
+	uv venv --allow-existing --python $(BASE_PYTHON) .venv
+	uv sync --frozen --python $(BASE_PYTHON) $(foreach extra,$(EXTRAS),--extra $(extra))
+
+# After changing pyproject.toml: re-resolve and rewrite uv.lock.
+lock:
+	uv lock --python $(BASE_PYTHON)
 
 run:
 	$(PY) hub.py
 
+# A throwaway environment from the same lock with every extra, so the camera
+# and flashing code is tested while .venv stays lean.
 test:
-	$(PY) tests/test_hub.py
+	uv run --frozen --isolated --all-extras --group test --python $(BASE_PYTHON) python tests/test_hub.py
 
 # Sandbox hub against a fake WLED board; see README "Testing".
 sim:

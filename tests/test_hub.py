@@ -303,6 +303,7 @@ def test_engine_parts():
         name = "fake"
         alive = False
         grabs = 0
+        scale = 1.0
 
         @staticmethod
         def available():
@@ -317,19 +318,22 @@ def test_engine_parts():
                 raise IndexError("monitor 1 not found; 0 attached")
             return 600, 150
 
-        def grab(self):
+        def _screen(self):
             if not FakeCapture.alive:
                 raise OSError("monitor 1 not found; 0 attached")
-            FakeCapture.grabs += 1
             band = np.zeros((150, 600, 3), np.uint8)
             band[:, :300] = (200, 30, 30)
             return band
 
         def grab_full(self):
-            return self.grab()
+            FakeCapture.grabs += 1      # per-frame reads, in either layout; not letterbox searches
+            return self._screen()
+
+        def grab(self):
+            return self.grab_full()
 
         def grab_search(self, rows):
-            return self.grab()
+            return self._screen()
 
         def set_inset(self, rows):
             pass
@@ -365,13 +369,39 @@ def test_engine_parts():
         time.sleep(1.0)
         grab_rate = FakeCapture.grabs / (time.perf_counter() - started)
         check("capture is capped at the screen-reading rate, not the output rate",
-              grab_rate <= eng.CAPTURE_FPS_MAX + 3, f"{grab_rate:.0f} grabs/s")
+              eng.CAPTURE_FPS_MAX - 6 <= grab_rate <= eng.CAPTURE_FPS_MAX + 3, f"{grab_rate:.0f} grabs/s")
         check("the lights still update at the full output rate",
               engine.output_fps > 45, f"{engine.output_fps:.0f} fps")
+
+        # Each lock check is a round trip to WindowServer; once a second is plenty.
+        lock_checks = []
+        eng.screen_locked = lambda: lock_checks.append(1) and False
+        time.sleep(2.0)
+        check("the lock screen is checked about once a second, not every frame",
+              1 <= len(lock_checks) <= 3, f"{len(lock_checks)} checks in 2 s")
+        eng.screen_locked = lambda: False
 
         FakeCapture.alive = False
         time.sleep(1.2)
         check("it survives the display sleeping again", engine.running is True)
+        engine.stop()
+
+        # ScreenCaptureKit can refuse to start (it does for a process launched by
+        # one that captured the screen); the next source must take over.
+        class Refusing(FakeCapture):
+            name = "refusing"
+
+            def open(self, monitor_index, band_height):
+                raise TimeoutError("ScreenCaptureKit did not answer while starting the stream")
+
+        FakeCapture.alive = True
+        eng.CAPTURES = {"refusing": Refusing, "fake": FakeCapture}
+        engine = Engine(sleep_cfg)
+        engine.start()
+        time.sleep(1.0)
+        check("a source that will not start falls back to the next one",
+              engine.capture_name == "fake" and engine.fps > 5, (engine.capture_name, engine.fps))
+        check("the fallback leaves no error behind", not engine.last_error, engine.last_error)
         engine.stop()
     finally:
         eng.CAPTURES, eng.RETRY_DISPLAY_S, eng.screen_locked = real_capture, real_retry, real_locked
@@ -1651,8 +1681,8 @@ def test_quartz_capture():
     from ambilight.plugins import CAPTURES
     from ambilight.plugins.capture_quartz import QuartzCapture
 
-    check("native capture is preferred when available",
-          not QuartzCapture.available() or next(iter(CAPTURES)) == "quartz", list(CAPTURES))
+    check("ScreenCaptureKit is preferred, then Quartz",
+          list(CAPTURES)[:2] == ["screencapturekit", "quartz"], list(CAPTURES))
     check("mss stays registered as the fallback", "mss" in CAPTURES)
     if not QuartzCapture.available():
         print("    (skipped: pyobjc Quartz not installed)")
@@ -1673,6 +1703,82 @@ def test_quartz_capture():
     check("the inset lifts the band off the edge", cap.grab().shape == (120, width, 3))
     check("a search strip is taller", cap.grab_search(400).shape == (400, width, 3))
     cap.close()
+
+
+def test_sck_capture():
+    print("\n21b. ScreenCaptureKit capture plugin")
+    from ambilight.plugins.capture_sck import SCKCapture, _Latest
+
+    # Before the first frame the count is 0; a wait that treated that as news
+    # returned no frame at once, and the stream was closed before it began.
+    latest = _Latest()
+    started = time.perf_counter()
+    count, buffer = latest.wait(0, 0.15)
+    check("waiting for the first frame really waits",
+          buffer is None and time.perf_counter() - started >= 0.14, time.perf_counter() - started)
+    latest.put("frame")
+    check("a delivered frame wakes the wait", latest.wait(0, 1.0) == (1, "frame"))
+
+    if not SCKCapture.available():
+        print("    (skipped: pyobjc ScreenCaptureKit not installed)")
+        return
+    # Once a process has captured the screen (Quartz or ScreenCaptureKit), macOS
+    # will not start a ScreenCaptureKit stream for processes it launches
+    # afterwards. So the live checks run in a child of their own, and main()
+    # runs this test before any other test captures. Sandbox hubs launched
+    # later fall back to Quartz, which the engine tests cover.
+    run = subprocess.run([sys.executable, "-c", "import test_hub; test_hub.sck_live_report()"],
+                         cwd=os.path.join(ROOT, "tests"), capture_output=True, text=True, timeout=60)
+    try:
+        results = json.loads(run.stdout.strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        check("the live ScreenCaptureKit checks ran", False, run.stderr[-800:])
+        return
+    for name, ok, detail in results:
+        check(name, ok, detail)
+
+
+def sck_live_report():
+    """The live half of test_sck_capture, run in a child process; prints its results as JSON."""
+    from ambilight import engine
+    from ambilight.plugins import capture_sck
+    from ambilight.plugins.capture_sck import MAX_WIDTH, SCKCapture
+
+    results = []
+
+    def note(name, ok, detail=""):
+        results.append([name, bool(ok), str(detail)])
+
+    cap = SCKCapture()
+    try:
+        cap.open(99, 120)
+        note("a missing display is reported like the other plugins", False)
+    except IndexError as exc:
+        note("a missing display is reported like the other plugins", "not found" in str(exc), exc)
+    width, height = cap.open(1, 120)
+    try:
+        note("frames arrive scaled down to the stream width", width <= MAX_WIDTH, (width, height))
+        full = cap.grab_full()
+        note("a full grab matches the opened size", full.shape == (height, width, 3), full.shape)
+        note("it is RGB uint8", full.dtype == np.uint8)
+        band_rows = round(120 * cap.scale)
+        note("the band is the bottom rows, in the stream's own scale",
+             cap.grab().shape == (band_rows, width, 3), (cap.grab().shape, cap.scale))
+        started = time.perf_counter()
+        for _ in range(30):
+            cap.grab()
+        note("a grab never waits for the screen to change",
+             time.perf_counter() - started < 0.1, time.perf_counter() - started)
+        note("the stream runs no faster than the engine reads",
+             capture_sck.STREAM_FPS <= engine.CAPTURE_FPS_MAX)
+        cap.close()
+        reopened = SCKCapture()
+        reopened.open(1, 120)
+        note("the same process can reopen a stream it closed", reopened.grab().size > 0)
+        reopened.close()
+    finally:
+        cap.close()
+    print(json.dumps(results))
 
 
 def test_sync_intent():
@@ -3007,7 +3113,6 @@ def test_hue_balance():
 
 def test_enriched():
     print("\n40b. The Enriched tone: deep blacks, bright highlights, true colour")
-    import colour
     from ambilight import color, enrich
     from ambilight.config import DEFAULTS, PROFILE_KEYS, PROFILES
 
@@ -3016,8 +3121,15 @@ def test_enriched():
     check("every mode sets the tone, so switching modes always sets it",
           all("enrich" in mode for mode in PROFILES.values()) and "enrich" in PROFILE_KEYS)
 
-    def lightness(rgb):
-        return colour.XYZ_to_Oklab(colour.sRGB_to_XYZ(np.asarray(rgb, np.float64)))
+    # Answers recorded from colour-science 0.4.7 (sRGB_to_XYZ + XYZ_to_Oklab and
+    # back), including out-of-gamut inputs the gamut search produces.
+    ref = np.load(os.path.join(ROOT, "tests", "oklab_reference.npz"))
+    check("sRGB to Oklab matches colour-science",
+          np.allclose(enrich.to_oklab(ref["rgb"]), ref["rgb_to_lab"], rtol=0, atol=1e-12))
+    check("Oklab to sRGB matches colour-science",
+          np.allclose(enrich.from_oklab(ref["lab"]), ref["lab_to_rgb"], rtol=0, atol=1e-12))
+
+    lightness = enrich.to_oklab
 
     greys = np.array([[0.12] * 3, [0.5] * 3, [0.9] * 3], np.float32)
     toned = enrich.apply(greys, 1.0)
@@ -4508,6 +4620,9 @@ def main():
     print("=" * 62)
     print("PUDISYNC -- ACCEPTANCE TESTS")
     print("=" * 62)
+    # First: its live child can only start a ScreenCaptureKit stream while
+    # this process has not captured the screen yet (see test_sck_capture).
+    test_sck_capture()
     test_packets()
     test_ddp_packets()
     test_mapping()

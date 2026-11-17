@@ -6,13 +6,13 @@
   <key>Label</key>
   <string>com.ambilight.hub</string>
 
-  <!-- EDIT EVERY PATH: the python3 you installed the packages into, this repo,
+  <!-- EDIT EVERY PATH: the repo's .venv/bin/python (`make venv`), this repo,
        and your user folder. Keep the repo OUTSIDE Downloads, Documents and
        Desktop: macOS blocks background agents from reading those folders, and
        the agent would exit and restart in a loop. -->
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/python3</string>
+    <string>/Users/YOU/pudisync/.venv/bin/python</string>
     <string>/Users/YOU/pudisync/hub.py</string>
   </array>
   <key>WorkingDirectory</key>

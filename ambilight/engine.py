@@ -9,7 +9,7 @@ import time
 import numpy as np
 
 from . import bed, color, mouse, processing, zones as zonelib
-from .plugins import CAPTURES, OUTPUTS
+from .plugins import CAPTURES, OUTPUTS, PERMISSION_HINT
 from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
 from .safety import Guard, shares
@@ -22,6 +22,7 @@ FRAME_TIMEOUT_S = 2
 
 RETRY_DISPLAY_S = 2.0   # how often to look for a display that went to sleep
 DISPLAY_CHECK_S = 2.0   # how often to notice a monitor being plugged in or removed
+LOCK_CHECK_S = 1.0      # how often to ask whether the screen is locked
 # Every grab makes macOS composite the whole display (~35 ms of WindowServer
 # work on a Retina panel, whatever size is asked for), and grabbing at the
 # output rate kept the capture thread busy ~70% of the time. 30 readings a
@@ -119,7 +120,10 @@ class _FrameSource:
                 self._next = now + SEARCH_EVERY_S
                 self._tracker.update(frame)
             rect = self._tracker.applied or rect
-        return processing.slice_edges(frame, rect, cfg["band_height"], cfg["edge_skip"])
+        # Settings are in screen pixels; the frame may arrive scaled down.
+        scale = capture.scale
+        return processing.slice_edges(frame, rect, max(1, round(cfg["band_height"] * scale)),
+                                      round(cfg["edge_skip"] * scale))
 
 
 class OutputStage:
@@ -277,10 +281,7 @@ class _BlackFrameWatchdog:
     """
 
     LIMIT = 30
-    MESSAGE = ("captured frames are all black -- grant Screen Recording "
-               "permission to the app that runs the hub (Terminal, or Python "
-               "when it starts at login) in System Settings > Privacy & "
-               "Security > Screen Recording, then restart it.")
+    MESSAGE = f"captured frames are all black -- {PERMISSION_HINT}"
 
     def __init__(self):
         self._dark = 0
@@ -422,24 +423,44 @@ class Engine:
                     stop.wait(RETRY_DISPLAY_S)
                     continue
                 try:
-                    self._loop(capture, stop)
+                    lost = self._loop(capture, stop)
                 finally:
                     capture.close()
+                if lost:
+                    # A display that opens but cannot be read would otherwise
+                    # be reopened and lost again in a tight, CPU-burning loop.
+                    stop.wait(RETRY_DISPLAY_S)
             except Exception as exc:
                 log.exception("sync loop failed")
                 self.errors["capture"] = f"sync hit an error and is retrying: {exc}"
                 stop.wait(RETRY_DISPLAY_S)
 
     def _open_capture(self):
-        """Start the capture plugin. Returns None and records why on failure."""
-        try:
-            plugin = capture_plugin()
-            capture = plugin()
-            width, height = capture.open(
-                resolve_display(self.cfg.get("monitor_index"), plugin.display_count()),
-                self.cfg.get("band_height"))
-        except Exception as exc:
-            self.errors["capture"] = capture_hint(exc)
+        """Start the first capture source that works. Returns None and records why on failure.
+
+        A missing display is missing for every source, so that stops the search.
+        Anything else (ScreenCaptureKit not answering, say) falls through to the
+        next source, so the lights keep following the screen.
+        """
+        capture, failure = None, None
+        for plugin in capture_plugins():
+            candidate = plugin()
+            try:
+                width, height = candidate.open(
+                    resolve_display(self.cfg.get("monitor_index"), plugin.display_count()),
+                    self.cfg.get("band_height"))
+            except IndexError as exc:
+                failure = exc
+                break
+            except Exception as exc:
+                log.warning("capture %s failed to start, trying the next: %s", plugin.name, exc)
+                failure = exc
+                continue
+            capture = candidate
+            break
+        if capture is None:
+            self.errors["capture"] = capture_hint(
+                failure or RuntimeError("no capture source available (is mss installed?)"))
             return None
         self.capture_name = capture.name
         self.capture_size = f"{width}x{height}"
@@ -475,6 +496,7 @@ class Engine:
         opened_with = (self.cfg.get("band_height"), self.cfg.get("monitor_index"),
                        resolve_display(self.cfg.get("monitor_index"), plugin.display_count()))
         next_display_check = time.perf_counter() + DISPLAY_CHECK_S
+        next_lock_check = 0.0
         tracker = _PictureTracker()
         next_search = 0.0
         frame_source = _FrameSource()
@@ -491,8 +513,11 @@ class Engine:
                 return      # a setting changed: reopen with the new one
 
             # A locked Mac shows the lock screen, not anything worth mirroring;
-            # without fresh targets the output stage fades the strip out.
-            self.paused = "screen locked" if screen_locked() else None
+            # without fresh targets the output stage fades the strip out. Asking
+            # is a round trip to WindowServer, so it is not done every frame.
+            if time.perf_counter() >= next_lock_check:
+                next_lock_check = time.perf_counter() + LOCK_CHECK_S
+                self.paused = "screen locked" if screen_locked() else None
             if self.paused:
                 stop.wait(0.5)
                 continue
@@ -519,7 +544,7 @@ class Engine:
                     capture, stop, (lambda: frame_source.grab(capture, cfg)) if wrapped else None)
             except CaptureLost as lost:
                 self.errors["capture"] = str(lost)
-                return      # _run reopens the capture once a display is back
+                return True     # _run reopens the capture once a display is back
             if band is None:
                 continue
             self.telemetry.record("capture", time.perf_counter() - grabbed_at)
@@ -641,12 +666,9 @@ class Engine:
         }
 
 
-def capture_plugin():
-    """The first capture source whose dependencies are present."""
-    for plugin in CAPTURES.values():
-        if plugin.available():
-            return plugin
-    raise RuntimeError("no capture source available (is mss installed?)")
+def capture_plugins():
+    """Capture sources whose dependencies are present, most preferred first."""
+    return [plugin for plugin in CAPTURES.values() if plugin.available()]
 
 
 def screen_locked():
