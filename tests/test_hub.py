@@ -4142,6 +4142,25 @@ def test_one_interface():
           and {"/app.css", "/app.js"} <= set(PAGES))
     check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
     check("it follows the device's light or dark appearance", "prefers-color-scheme:light" in html)
+    css = open("ambilight/web/app.css").read()
+    dark = dict(re.findall(r"--([\w-]+):(#[0-9a-f]{6})", css[css.index(":root{"):css.index("}")]))
+    light_block = css[css.index("@media (prefers-color-scheme:light){:root{"):]
+    light = {**dark, **dict(re.findall(r"--([\w-]+):(#[0-9a-f]{6})", light_block[:light_block.index("}}")]))}
+
+    def contrast(a, b):
+        def lum(hex_colour):
+            c = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+            return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+        hi, lo = sorted((lum(a), lum(b)), reverse=True)
+        return (hi + 0.05) / (lo + 0.05)
+
+    pairs = [(fg, bg, 4.5) for fg in ("ink", "dim", "accent", "ok", "bad") for bg in ("bg", "surface", "raised")]
+    pairs += [("accent-ink", "accent", 4.5), ("line-hi", "surface", 3.0), ("line-hi", "bg", 3.0)]
+    pairs += [(fg, bg, 4.5) for fg in ("rail-ink", "rail-dim", "rail-accent") for bg in ("rail-bg", "rail-on")]
+    weak = [(theme, fg, bg, round(contrast(tokens[fg], tokens[bg]), 2)) for theme, tokens in (("dark", dark), ("light", light))
+            for fg, bg, need in pairs if contrast(tokens[fg], tokens[bg]) < need]
+    check("in both themes text reads at 4.5:1 and control edges show at 3:1 (WCAG AA)", not weak, weak)
     wheels = re.findall(r'<div class="wheel" id="([\w-]+)"', markup)
     check("every colour is picked on a round wheel, never the browser's square box",
           wheels == ["colour", "bed-colour", "part-colour"] and 'type="color"' not in markup, wheels)
@@ -4502,7 +4521,7 @@ def test_page_in_browser(base):
         light.goto(base + "/")
         colours = light.evaluate("getComputedStyle(document.body).backgroundColor")
         light.close()
-        check("a phone in light mode gets the light look", colours == "rgb(244, 244, 247)", colours)
+        check("a phone in light mode gets the light look", colours == "rgb(238, 236, 227)", colours)
         browser.close()
     # Aborted requests log a network error to the console; anything else is the page's own fault.
     own = [p for p in problems if "Failed to load resource" not in p]

@@ -1,20 +1,25 @@
+/* Precision instrument: warm porcelain or deep olive, a graphite rail, one sage accent.
+   The colour on the page belongs to the lights. Text pairs are checked at 4.5:1 or more,
+   control edges (--line-hi) at 3:1; --line is for dividers only. */
 :root{
   color-scheme:dark;
-  --bg:#0b0b0e;--surface:#141418;--raised:#1d1d23;--well:#09090c;
-  --line:rgb(255 255 255/.07);--line-hi:rgb(255 255 255/.14);
-  --ink:#f2f2f5;--dim:#9c9ca9;--faint:#5d5d69;--led-off:#26262d;
-  --accent:#ffad42;--accent-ink:#1d1100;--ok:#3ddc84;--bad:#ff6b5e;
-  --glow:transparent;--r:18px;--r-sm:12px;--tabbar:62px;
-  --rail-bg:var(--surface);--rail-ink:var(--ink);--rail-dim:var(--dim);--rail-on:var(--raised);
+  --bg:#171a17;--surface:#20241f;--raised:#292e28;--well:#121512;
+  --line:#3b4139;--line-hi:#737b6d;
+  --ink:#f0f0e8;--dim:#b4b9ae;--faint:#6b7266;--led-off:#2e332d;
+  --accent:#a1b18e;--accent-ink:#171a17;--ok:#70c69a;--bad:#f08b83;
+  --glow:transparent;--r:12px;--r-sm:8px;--tabbar:62px;
+  --rail-bg:#111411;--rail-ink:#f0f0e8;--rail-dim:#b4b9ae;--rail-on:#262b25;--rail-accent:#a1b18e;
   --font:-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",Roboto,sans-serif;
+  --serif:ui-serif,"New York",Georgia,serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme:light){:root{
   color-scheme:light;
-  --bg:#f4f4f7;--surface:#fff;--raised:#ececf1;--well:#e3e3ea;
-  --line:rgb(0 0 0/.07);--line-hi:rgb(0 0 0/.16);
-  --ink:#15151b;--dim:#5e5e6b;--faint:#9a9aa6;--led-off:#d4d4dc;
-  --accent:#d97a00;--accent-ink:#fff;--ok:#15993f;--bad:#d4342a;
+  --bg:#eeece3;--surface:#f8f7f1;--raised:#ecebe3;--well:#e2e0d6;
+  --line:#d5d4ca;--line-hi:#83887c;
+  --ink:#20231f;--dim:#5f645a;--faint:#9a9e93;--led-off:#d9d7cd;
+  --accent:#4e6044;--accent-ink:#ffffff;--ok:#2b6e4d;--bad:#b3443d;
+  --rail-bg:#252923;--rail-on:#363b34;
 }}
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -62,7 +67,7 @@ main{max-width:1080px;margin:0 auto;padding:4px 16px calc(var(--tabbar) + 24px +
 [data-off]{display:none!important}
 .ico{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .rail{display:none}
-.page-title{margin:4px auto 14px;max-width:640px;font:600 26px/1.2 ui-serif,"New York",Georgia,serif;letter-spacing:-.01em}
+.page-title{margin:4px auto 14px;max-width:640px;font:600 28px/1.2 var(--serif);letter-spacing:-.01em}
 /* Tablets and up: a rail of the seven sections down the left, one section's cards at a time. */
 @media (min-width:700px){
   :root{--rail:88px}
@@ -75,6 +80,8 @@ main{max-width:1080px;margin:0 auto;padding:4px 16px calc(var(--tabbar) + 24px +
   .sect{display:flex;flex-direction:column;align-items:center;gap:4px;min-height:58px;padding:8px 2px;border:0;border-radius:10px;
     background:none;color:var(--rail-dim);font-size:11px;font-weight:600;line-height:1.2}
   .sect[aria-current=page]{background:var(--rail-on);color:var(--rail-ink)}
+  .top .brand b{color:var(--rail-accent)}
+  .top :focus-visible{outline-color:var(--rail-accent)}
   .link{order:3;margin:auto 0 0;flex-direction:column;gap:4px;font-size:11px;text-align:center;color:var(--rail-dim)}
   main{max-width:none;margin:0 0 0 var(--rail);padding:24px 28px 40px}
   .page-title,#screens{max-width:760px}
@@ -112,12 +119,12 @@ main{max-width:1080px;margin:0 auto;padding:4px 16px calc(var(--tabbar) + 24px +
 .btn.wide{width:100%}
 .btn.quiet{background:none}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;padding:4px;background:var(--well);border-radius:var(--r-sm)}
-.seg button{min-height:40px;padding:0 6px;background:none;border:0;border-radius:9px;color:var(--dim);font-size:14px;font-weight:600;
+.seg button{min-height:44px;padding:0 6px;background:none;border:0;border-radius:6px;color:var(--dim);font-size:14px;font-weight:600;
   transition:background .15s,color .15s}
 .seg button[aria-pressed=true]{background:var(--raised);color:var(--ink);box-shadow:0 1px 3px rgb(0 0 0/.25)}
 .seg.big button{min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:13px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{min-height:38px;padding:0 14px;background:var(--raised);border:1px solid var(--line);border-radius:999px;
+.chip{min-height:44px;padding:0 14px;background:var(--raised);border:1px solid var(--line);border-radius:999px;
   font-size:14px;font-weight:600;color:var(--ink)}
 .chip[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 
@@ -135,7 +142,7 @@ label{font-size:13px;font-weight:600;color:var(--dim)}
 .fader label{font-size:15px;font-weight:500;color:var(--ink)}
 .fader output{font:600 14px/1 var(--mono);color:var(--dim);font-variant-numeric:tabular-nums}
 .fader input,.fader .hint{grid-column:1/-1}
-input[type=range]{--fill:50%;-webkit-appearance:none;appearance:none;width:100%;height:36px;margin:0;background:none;touch-action:pan-y}
+input[type=range]{--fill:50%;-webkit-appearance:none;appearance:none;width:100%;height:44px;margin:0;background:none;touch-action:pan-y}
 input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;
   background:linear-gradient(to right,var(--accent) var(--fill),var(--well) var(--fill))}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;margin-top:-9px;border-radius:50%;
@@ -144,9 +151,6 @@ input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:var(
 input[type=range]::-moz-range-progress{height:6px;border-radius:3px;background:var(--accent)}
 input[type=range]::-moz-range-thumb{width:24px;height:24px;border:0;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgb(0 0 0/.45)}
 input[type=range]:disabled{opacity:.4}
-input[type=color]{width:44px;height:44px;padding:0;border:0;border-radius:50%;background:none;overflow:hidden}
-input[type=color]::-webkit-color-swatch-wrapper{padding:0}
-input[type=color]::-webkit-color-swatch{border:2px solid var(--line-hi);border-radius:50%}
 .switch{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:48px;padding:0;
   background:none;border:0;text-align:left;font-size:15px;font-weight:500}
 .track{position:relative;flex:none;width:51px;height:31px;border-radius:999px;background:var(--well);transition:background .2s}
