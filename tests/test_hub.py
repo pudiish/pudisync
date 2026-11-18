@@ -4161,6 +4161,10 @@ def test_one_interface():
     weak = [(theme, fg, bg, round(contrast(tokens[fg], tokens[bg]), 2)) for theme, tokens in (("dark", dark), ("light", light))
             for fg, bg, need in pairs if contrast(tokens[fg], tokens[bg]) < need]
     check("in both themes text reads at 4.5:1 and control edges show at 3:1 (WCAG AA)", not weak, weak)
+    swift = dict((re.sub(r"(?<!^)([A-Z])", r"-\1", name).lower(), (d, l)) for name, d, l in
+                 re.findall(r'static let (\w+) = adaptive\("(#\w+)", "(#\w+)"\)', open("macapp/Sources/Theme.swift").read()))
+    drift = {k: (v, (dark.get(k), light.get(k))) for k, v in swift.items() if v != (dark.get(k), light.get(k))}
+    check("the Mac app wears exactly the phone page's colours, light and dark", len(swift) == 14 and not drift, drift)
     wheels = re.findall(r'<div class="wheel" id="([\w-]+)"', markup)
     check("every colour is picked on a round wheel, never the browser's square box",
           wheels == ["colour", "bed-colour", "part-colour"] and 'type="color"' not in markup, wheels)
