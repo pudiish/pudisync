@@ -9,3 +9,4 @@ recordings/
 .claude/
 *.journal.jsonl
 *.journal.jsonl.1
+backups/

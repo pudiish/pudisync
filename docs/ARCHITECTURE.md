@@ -41,6 +41,7 @@ pipeline, a way of controlling it, or a one-off setup tool.
 | `ambilight/telemetry.py` | 99 | Live timing per stage (capture, process, colour, smooth, send), delivered fps, drops and picture age, for the status API. |
 | `ambilight/version.py` | 19 | The running build: the `VERSION` file plus the git commit. |
 | `ambilight/journal.py` | 32 | Append-only journal of every settings change (`config.journal.jsonl`). |
+| `ambilight/backup.py` | 308 | Settings as a file and back: export, a report before any import, restore points in `backups/`. |
 
 ### C. Hardware plugins (swappable in and out)
 | File | Lines | What it is for |

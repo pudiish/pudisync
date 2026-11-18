@@ -77,6 +77,14 @@ from another site, and any whose Host is not an IP address, `localhost`, a
 `.local` name or this Mac's name (which stops DNS-rebinding tricks); and `PinGate` checks an optional PIN in
 constant time with a lockout after five wrong guesses.
 
+The one exception is `POST /api/backup/preview`, which takes a backup file as
+its body. It accepts only `application/json` of at most 256 kB, so a browser
+must ask permission (a CORS preflight) before another site could send one, and
+the same Host, site and PIN checks apply. Reading a file changes nothing:
+`backup.plan` reports each setting, and `GET /api/backup/apply` applies only
+what was previewed, after saving a restore point in `backups/` beside the
+config. A file can never set the PIN, protected mode or a power limit.
+
 ## 3. A frame's journey from screen to wall
 
 Each step names the module and function that does it.

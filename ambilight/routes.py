@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import bed, qr
+from . import backup, bed, qr, version
 from .config import DEFAULTS, PROFILES
 from .discovery import hub_urls
 from .effects import catalogue as effect_catalogue, state_for
@@ -115,9 +115,46 @@ def set_values(hub, q):
     if "new_pin" in q.parsed:
         changes["pin"] = q.one("new_pin")
     changed = hub.cfg.update(changes)
+    settings_changed(hub, changed)
+    return {"changed": changed, **hub.status()}, OK
+
+
+def settings_changed(hub, changed):
+    """What else must happen after settings change, however they were changed."""
     if any(key.startswith("bed_") for key in changed):
         hub.intent.nudge()
-    return {"changed": changed, **hub.status()}, OK
+
+
+# --- backups: a file of your settings, read back only after a report -----------
+def backup_export(hub, q):
+    return backup.export(hub.cfg.snapshot(), q.one("kind", "full"), version.build_id(),
+                         backup.iso(time.time())), OK
+
+
+def backup_preview(hub, q, body):
+    report = backup.plan(hub.cfg, backup.parse(body))
+    return {"import_id": hub.pending_import.hold(report, time.monotonic()), **report}, OK
+
+
+def backup_apply(hub, q):
+    report = hub.pending_import.take(q.one("id", ""), time.monotonic())
+    groups = [g for g in q.one("groups", "").split(",") if g]
+    result = backup.apply(hub.cfg, report, groups, hub.cfg.restore_folder(), version.build_id(), time.time())
+    settings_changed(hub, result["changed"])
+    return {**result, **hub.status()}, OK
+
+
+def backup_list(hub, q):
+    return {"restore_points": backup.restore_points(hub.cfg.restore_folder())}, OK
+
+
+def backup_restore(hub, q):
+    try:
+        result = backup.restore(hub.cfg, hub.cfg.restore_folder(), q.one("file", ""), version.build_id(), time.time())
+    except FileNotFoundError as exc:
+        return {"error": str(exc)}, 404
+    settings_changed(hub, result["changed"])
+    return {**result, **hub.status()}, OK
 
 
 def config(hub, q):
@@ -441,7 +478,25 @@ ROUTES = {
     "/api/flash/start": flash_start,
     "/api/flash/status": flash_status,
     "/api/flash/adopt": flash_adopt,
+    "/api/backup/export": backup_export,
+    "/api/backup/apply": backup_apply,
+    "/api/backup/list": backup_list,
+    "/api/backup/restore": backup_restore,
 }
+
+# The only addresses that take a request body: a JSON file, at most MAX_BODY bytes.
+POST_ROUTES = {
+    "/api/backup/preview": backup_preview,
+}
+MAX_BODY = backup.MAX_BYTES
+
+
+def handle_post(hub, path, parsed, body):
+    """Run the POST handler for `path` with the request body. Returns (payload, status code)."""
+    handler = POST_ROUTES.get(path)
+    if handler is None:
+        return {"error": "not found"}, 404
+    return handler(hub, Query(parsed), body)
 
 
 def handle(hub, path, parsed):
