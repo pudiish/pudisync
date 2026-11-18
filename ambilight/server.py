@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import hostcache, routes, version
 from .access import PinGate, allowed_fetch_site, allowed_host
+from .backup import Pending
 from .bed import Keeper
 from .camrun import CameraJob
 from .discovery import board_urls, hub_urls
@@ -106,17 +107,54 @@ class Handler(BaseHTTPRequestHandler):
         if not path.startswith("/api/"):
             self._json({"error": "not found"}, 404)
             return
-
-        verdict = self.pin_verdict(query)
-        if verdict != "ok":
-            message = {"locked": "too many wrong PINs from this device; try again in a minute",
-                       "unconfigured": "protected mode is on but no PIN is set; fix it in config.json",
-                       }.get(verdict, "PIN required or incorrect")
-            self._json({"error": message}, 429 if verdict == "locked" else 403)
+        if self.pin_refused(query):
             return
+        self.run(path, lambda: routes.handle(self.hub, path, query))
 
+    def do_POST(self):
+        """Only for routes that take a file. JSON alone: a browser must ask before
+        sending it cross-site, which the GET routes cannot make it do."""
+        # One POST per connection: a refused request's unread body must never be
+        # taken for the next request on the same socket.
+        self.close_connection = True
+        if not self.request_allowed():
+            return
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        if path not in routes.POST_ROUTES:
+            self._json({"error": "not found"}, 404)
+            return
+        if self.pin_refused(query):
+            return
+        if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+            self._json({"error": "send the file as application/json"}, 415)
+            return
         try:
-            payload, code = routes.handle(self.hub, path, query)
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            self._json({"error": "the request needs a Content-Length"}, 411)
+            return
+        if not 0 <= length <= routes.MAX_BODY:
+            self._json({"error": f"the file is over {routes.MAX_BODY // 1024} kB"}, 413)
+            return
+        body = self.rfile.read(length)
+        self.run(path, lambda: routes.handle_post(self.hub, path, query, body))
+
+    def pin_refused(self, query):
+        """Answers the request itself, and returns True, when the PIN does not let it through."""
+        verdict = self.pin_verdict(query)
+        if verdict == "ok":
+            return False
+        message = {"locked": "too many wrong PINs from this device; try again in a minute",
+                   "unconfigured": "protected mode is on but no PIN is set; fix it in config.json",
+                   }.get(verdict, "PIN required or incorrect")
+        self._json({"error": message}, 429 if verdict == "locked" else 403)
+        return True
+
+    def run(self, path, handler):
+        try:
+            payload, code = handler()
             self._json(payload, code)
         except ValueError as exc:
             self._json({"error": str(exc)}, 400)
@@ -176,6 +214,7 @@ class Hub:
         self.port = port or config.get("http_port")
         self.provisioner = Provisioner()
         self.camera = CameraJob(self.port)
+        self.pending_import = Pending()
         self.wled_lock = threading.Lock()
         self.wled_cached = None
         self.wled_cached_at = -1e9

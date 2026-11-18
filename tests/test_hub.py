@@ -4051,7 +4051,7 @@ def test_one_interface():
     print("\n44. PudiSync: one Home screen that runs every light")
     import gzip, re, shutil
     from ambilight.config import DEFAULTS
-    from ambilight.routes import ROUTES
+    from ambilight.routes import POST_ROUTES, ROUTES
     html = open("ambilight/web/index.html").read()
     markup, script = html[:html.index("<script>")], page_script("ambilight/web/index.html")
     tabs = re.findall(r'data-action="tab" data-value="(\w+)"', markup)
@@ -4077,7 +4077,8 @@ def test_one_interface():
     actions = set(re.findall(r'data-action="([\w-]+)"', markup)) | set(re.findall(r'dataset\.action = "([\w-]+)"', script))
     check("every button on the page has a handler", actions <= handled, sorted(actions - handled))
     called = set(re.findall(r'"(/api/[\w/-]+)"', script))
-    check("every hub address the page calls exists", called <= set(ROUTES), sorted(called - set(ROUTES)))
+    served = set(ROUTES) | set(POST_ROUTES)
+    check("every hub address the page calls exists", called <= served, sorted(called - served))
     switches = set(re.findall(r'data-switch="(\w+)"', markup))
     check("every switch is a real setting", switches <= set(DEFAULTS), sorted(switches - set(DEFAULTS)))
     check("it is called PudiSync", "<title>PudiSync</title>" in html and 'content="PudiSync"' in html
@@ -4350,6 +4351,37 @@ def test_page_in_browser(base):
         page.wait_for_selector("#offline-banner[hidden]", state="attached", timeout=8000)
         check("...and come back by themselves", page.get_attribute("#screens", "inert") is None)
 
+        # Backup: a file opened on the page is reported before Apply, and Undo puts it back.
+        before = get("/api/config")
+        backup_file = {"format": "pudisync-backup", "schema_version": 1, "kind": "full",
+                       "settings": {"saturation": 2.5, "power_limit_ma": 20000, "led_count": 7}}
+        page.goto(base + "/#settings")
+        page.click("#set-backup summary")
+        page.set_input_files("#backup-file", files=[{"name": "backup.json", "mimeType": "application/json",
+                                                     "buffer": json.dumps(backup_file).encode()}])
+        page.wait_for_selector("#backup-plan:not([hidden])", timeout=5000)
+        report = page.text_content("#backup-rows")
+        check("opening a backup on the page reports it before anything changes",
+              "kept from this hub" in report and "2.5" in report
+              and get("/api/config")["saturation"] == before["saturation"], report)
+        groups = page.eval_on_selector_all("#backup-groups input", "els => els.map(e => [e.value, e.checked])")
+        check("...with the looks ticked and the strip's layout left for you to choose",
+              groups == [["looks", True], ["layout", False]], groups)
+        page.click("#backup-apply")
+        s = until(lambda s: s["saturation"] == 2.5)
+        check("Apply stores it; the power limit and the strip length stay this hub's",
+              s["saturation"] == 2.5 and s["power_limit_ma"] == before["power_limit_ma"]
+              and s["led_count"] == before["led_count"], (s["saturation"], s["power_limit_ma"], s["led_count"]))
+        page.click(".toast button:has-text('Undo')")
+        s = until(lambda s: s["saturation"] == before["saturation"])
+        check("...and Undo puts it back", s["saturation"] == before["saturation"], s["saturation"])
+        try:
+            page.wait_for_function("document.querySelectorAll('#backup-points li button').length >= 2", timeout=4000)
+            listed = True
+        except PlaywrightError:
+            listed = False
+        check("the restore points made by Apply and Undo are listed", listed)
+
         light = browser.new_page(color_scheme="light")
         light.goto(base + "/")
         colours = light.evaluate("getComputedStyle(document.body).backgroundColor")
@@ -4496,6 +4528,184 @@ def test_latency_script():
               latency.main(["--camera", "FaceTime", "--port", "9"]) == 1)
     finally:
         camrun.list_cameras, camrun.Camera.__init__, camrun.open_camera, camrun.PatchWindow = saved
+
+
+def test_backup():
+    print("\n46. Backups: a file of your settings, read back only after a report")
+    from ambilight import backup
+    from ambilight.config import DEFAULTS, MAX_PROFILES, PROFILE_KEYS
+
+    folder = tempfile.mkdtemp(prefix="ambilight-backup-")
+    cfg = Config(os.path.join(folder, "config.json"))
+    cfg.update({"pin": "4321", "saturation": 1.5, "zones": [{"start": 0, "end": 9, "mode": "off"}]})
+    cfg.save_profile("Late night")
+    grouped = [k for keys in backup.GROUPS.values() for k in keys]
+    check("every setting has one place: a group to restore, or this hub only",
+          sorted(grouped + list(backup.LOCAL_ONLY)) == sorted(DEFAULTS) and len(set(grouped)) == len(grouped))
+
+    full = backup.export(cfg.snapshot(), "full", "test", "now")
+    check("a full backup carries every portable setting", set(full["settings"]) == set(grouped))
+    check("...and never the PIN, protected mode or a power limit",
+          not set(full["settings"]) & set(backup.LOCAL_ONLY) and "4321" not in json.dumps(full))
+    looks = backup.export(cfg.snapshot(), "looks", "test", "now")
+    check("a looks file holds your looks and nothing else",
+          list(looks["settings"]) == ["user_profiles"] and "Late night" in looks["settings"]["user_profiles"])
+
+    def refusal(raw):
+        try:
+            backup.parse(raw)
+        except ValueError as exc:
+            return str(exc)
+        return ""
+
+    good = {"format": "pudisync-backup", "schema_version": 1, "settings": {}}
+    check("an oversized file is refused before it is read", "kB" in refusal(b" " * (backup.MAX_BYTES + 1)))
+    check("so is one that is not JSON", "not valid JSON" in refusal(b"{nope"))
+    check("so is one nested far too deeply, without crashing", refusal(b"[" * 100_000) != ""
+          and "deeply" in refusal(json.dumps({**good, "settings": {"zones": [[[[[[1]]]]]]}}).encode()))
+    check("a file from something else is refused", "not a PudiSync" in refusal(json.dumps({"seg": []}).encode()))
+    check("a newer format is refused with the reason",
+          "newer" in refusal(json.dumps({**good, "schema_version": 2}).encode()))
+    check("a missing or odd version is refused", refusal(json.dumps({**good, "schema_version": True}).encode()) != ""
+          and refusal(json.dumps({**good, "schema_version": "1"}).encode()) != "")
+
+    settings = {"saturation": 2.0, "blend": 0.5, "fps": 500, "layout": "circle", "mouse_sync": {"on": 1},
+                "pin": "0000", "power_limit_ma": 20000, "unprotected": False, "rgb_mode": "disco",
+                "led_count": 120, "zones": [{"start": 0, "end": 300, "mode": "off"}],
+                "user_profiles": {"Late night": {"saturation": 0.5}, "Fresh": {"saturation": 1.1, "evil": 1},
+                                  "vivid": {"saturation": 3}, "../x": {}, "Odd": {"saturation": [1]}}}
+    data = backup.parse(json.dumps({**good, "settings": settings}).encode())
+    before = cfg.snapshot()
+    report = backup.plan(cfg, data)
+    check("planning an import changes nothing", cfg.snapshot() == before)
+    rows = {r["key"]: r for r in report["rows"]}
+    check("a new value is a change", rows["saturation"]["status"] == "change" and rows["saturation"]["stored"] == 2.0)
+    check("a value already in place is the same", rows["blend"]["status"] == "same")
+    check("a value the hub would clamp says so, with what was asked",
+          rows["fps"]["status"] == "adjusted" and rows["fps"]["stored"] == 120 and rows["fps"]["asked"] == 500)
+    check("an invalid value is refused with the reason",
+          rows["layout"]["status"] == "rejected" and "strip" in rows["layout"]["reason"])
+    check("an object where a switch belongs is refused, not read as on", rows["mouse_sync"]["status"] == "rejected")
+    check("the PIN, protected mode and the power limit are kept from this hub, and not echoed",
+          all(rows[k]["status"] == "local" and "stored" not in rows[k] for k in ("pin", "unprotected", "power_limit_ma")))
+    check("a setting this hub does not have is listed as unknown", rows["rgb_mode"]["status"] == "unknown")
+    check("zones are checked against the strip length they would live with",
+          rows["zones"]["stored"][0]["end"] == 119, rows["zones"].get("stored"))
+    states = {e["name"]: e["status"] for e in report["looks"]}
+    check("each look says whether it is new, replaces yours, or is refused",
+          states == {"Late night": "replaces", "Fresh": "new", "vivid": "rejected", "../x": "rejected",
+                     "Odd": "rejected"}, states)
+    check("a look's unknown settings are listed and left out",
+          next(e for e in report["looks"] if e["name"] == "Fresh")["ignored"] == ["evil"])
+
+    result = backup.apply(cfg, report, ["looks"], cfg.restore_folder(), "test", 1_000_000.0)
+    after = cfg.snapshot()
+    check("applying the looks group changes only looks and picture settings",
+          after["saturation"] == 2.0 and after["fps"] == 120 and after["led_count"] == before["led_count"]
+          and after["zones"] == before["zones"], result["changed"])
+    check("...never the PIN or the power limit",
+          after["pin"] == "4321" and after["power_limit_ma"] == before["power_limit_ma"] and after["unprotected"])
+    check("...merges the looks into yours",
+          set(after["user_profiles"]) == {"Late night", "Fresh"} and after["user_profiles"]["Late night"]["saturation"] == 0.5)
+    check("...reads every value back as planned", result["mismatched"] == [])
+    point = cfg.restore_folder() / result["restore_point"]
+    saved = json.loads(point.read_text())
+    check("a restore point was saved first, without the PIN",
+          saved["settings"]["saturation"] == 1.5 and "pin" not in saved["settings"] and "4321" not in point.read_text())
+    restored = backup.restore(cfg, cfg.restore_folder(), result["restore_point"], "test", 1_000_001.0)
+    check("restoring it puts every setting back exactly", cfg.snapshot() == before, restored["changed"])
+    check("...after saving a restore point of its own, so a restore can be undone too",
+          restored["restore_point"] and restored["restore_point"] != result["restore_point"])
+
+    def refused(action):
+        try:
+            action()
+        except (ValueError, FileNotFoundError) as exc:
+            return str(exc)
+        return ""
+
+    check("a restore point is named, never a path",
+          refused(lambda: backup.restore(cfg, cfg.restore_folder(), "../config.json", "test", 0)) != ""
+          and refused(lambda: backup.restore(cfg, cfg.restore_folder(), "config-x.json", "test", 0)) != "")
+    check("an unknown group is refused", "unknown group" in refused(lambda: backup.changes_for(report, ["power"], {})))
+    crowded = {f"Look {i}": {"saturation": 1.0} for i in range(MAX_PROFILES)}
+    check("looks that would pass the limit are refused, not silently cut",
+          "more than" in refused(lambda: backup.changes_for(report, ["looks"], crowded)))
+    full_plan = backup.plan_looks(cfg, crowded, {"One more": {"saturation": 1.0}})
+    check("a look past the limit of 20 is marked as skipped", full_plan[0]["status"] == "full")
+    check("nothing to change makes no restore point",
+          backup.apply(cfg, backup.plan(cfg, backup.parse(json.dumps(good).encode())), ["looks"],
+                       cfg.restore_folder(), "test", 0)["restore_point"] is None)
+
+    for i in range(backup.KEEP_RESTORE_POINTS + 3):
+        backup.save_restore_point(cfg.snapshot(), cfg.restore_folder(), "test", 2_000_000.0 + i)
+    kept = backup.restore_points(cfg.restore_folder())
+    check(f"only the newest {backup.KEEP_RESTORE_POINTS} restore points are kept",
+          len(kept) == backup.KEEP_RESTORE_POINTS, len(kept))
+    check("...newest first, with a time a browser can read",
+          kept[0]["saved_at"] > kept[-1]["saved_at"] and kept[0]["saved_at"][-6] in "+-" and kept[0]["saved_at"][-3] == ":",
+          kept[0]["saved_at"])
+
+    held = backup.Pending(hold_s=10)
+    token = held.hold({"rows": []}, now=100.0)
+    check("a wrong id does not cancel the import that is held", refused(lambda: held.take("nope", 101.0)) != ""
+          and held.take(token, 101.0) == {"rows": []})
+    check("an import applies once", refused(lambda: held.take(token, 102.0)) != "")
+    token = held.hold({"rows": []}, now=100.0)
+    check("an import left too long expires", "expired" in refused(lambda: held.take(token, 111.0)))
+    check("a look keeps the settings a look can hold", set(PROFILE_KEYS) >= set(after["user_profiles"]["Fresh"]))
+
+
+def test_backup_api(base):
+    print("\n47. Backups over HTTP: export, preview, apply, undo")
+
+    def call(path, body=None, headers=None):
+        req = urllib.request.Request(base + path, data=body, headers=headers or {},
+                                     method="POST" if body is not None else "GET")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read() or b"{}")
+
+    as_json = {"Content-Type": "application/json"}
+    code, full = call("/api/backup/export")
+    check("a backup downloads as JSON", code == 200 and full["format"] == "pudisync-backup" and "fps" in full["settings"])
+    check("...and never holds the PIN", "pin" not in full["settings"])
+    check("a bad kind is a 400", call("/api/backup/export?kind=everything")[0] == 400)
+    start = call("/api/config")[1]
+    upload = json.dumps({**full, "settings": {**full["settings"], "saturation": 0.4, "power_limit_ma": 20000}}).encode()
+    check("a preview needs JSON", call("/api/backup/preview", upload, {"Content-Type": "text/plain"})[0] == 415)
+    check("a file from another website is blocked",
+          call("/api/backup/preview", upload, {**as_json, "Sec-Fetch-Site": "cross-site"})[0] == 403)
+    check("an oversized file is refused", call("/api/backup/preview", b" " * 300_000, as_json)[0] == 413)
+    check("only the preview takes a body", call("/api/set", upload, as_json)[0] == 404)
+    check("a file that is not a backup is a 400", call("/api/backup/preview", b"{}", as_json)[0] == 400)
+    code, plan = call("/api/backup/preview", upload, as_json)
+    rows = {r["key"]: r["status"] for r in plan.get("rows", [])}
+    check("a preview reports each setting and holds the import",
+          code == 200 and plan["import_id"] and rows.get("saturation") == "change"
+          and rows.get("power_limit_ma") == "local", rows.get("saturation"))
+    check("...and changes nothing yet", call("/api/config")[1]["saturation"] == start["saturation"])
+    code, done = call(f"/api/backup/apply?id={plan['import_id']}&groups=looks")
+    check("apply stores it and names the restore point",
+          code == 200 and done["saturation"] == 0.4 and done["restore_point"] and done["mismatched"] == [], done.get("changed"))
+    check("the power limit stayed this hub's", done["power_limit_ma"] == start["power_limit_ma"])
+    check("the same import cannot be applied twice",
+          call(f"/api/backup/apply?id={plan['import_id']}&groups=looks")[0] == 400)
+    check("the restore points are listed", any(p["file"] == done["restore_point"]
+                                               for p in call("/api/backup/list")[1]["restore_points"]))
+    code, undone = call(f"/api/backup/restore?file={done['restore_point']}")
+    check("undo puts it back", code == 200 and undone["saturation"] == start["saturation"])
+    check("a restore point outside the folder is not found",
+          call("/api/backup/restore?file=../config.json")[0] == 404)
+    try:
+        check("a PIN guards the preview like everything else", call("/api/set?new_pin=4321")[0] == 200
+              and call("/api/backup/preview", upload, as_json)[0] == 403
+              and call("/api/backup/preview", upload, {**as_json, "X-Ambilight-Pin": "4321"})[0] == 200)
+    finally:
+        call("/api/set?new_pin=", None, {"X-Ambilight-Pin": "4321"})
+    check("...and is cleared again for the tests after", call("/api/status")[0] == 200)
 
 
 @contextmanager
@@ -4707,6 +4917,7 @@ def main():
     test_immersion()
     test_fire_glow()
     test_user_profiles()
+    test_backup()
     test_sync_modes()
     test_vivid_mode()
     test_enriched()
@@ -4732,6 +4943,7 @@ def main():
         test_serial_api(base)
         test_provision_api(base)
         test_security_api(base)
+        test_backup_api(base)
         test_connect_api(base)
         test_page_in_browser(base)
 

@@ -712,6 +712,32 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
       </div>
     </details>
 
+    <details class="card group" id="set-backup">
+      <summary><h2>Backup and restore</h2></summary>
+      <div class="stack">
+        <p class="hint">Save your settings to a file, or only your looks to share them. The PIN and the power
+          limits never leave this hub. Opening a file shows what would change before anything does.</p>
+        <div class="row">
+          <button class="btn" type="button" data-action="backup-save" data-value="full">Save a backup</button>
+          <button class="btn" type="button" data-action="backup-save" data-value="looks">Save your looks</button>
+        </div>
+        <button class="btn" type="button" data-action="backup-open">Open a backup…</button>
+        <input type="file" id="backup-file" accept="application/json,.json" hidden>
+        <div class="stack" id="backup-plan" hidden>
+          <p class="label" id="backup-sum" role="status"></p>
+          <div class="stack" id="backup-groups"></div>
+          <dl class="kv" id="backup-rows"></dl>
+          <div class="row">
+            <button class="btn primary" type="button" data-action="backup-apply" id="backup-apply">Apply</button>
+            <button class="btn" type="button" data-action="backup-cancel">Cancel</button>
+          </div>
+        </div>
+        <h3>Restore points</h3>
+        <p class="hint">Saved before every import or restore. The newest ten are kept.</p>
+        <ol class="parts" id="backup-points"></ol>
+      </div>
+    </details>
+
     <details class="card group" id="set-diag">
       <summary><h2>Diagnostics</h2></summary>
       <div class="stack">
@@ -866,11 +892,14 @@ async function timedFetch(url, options) {
   }
 }
 
-async function api(path, params) {
+/* A `file` (a backup's text) goes as a JSON POST; everything else is a plain GET. */
+async function api(path, params, file) {
   const query = new URLSearchParams(params || {}).toString();
+  const init = file == null ? {cache: "no-store", headers: pinHeaders()}
+    : {method: "POST", cache: "no-store", headers: {...pinHeaders(), "Content-Type": "application/json"}, body: file};
   let res;
   try {
-    res = await timedFetch(path + (query ? `?${query}` : ""), {cache: "no-store", headers: pinHeaders()});
+    res = await timedFetch(path + (query ? `?${query}` : ""), init);
   } catch (err) {
     throw new HubError("offline", "Can't reach the hub. Is this device on the home Wi-Fi?");
   }
@@ -2253,12 +2282,101 @@ function loadHealth() {
       ["Capture size", [].concat(d.capture_size || "—").join("×")],
       ["Last issue", d.last_error ? friendly(d.last_error) : "None", d.last_error ? "bad" : "ok"],
     ];
-    $("health").replaceChildren(...rows.flatMap(([name, value, tone]) => {
-      const dd = make("dd", {textContent: String(value)});
-      if (tone) dd.dataset.tone = tone;
-      return [make("dt", {textContent: name}), dd];
-    }));
+    fillKv($("health"), rows);
   });
+}
+
+function fillKv(list, rows) {
+  list.replaceChildren(...rows.flatMap(([name, value, tone]) => {
+    const dd = make("dd", {textContent: String(value)});
+    if (tone) dd.dataset.tone = tone;
+    return [make("dt", {textContent: name}), dd];
+  }));
+}
+
+/* ---------- backup and restore ---------- */
+const BACKUP_GROUPS = {looks: "Looks and picture", layout: "Strip layout and parts",
+  calibration: "Colour calibration", connection: "Board, display and output"};
+const LOOK_STATES = {new: "new", replaces: "replaces yours", full: "skipped: you have 20 looks"};
+const when = iso => new Date(iso).toLocaleString([], {dateStyle: "medium", timeStyle: "short"});
+let backupPlan = null;
+
+async function saveBackup(kind) {
+  try {
+    const file = await api("/api/backup/export", {kind});
+    const blob = new Blob([JSON.stringify(file, null, 2)], {type: "application/json"});
+    const link = make("a", {href: URL.createObjectURL(blob),
+      download: `pudisync-${kind === "looks" ? "looks" : "backup"}-${file.exported_at.slice(0, 10)}.json`});
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  } catch (err) { reportError(err); }
+}
+
+async function previewBackup(file) {
+  $("backup-file").value = "";     // the same file can be opened again
+  if (!file) return;
+  if (file.size > 256 * 1024) { toast("That file is too big to be a PudiSync backup.", "error"); return; }
+  try { showBackupPlan(await api("/api/backup/preview", null, await file.text())); }
+  catch (err) { reportError(err); }
+}
+
+function showBackupPlan(plan) {
+  backupPlan = plan;
+  const name = key => FADERS[key]?.label || key;
+  const show = v => Array.isArray(v) ? `${v.length} items` : String(v);
+  const changing = plan.rows.filter(r => r.status === "change" || r.status === "adjusted");
+  const looks = plan.looks.filter(l => l.status === "new" || l.status === "replaces");
+  const counts = {looks: looks.length};
+  changing.forEach(r => { counts[r.group] = (counts[r.group] || 0) + 1; });
+  $("backup-groups").replaceChildren(...Object.keys(BACKUP_GROUPS).filter(g => counts[g]).map(g =>
+    make("label", {className: "check"},
+      make("input", {type: "checkbox", value: g, checked: plan.default_groups.includes(g)}),
+      `${BACKUP_GROUPS[g]} (${counts[g]})`)));
+  const of = status => plan.rows.filter(r => r.status === status);
+  fillKv($("backup-rows"), [
+    ...changing.map(r => [name(r.key), `${show(r.current)} → ${show(r.stored)}` +
+      (r.status === "adjusted" ? ` (file says ${show(r.asked)})` : "")]),
+    ...plan.looks.filter(l => l.status !== "same").map(l => [`Look: ${l.name}`,
+      LOOK_STATES[l.status] || `refused: ${l.reason}`, l.status in LOOK_STATES && l.status !== "full" ? "" : "bad"]),
+    ...of("rejected").map(r => [name(r.key), `refused: ${r.reason}`, "bad"]),
+    ...of("local").map(r => [r.key, "kept from this hub"]),
+    ...of("unknown").map(r => [r.key, "not a setting this hub has"]),
+  ]);
+  const total = changing.length + looks.length;
+  const same = of("same").length + plan.looks.filter(l => l.status === "same").length;
+  setText($("backup-sum"), total ? `${total} changes; ${same} already match. Pick what to restore:`
+    : `Nothing to change: ${same} already match.`);
+  $("backup-apply").disabled = !total;
+  $("backup-plan").hidden = false;
+}
+
+async function applyBackup() {
+  const groups = $$("#backup-groups input:checked").map(i => i.value);
+  if (!groups.length) { toast("Tick at least one part to restore.", "error"); return; }
+  const body = await act("/api/backup/apply", {id: backupPlan.import_id, groups: groups.join(",")});
+  if (!body) return;
+  closeBackupPlan();
+  settled(body, `Applied ${body.changed.length} settings.`);
+}
+
+async function restorePoint(file) {
+  const body = await act("/api/backup/restore", {file});
+  if (body) settled(body, body.changed.length ? `Restored ${body.changed.length} settings.` : "Those settings were already in place.");
+}
+
+function settled(body, message) {
+  loadRestorePoints();
+  if (body.mismatched.length) toast(`Saved, but ${body.mismatched.join(", ")} did not store as planned.`, "error");
+  else toast(message, "info", body.restore_point && {label: "Undo", run: () => restorePoint(body.restore_point)});
+}
+
+function closeBackupPlan() { $("backup-plan").hidden = true; backupPlan = null; }
+
+function loadRestorePoints() {
+  return load("/api/backup/list", b => $("backup-points").replaceChildren(...b.restore_points.length
+    ? b.restore_points.map(p => make("li", {}, make("p", {textContent: when(p.saved_at)}),
+        button("Restore", "btn small", () => restorePoint(p.file), `Restore the settings saved ${when(p.saved_at)}`)))
+    : [make("li", {}, make("p", {className: "hint", textContent: "None yet."}))]));
 }
 
 /* ---------- webcam calibration ---------- */
@@ -2359,7 +2477,11 @@ const ACTIONS = {
   "ports": loadPorts,
   "pin-remove": removePin,
   "health": loadHealth,
-  "unlock": () => { pinDismissed = false; askPin(); },
+  "backup-save": b => saveBackup(b.dataset.value),
+  "backup-open": () => $("backup-file").click(),
+  "backup-apply": applyBackup,
+  "backup-cancel": closeBackupPlan,
+  "unlock":() => { pinDismissed = false; askPin(); },
   "unlock-cancel": () => { pinDismissed = true; $("unlock").close(); },
   "pair": openPair,
 };
@@ -2420,6 +2542,8 @@ function wire() {
   onOpen("flash", () => { flashCheck(); loadNetworks(); });
   onOpen("set-capture", () => { loadMonitors(); loadPorts(); });
   onOpen("set-diag", () => { loadHealth(); if (state) renderTiming(state); });
+  onOpen("set-backup", loadRestorePoints);
+  $("backup-file").addEventListener("change", () => previewBackup($("backup-file").files[0]));
   $("set-strip").addEventListener("toggle", () => { if (!$("set-strip").open && wizardLive) stopWizard({offer: true}); });
   $("flash-form").addEventListener("submit", startFlash);
   $("flash-ssid").addEventListener("change", ssidChanged);

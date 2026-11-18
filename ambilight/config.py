@@ -300,6 +300,10 @@ class Config:
     def journal_path(self):
         return str(self._path.with_suffix(".journal.jsonl"))
 
+    def restore_folder(self):
+        """Where restore points are kept: beside the config, so each config has its own."""
+        return self._path.parent / "backups"
+
     def apply_profile(self, name):
         saved = self.get("user_profiles")
         if name in PROFILES:
