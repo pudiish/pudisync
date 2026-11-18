@@ -1,6 +1,4 @@
-/* Precision instrument: warm porcelain or deep olive, a graphite rail, one sage accent.
-   The colour on the page belongs to the lights. Text pairs are checked at 4.5:1 or more,
-   control edges (--line-hi) at 3:1; --line is for dividers only. */
+/* Contrast is checked by the tests (4.5:1 text, 3:1 control edges); --line is for dividers only. */
 :root{
   color-scheme:dark;
   --bg:#171a17;--surface:#20241f;--raised:#292e28;--well:#121512;

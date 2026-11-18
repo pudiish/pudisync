@@ -213,7 +213,6 @@
       <div class="fader" data-fader="blend" data-hint="How long the light takes to settle on a new colour."></div>
       <div class="row">
         <button class="btn" type="button" data-action="profile-save">Save as a look</button>
-        <button class="btn" type="button" data-action="profile-delete" id="profile-delete" hidden>Delete</button>
       </div>
       <form class="inline" id="form-profile" hidden>
         <input type="text" id="profile-name" maxlength="24" autocomplete="off" spellcheck="false"
@@ -498,6 +497,11 @@
             <button class="btn" type="submit">Save</button></div>
           <p class="hint">Takes effect when the hub restarts.</p></form>
       </div>
+    </details>
+
+    <details class="card group" id="set-expert" data-section="setup">
+      <summary><h2>Expert settings</h2></summary>
+      <div class="stack" id="expert"></div>
     </details>
 
     <details class="card group" id="set-backup" data-section="looks">

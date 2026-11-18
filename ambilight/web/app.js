@@ -1025,8 +1025,6 @@ function renderProfiles(s) {
   $$("[data-action=profile]").forEach(b => press(b, b.dataset.value === active));
   const mine = names.includes(s.profile);
   setText($("style-hint"), STYLES[active] || (mine ? `${s.profile}: your saved look. Tune changes it; save to keep.` : "A look of your own. Save it in Tune to keep it."));
-  $("profile-delete").hidden = !mine;
-  setText($("profile-delete"), mine ? `Delete ${s.profile}` : "Delete");
   renderLooks(s);
 }
 
@@ -1050,7 +1048,7 @@ async function deleteProfile(name) {
 }
 
 /* ---------- the looks library: pick one, then use, compare, copy, rename or delete it ---------- */
-let builtinLooks = {}, lookPick = "", lookForm = "", looksKey = "";
+let builtinLooks = {}, lookPick = "", lookForm = "", looksKey = "", expertLoaded = false;
 const lookTitle = name => name in STYLES ? name[0].toUpperCase() + name.slice(1) : name;
 const lookOf = name => builtinLooks[name] || (state && (state.user_profiles || {})[name]);
 
@@ -1754,7 +1752,6 @@ const ACTIONS = {
   "scene": b => pickScene(b.dataset.value),
   "profile": b => pickStyle(b.dataset.value),
   "profile-save": showProfileForm,
-  "profile-delete": () => deleteProfile(state && state.profile),
   "look-use": () => pickStyle(lookPick),
   "look-compare": compareLook,
   "look-form": b => showLookForm(b.dataset.value),
@@ -1853,6 +1850,12 @@ function wire() {
   onOpen("set-capture", () => { loadMonitors(); loadPorts(); });
   onOpen("set-diag", () => { loadHealth(); if (state) renderTiming(state); });
   onOpen("set-backup", loadRestorePoints);
+  // Most people never open these, so their script is fetched on the first open, not with the page.
+  onOpen("set-expert", () => {
+    if (!expertLoaded) document.body.append(make("script", {src: "/expert.js",
+      onerror: () => { expertLoaded = false; toast("Couldn't load the expert settings. Try again.", "error"); }}));
+    expertLoaded = true;
+  });
   $("backup-file").addEventListener("change", () => previewBackup($("backup-file").files[0]));
   $("set-strip").addEventListener("toggle", () => { if (!$("set-strip").open && wizardLive) stopWizard({offer: true}); });
   $("flash-form").addEventListener("submit", startFlash);

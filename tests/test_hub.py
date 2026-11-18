@@ -4140,7 +4140,14 @@ def test_one_interface():
     check("the page loads only its own two files, both served by the hub",
           re.findall(r'(?:src|href)="(/app\.\w+)"', markup) == ["/app.css", "/app.js"]
           and {"/app.css", "/app.js"} <= set(PAGES))
-    check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
+    expert = open("ambilight/web/expert.js").read()
+    check("expert settings load only when opened, and stay small",
+          "/expert.js" in PAGES and "expert.js" not in markup and '"/expert.js"' in script
+          and len(gzip.compress(expert.encode(), mtime=0)) < 8_000)
+    reachable = "\n".join([html, expert, open("ambilight/web/calibrate.html").read()])
+    check("every setting the hub has can be changed from a page",
+          not [k for k in DEFAULTS if k not in reachable], [k for k in DEFAULTS if k not in reachable])
+    check("it never builds markup from strings", all("innerHTML" not in s and "eval(" not in s for s in (script, expert)))
     check("it follows the device's light or dark appearance", "prefers-color-scheme:light" in html)
     css = open("ambilight/web/app.css").read()
     dark = dict(re.findall(r"--([\w-]+):(#[0-9a-f]{6})", css[css.index(":root{"):css.index("}")]))
@@ -4496,6 +4503,37 @@ def test_page_in_browser(base):
         check("...and Undo goes back to the look before it, setting by setting",
               s["profile"] == "vivid" and s["immersion"] == 0.15, (s["profile"], s["immersion"]))
         get("/api/profiles/delete?name=Campfire")
+
+        # Expert settings: fetched on first open, every value checked by the hub, power behind a confirm.
+        before = get("/api/config")
+        page.goto(base + "/#settings")
+        page.click("#set-expert summary")
+        page.wait_for_selector("#x-band_height", timeout=5000)
+        check("opening Expert settings fetches its controls", page.is_visible("#f-enrich")
+              and page.input_value("#x-sustained_ma") == str(before["sustained_ma"]))
+        page.fill("#x-band_height", "180")
+        page.click("form:has(#x-band_height) button[type=submit]")
+        s = until(lambda s: s["band_height"] == 180)
+        check("a mapping value saves to the hub", s["band_height"] == 180, s["band_height"])
+        page.fill("#x-edge_skip", "900")
+        page.click("form:has(#x-edge_skip) button[type=submit]")
+        page.wait_for_timeout(500)
+        check("a value past its range is refused by the page before it is sent",
+              page.evaluate("!document.getElementById('x-edge_skip').validity.valid")
+              and get("/api/config")["edge_skip"] == before["edge_skip"])
+        page.fill("#x-edge_skip", str(before["edge_skip"]))
+        dialogs = []
+        page.on("dialog", lambda d: dialogs.append(d.message))
+        page.fill("#x-sustained_ma", "2800")
+        page.click("form:has(#x-sustained_ma) button[type=submit]")
+        s = until(lambda s: s["sustained_ma"] == 2800)
+        check("power limits save only after a warning about the adapter",
+              s["sustained_ma"] == 2800 and any("adapter" in m for m in dialogs), dialogs)
+        page.click("#expert [role=switch]")
+        page.wait_for_selector(".toast.error", timeout=4000)
+        check("protected mode is refused without a PIN, and the hub stays open", get("/api/config")["unprotected"] is True)
+        get(f"/api/set?band_height={before['band_height']}&edge_skip={before['edge_skip']}"
+            f"&sustained_ma={before['sustained_ma']}")
 
         wide = browser.new_page(viewport={"width": 1280, "height": 900})
         wide.goto(base + "/")
