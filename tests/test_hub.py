@@ -2953,6 +2953,49 @@ def test_immersion():
           Config(os.path.join(tempfile.mkdtemp(), "c.json")).get("immersion") == PROFILES["vivid"]["immersion"])
 
 
+def test_fire_glow():
+    print("\n35b. Fire: a flame's white-hot core lights the wall warm, not white")
+    from ambilight import color
+    from ambilight.config import DEFAULTS, PROFILES
+
+    immersive = {**DEFAULTS, **PROFILES["immersive"]}
+
+    def strip(rows, cfg):
+        """Screen colours (0..255 sRGB) -> LED drive, through grading and the LED stage as sync runs them."""
+        linear = color.SRGB_LUT[np.array(rows, np.int64)]
+        return color.to_led(color.grade(linear, cfg), cfg)
+
+    def warmth(led):
+        """An LED's saturation: 0 is white on the wall, 1 a pure colour."""
+        return 1.0 - led.min() / max(led.max(), 1e-6)
+
+    cores = [(255, 252, 240), (255, 246, 222), (255, 255, 255)]
+    flames = [(255, 214, 130), (255, 180, 70), (250, 140, 40), (230, 100, 25), (170, 40, 10)]
+    dark = [(10, 8, 8)] * 30
+    fire = strip(cores + flames * 2 + dark, immersive)
+    plain = strip(cores + flames * 2 + dark, {**immersive, "immersion": 0.0})
+    for k, name in enumerate(("white-hot", "pale yellow", "clipped white")):
+        check(f"a {name} flame core in Immersive shows as fire, not white",
+              warmth(fire[k]) >= 0.8 and fire[k][2] < 0.25 * fire[k][0], fire[k].round())
+        check(f"...and stays as bright as before ({name})", fire[k].max() >= 0.95 * plain[k].max(),
+              (plain[k].round(), fire[k].round()))
+    check("the flames themselves keep their colour", all(warmth(fire[k]) >= 0.9 for k in range(3, 8)))
+    check("with immersion off a flame core is left as the screen shows it",
+          warmth(plain[0]) < warmth(fire[0]) - 0.15, plain[0].round())
+
+    page = strip([(250, 248, 240)] * 30 + [(40, 40, 40)] * 10, immersive)
+    check("a cream page with no fire in the frame stays white", warmth(page[0]) < 0.6, page[0].round())
+    sky = strip([(255, 255, 255)] * 5 + [(60, 120, 230)] * 20 + dark, immersive)
+    same_sky = strip([(255, 255, 255)] * 5 + [(60, 120, 230)] * 20 + dark, {**immersive, "immersion": 0.0})
+    check("white clouds in a blue sky are not warmed", warmth(sky[0]) <= warmth(same_sky[0]) + 0.05,
+          (same_sky[0].round(), sky[0].round()))
+    face = [(225, 170, 140)]
+    lit = strip(face + flames * 2 + dark, immersive)
+    unlit = strip(face + [(80, 80, 80)] * 10 + dark, immersive)
+    check("a face lit by a fire keeps its skin tone", abs(warmth(lit[0]) - warmth(unlit[0])) < 0.1,
+          (unlit[0].round(), lit[0].round()))
+
+
 def test_user_profiles():
     print("\n36. Your own profiles: save the whole look, switch, delete")
     from ambilight.config import PROFILE_KEYS, PROFILES
@@ -4662,6 +4705,7 @@ def main():
     test_camera_choice()
     test_mouse_sync()
     test_immersion()
+    test_fire_glow()
     test_user_profiles()
     test_sync_modes()
     test_vivid_mode()
