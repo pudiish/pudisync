@@ -95,8 +95,18 @@ def profile(hub, q, name):
 
 
 def profiles(hub, q):
-    return {"builtin": list(PROFILES), "user": hub.cfg.get("user_profiles"),
+    return {"builtin": list(PROFILES), "builtin_looks": PROFILES, "user": hub.cfg.get("user_profiles"),
             "active": hub.cfg.get("profile")}, OK
+
+
+def profile_rename(hub, q):
+    hub.cfg.rename_profile(q.one("name", ""), q.one("to", ""))
+    return hub.status(), OK
+
+
+def profile_duplicate(hub, q):
+    hub.cfg.duplicate_profile(q.one("name", ""), q.one("to", ""))
+    return hub.status(), OK
 
 
 def profile_save(hub, q):
@@ -445,6 +455,8 @@ ROUTES = {
     "/api/profiles": profiles,
     "/api/profiles/save": profile_save,
     "/api/profiles/delete": profile_delete,
+    "/api/profiles/rename": profile_rename,
+    "/api/profiles/duplicate": profile_duplicate,
     "/api/set": set_values,
     "/api/config": config,
     "/api/pair": pair,

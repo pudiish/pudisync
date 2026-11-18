@@ -26,6 +26,9 @@ log = logging.getLogger(__name__)
 # Fixed map of servable files: nothing outside it can be requested.
 PAGES = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/expert.js": ("expert.js", "text/javascript; charset=utf-8"),
     "/calibrate": ("calibrate.html", "text/html; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icon.svg": ("icon.svg", "image/svg+xml"),
@@ -38,12 +41,12 @@ _PACKED = {}
 
 
 def packed(name, body):
-    """`body` gzipped, compressed once per version of the file."""
-    key = (name, hash(body))
-    if key not in _PACKED:
-        _PACKED.clear()  # one version per page is all that is ever served
-        _PACKED[key] = gzip.compress(body, mtime=0)
-    return _PACKED[key]
+    """`body` gzipped, compressed once per version of each file; only the newest version is kept."""
+    version = hash(body)
+    cached = _PACKED.get(name)
+    if cached is None or cached[0] != version:
+        cached = _PACKED[name] = (version, gzip.compress(body, mtime=0))
+    return cached[1]
 
 
 class Handler(BaseHTTPRequestHandler):

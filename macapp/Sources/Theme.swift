@@ -3,21 +3,22 @@ import SwiftUI
 
 /// The phone page's palette, light or dark with the Mac, so the app and the page read as one product.
 enum Theme {
-    static let bg = adaptive("#0b0b0e", "#f4f4f7")
-    static let surface = adaptive("#141418", "#ffffff")
-    static let raised = adaptive("#1d1d23", "#ececf1")
-    static let well = adaptive("#09090c", "#e3e3ea")
-    static let line = adaptive("#242428", "#ededee")
-    static let lineHi = adaptive("#333338", "#d6d6d9")
-    static let ink = adaptive("#f2f2f5", "#15151b")
-    static let dim = adaptive("#9c9ca9", "#5e5e6b")
-    static let faint = adaptive("#5d5d69", "#9a9aa6")
-    static let ledOff = adaptive("#26262d", "#d4d4dc")
-    static let accent = adaptive("#ffad42", "#d97a00")
-    static let accentInk = adaptive("#1d1100", "#ffffff")
-    static let ok = adaptive("#3ddc84", "#15993f")
-    static let bad = adaptive("#ff6b5e", "#d4342a")
-    static let radius: CGFloat = 18
+    // The same values as ambilight/web/app.css, where their contrast is checked.
+    static let bg = adaptive("#171a17", "#eeece3")
+    static let surface = adaptive("#20241f", "#f8f7f1")
+    static let raised = adaptive("#292e28", "#ecebe3")
+    static let well = adaptive("#121512", "#e2e0d6")
+    static let line = adaptive("#3b4139", "#d5d4ca")
+    static let lineHi = adaptive("#737b6d", "#83887c")
+    static let ink = adaptive("#f0f0e8", "#20231f")
+    static let dim = adaptive("#b4b9ae", "#5f645a")
+    static let faint = adaptive("#6b7266", "#9a9e93")
+    static let ledOff = adaptive("#2e332d", "#d9d7cd")
+    static let accent = adaptive("#a1b18e", "#4e6044")
+    static let accentInk = adaptive("#171a17", "#ffffff")
+    static let ok = adaptive("#70c69a", "#2b6e4d")
+    static let bad = adaptive("#f08b83", "#b3443d")
+    static let radius: CGFloat = 12
 
     private static func adaptive(_ dark: String, _ light: String) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in

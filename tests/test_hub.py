@@ -2110,9 +2110,18 @@ ask("{silent}/json/si").then(() => console.log(JSON.stringify({{kind: "answered"
           result and result.get("kind") == "gave up" and result["ms"] < 5000, result)
 
 
-def page_script(path):
-    import pathlib, re
-    return re.search(r"<script>(.*?)</script>", pathlib.Path(path).read_text(), re.S).group(1)
+PAGE = "ambilight/web/index.html"
+PAGE_FILES = (PAGE, "ambilight/web/app.css", "ambilight/web/app.js")
+
+
+def page_script():
+    """The phone page's script, which lives in app.js."""
+    return open("ambilight/web/app.js").read()
+
+
+def page_text():
+    """The phone page as one text: markup, styles and script."""
+    return "\n".join(open(path).read() for path in PAGE_FILES)
 
 
 def js_block(script, start):
@@ -2157,7 +2166,7 @@ def test_phone_page_connection():
     if not shutil.which("node"):
         print("    (skipped: node not installed, so the page's script was not run)")
         return
-    script = page_script("ambilight/web/index.html")
+    script = page_script()
     plumbing = "\n".join(js_block(script, start) for start in
                          ("class HubError", "async function api"))
     timed = js_block(script, "async function timedFetch") if "async function timedFetch" in script else ""
@@ -2998,7 +3007,7 @@ def test_fire_glow():
 
 def test_user_profiles():
     print("\n36. Your own profiles: save the whole look, switch, delete")
-    from ambilight.config import PROFILE_KEYS, PROFILES
+    from ambilight.config import MAX_PROFILES, PROFILE_KEYS, PROFILES
 
     path = os.path.join(tempfile.mkdtemp(prefix="ambilight-profiles-"), "config.json")
     cfg = Config(path)
@@ -3039,6 +3048,32 @@ def test_user_profiles():
     reloaded = Config(path).get("user_profiles")
     check("a damaged profile on disk is dropped, a good one is clamped and kept",
           "Bad" not in reloaded and reloaded["Fine"]["saturation"] == 3.0, reloaded)
+
+    cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-looks-"), "config.json"))
+    cfg.update({"saturation": 1.6})
+    for name in ("Day", "Late night", "Film"):
+        cfg.save_profile(name)
+    cfg.apply_profile("Late night")
+    cfg.rename_profile("Late night", "Night")
+    check("a look can be renamed, keeping its place in the list",
+          list(cfg.get("user_profiles")) == ["Day", "Night", "Film"])
+    check("...and the look in use follows the new name", cfg.get("profile") == "Night")
+    check("renaming onto another of your looks is refused", "already" in refused(lambda n: cfg.rename_profile("Day", n), "Film"))
+    check("...onto a built-in too", "built-in" in refused(lambda n: cfg.rename_profile("Day", n), "vivid"))
+    check("...and a look that does not exist cannot be renamed", "unknown" in refused(lambda n: cfg.rename_profile(n, "X"), "Gone"))
+    check("renaming to the same name changes nothing", cfg.rename_profile("Day", "Day") == [])
+    cfg.duplicate_profile("immersive", "My immersive")
+    copy = cfg.get("user_profiles")["My immersive"]
+    check("duplicating a built-in makes a whole look of your own with its settings",
+          set(copy) == set(PROFILE_KEYS) and all(copy[k] == v for k, v in PROFILES["immersive"].items()))
+    check("...and leaves the built-in itself as it was", "immersive" not in cfg.get("user_profiles"))
+    cfg.duplicate_profile("Night", "Night 2")
+    check("duplicating one of yours copies it exactly",
+          cfg.get("user_profiles")["Night 2"] == cfg.get("user_profiles")["Night"])
+    check("a copy needs a name of its own", "already" in refused(lambda n: cfg.duplicate_profile("Day", n), "Film"))
+    for i in range(MAX_PROFILES - len(cfg.get("user_profiles"))):
+        cfg.duplicate_profile("Day", f"Day {i}")
+    check("copies stop at the limit of 20 looks", "at most" in refused(lambda n: cfg.duplicate_profile("Day", n), "One more"))
 
 
 def test_dark_scenes():
@@ -3518,7 +3553,7 @@ def test_bed_strip():
     check("and the pin can be another, such as RX",
           bed.bus_config(hw_led, 180, 2800, 60, 2500, 3)["hw"]["led"]["ins"][1]["pin"] == [3])
     import re
-    picker = re.search(r'<select id="bed-pin">(.*?)</select>', open("ambilight/web/index.html").read(), re.S).group(1)
+    picker = re.search(r'<select id="bed-pin">(.*?)</select>', open(PAGE).read(), re.S).group(1)
     offered = re.findall(r'<option value="(\d+)">(\w+)</option>', picker)
     check("the page offers TX (GPIO1) first, the free hardware pin with memory for a long bed strip",
           offered[:1] == [("1", "TX")] and ("3", "RX") in offered, offered)
@@ -4037,7 +4072,7 @@ def test_telemetry_api(base):
     check("diagnostics carries the same block", set(get("/api/diagnostics")["telemetry"]) == set(t))
 
     import re
-    html = open("ambilight/web/index.html").read()
+    html = page_text()
     script = re.search(r"function renderTiming\(s\) \{.*?\n\}", html, re.S).group(0)
     stages = re.search(r"const TIMING_STAGES = (\[.*?\]);", html, re.S).group(1)
     check("the page has a Timing panel", 'id="timing"' in html and "renderTiming(s);" in html)
@@ -4052,8 +4087,9 @@ def test_one_interface():
     import gzip, re, shutil
     from ambilight.config import DEFAULTS
     from ambilight.routes import POST_ROUTES, ROUTES
-    html = open("ambilight/web/index.html").read()
-    markup, script = html[:html.index("<script>")], page_script("ambilight/web/index.html")
+    from ambilight.server import PAGES
+    html = page_text()
+    markup, script = open(PAGE).read(), page_script()
     tabs = re.findall(r'data-action="tab" data-value="(\w+)"', markup)
     check("three tabs: Home, Tune, Settings", tabs == ["home", "tune", "settings"], tabs)
     home = re.search(r'<section class="screen" id="tab-home".*?\n  </section>', markup, re.S).group(0)
@@ -4067,8 +4103,18 @@ def test_one_interface():
     check("the mouse is on Home too", 'data-switch="mouse_sync"' in home)
     check("old links and bookmarks open the screen that now holds them",
           all(re.search(rf"\b{old}: \"{new}\"", script) for old, new in
-              (("lights", "home"), ("effects", "home"), ("bed", "home"), ("picture", "tune"),
-               ("override", "tune"), ("setup", "settings"), ("advanced", "settings"))))
+              (("lights", "overview"), ("effects", "overview"), ("picture", "monitor"),
+               ("override", "monitor"), ("advanced", "setup"))))
+    sections = re.findall(r'data-action="section" data-value="(\w+)"', markup)
+    check("wide screens offer seven sections", sections ==
+          ["overview", "monitor", "bed", "mouse", "looks", "calibration", "setup"], sections)
+    screens = markup[markup.index('<div id="screens"'):]
+    cards = re.findall(r'<(?:div|details) class="card[^"]*"([^>]*)>', screens)
+    check("every card belongs to a section", all("data-section=" in attrs for attrs in cards),
+          [a for a in cards if "data-section=" not in a])
+    used = {s for value in re.findall(r'data-section="([\w ]+)"', screens) for s in value.split()}
+    check("every section has something in it, and no card names a section that is not offered",
+          used == set(sections), used ^ set(sections))
     ids = set(re.findall(r'id="([\w-]+)"', markup))
     wanted = set(re.findall(r'\$\("([\w-]+)"\)', script))
     check("every element the script reaches for is on the page", wanted <= ids, sorted(wanted - ids))
@@ -4083,11 +4129,49 @@ def test_one_interface():
     check("every switch is a real setting", switches <= set(DEFAULTS), sorted(switches - set(DEFAULTS)))
     check("it is called PudiSync", "<title>PudiSync</title>" in html and 'content="PudiSync"' in html
           and "Ambilight Hub" not in html)
-    sent = len(gzip.compress(html.encode(), mtime=0))
-    check("it stays light: one file, no outside resources, under 40 kB as a phone downloads it",
+    sent = sum(len(gzip.compress(open(path, "rb").read(), mtime=0)) for path in PAGE_FILES)
+    check("it stays light: no outside resources, under 40 kB in all as a phone downloads it",
           sent < 40_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
-    check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
+    from ambilight.server import packed
+    first = packed("index.html", b"page")
+    packed("app.js", b"script")
+    check("each page file is gzipped once, not again whenever another file is asked for",
+          packed("index.html", b"page") is first and packed("index.html", b"new page") is not first)
+    check("the page loads only its own two files, both served by the hub",
+          re.findall(r'(?:src|href)="(/app\.\w+)"', markup) == ["/app.css", "/app.js"]
+          and {"/app.css", "/app.js"} <= set(PAGES))
+    expert = open("ambilight/web/expert.js").read()
+    check("expert settings load only when opened, and stay small",
+          "/expert.js" in PAGES and "expert.js" not in markup and '"/expert.js"' in script
+          and len(gzip.compress(expert.encode(), mtime=0)) < 8_000)
+    reachable = "\n".join([html, expert, open("ambilight/web/calibrate.html").read()])
+    check("every setting the hub has can be changed from a page",
+          not [k for k in DEFAULTS if k not in reachable], [k for k in DEFAULTS if k not in reachable])
+    check("it never builds markup from strings", all("innerHTML" not in s and "eval(" not in s for s in (script, expert)))
     check("it follows the device's light or dark appearance", "prefers-color-scheme:light" in html)
+    css = open("ambilight/web/app.css").read()
+    dark = dict(re.findall(r"--([\w-]+):(#[0-9a-f]{6})", css[css.index(":root{"):css.index("}")]))
+    light_block = css[css.index("@media (prefers-color-scheme:light){:root{"):]
+    light = {**dark, **dict(re.findall(r"--([\w-]+):(#[0-9a-f]{6})", light_block[:light_block.index("}}")]))}
+
+    def contrast(a, b):
+        def lum(hex_colour):
+            c = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+            return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+        hi, lo = sorted((lum(a), lum(b)), reverse=True)
+        return (hi + 0.05) / (lo + 0.05)
+
+    pairs = [(fg, bg, 4.5) for fg in ("ink", "dim", "accent", "ok", "bad") for bg in ("bg", "surface", "raised")]
+    pairs += [("accent-ink", "accent", 4.5), ("line-hi", "surface", 3.0), ("line-hi", "bg", 3.0)]
+    pairs += [(fg, bg, 4.5) for fg in ("rail-ink", "rail-dim", "rail-accent") for bg in ("rail-bg", "rail-on")]
+    weak = [(theme, fg, bg, round(contrast(tokens[fg], tokens[bg]), 2)) for theme, tokens in (("dark", dark), ("light", light))
+            for fg, bg, need in pairs if contrast(tokens[fg], tokens[bg]) < need]
+    check("in both themes text reads at 4.5:1 and control edges show at 3:1 (WCAG AA)", not weak, weak)
+    swift = dict((re.sub(r"(?<!^)([A-Z])", r"-\1", name).lower(), (d, l)) for name, d, l in
+                 re.findall(r'static let (\w+) = adaptive\("(#\w+)", "(#\w+)"\)', open("macapp/Sources/Theme.swift").read()))
+    drift = {k: (v, (dark.get(k), light.get(k))) for k, v in swift.items() if v != (dark.get(k), light.get(k))}
+    check("the Mac app wears exactly the phone page's colours, light and dark", len(swift) == 14 and not drift, drift)
     wheels = re.findall(r'<div class="wheel" id="([\w-]+)"', markup)
     check("every colour is picked on a round wheel, never the browser's square box",
           wheels == ["colour", "bed-colour", "part-colour"] and 'type="color"' not in markup, wheels)
@@ -4336,11 +4420,18 @@ def test_page_in_browser(base):
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         bar = page.evaluate("Math.round(document.querySelector('.tabs').getBoundingClientRect().bottom) - innerHeight")
         check("on a phone the tab bar stays at the bottom of the screen, scrolled or not", bar == 0, bar)
-        page.set_viewport_size({"width": 1280, "height": 900})
+        for width in (768, 1280):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.evaluate("location.hash = 'overview'")
+            page.wait_for_timeout(200)
+            edges = page.evaluate("""[document.querySelector('.top').getBoundingClientRect().right,
+                document.querySelector('#power').getBoundingClientRect().left,
+                document.documentElement.scrollWidth - innerWidth]""")
+            check(f"at {width}px the sections sit in a rail beside the page, nothing under it or off the side",
+                  edges[0] > 0 and edges[1] > edges[0] and edges[2] <= 1, edges)
+        page.set_viewport_size({"width": 390, "height": 844})
         page.evaluate("location.hash = 'home'")
         page.wait_for_selector("#tab-home:not([hidden])")
-        tops = page.evaluate("[...document.querySelectorAll('#tab-home > .col')].map(c => Math.round(c.getBoundingClientRect().top))")
-        check("on a Mac or iPad, Home sits in two columns", len(tops) == 2 and tops[0] == tops[1], tops)
 
         page.route("**/api/status", lambda route: route.abort())
         page.wait_for_selector("#offline-banner:not([hidden])", timeout=12000)
@@ -4382,11 +4473,97 @@ def test_page_in_browser(base):
             listed = False
         check("the restore points made by Apply and Undo are listed", listed)
 
+        # Looks: pick one, compare it, copy it, rename the copy, try it and undo.
+        get("/api/profile/vivid")
+        page.goto(base + "/#tune")
+        page.click("#looks summary")
+        page.click("#look-list button:has-text('Immersive')")
+        page.click("[data-action=look-compare]")
+        diff = page.text_content("#look-diff")
+        check("Compare lists what a look would change from the lights now",
+              "Immersion" in diff and "0.15 → 0.7" in diff, diff)
+        check("a built-in look cannot be renamed or deleted",
+              page.is_disabled("#look-rename") and page.is_disabled("#look-delete"))
+        page.click("[data-action=look-form][data-value=duplicate]")
+        page.fill("#look-name", "Fireside")
+        page.click("#form-look button[type=submit]")
+        s = until(lambda s: "Fireside" in s["user_profiles"])
+        check("Duplicate saves a built-in as a look of your own",
+              s["user_profiles"].get("Fireside", {}).get("immersion") == 0.7, list(s["user_profiles"]))
+        page.click("[data-action=look-form][data-value=rename]")
+        page.fill("#look-name", "Campfire")
+        page.click("#form-look button[type=submit]")
+        s = until(lambda s: "Campfire" in s["user_profiles"])
+        check("Rename gives your look a new name", "Campfire" in s["user_profiles"] and "Fireside" not in s["user_profiles"])
+        page.click("[data-action=look-use]")
+        s = until(lambda s: s["profile"] == "Campfire")
+        check("Use switches to the picked look", s["profile"] == "Campfire" and s["immersion"] == 0.7)
+        page.click(".toast button:has-text('Undo')")
+        s = until(lambda s: s["profile"] == "vivid")
+        check("...and Undo goes back to the look before it, setting by setting",
+              s["profile"] == "vivid" and s["immersion"] == 0.15, (s["profile"], s["immersion"]))
+        get("/api/profiles/delete?name=Campfire")
+
+        # Expert settings: fetched on first open, every value checked by the hub, power behind a confirm.
+        before = get("/api/config")
+        page.goto(base + "/#settings")
+        page.click("#set-expert summary")
+        page.wait_for_selector("#x-band_height", timeout=5000)
+        check("opening Expert settings fetches its controls", page.is_visible("#f-enrich")
+              and page.input_value("#x-sustained_ma") == str(before["sustained_ma"]))
+        page.fill("#x-band_height", "180")
+        page.click("form:has(#x-band_height) button[type=submit]")
+        s = until(lambda s: s["band_height"] == 180)
+        check("a mapping value saves to the hub", s["band_height"] == 180, s["band_height"])
+        page.fill("#x-edge_skip", "900")
+        page.click("form:has(#x-edge_skip) button[type=submit]")
+        page.wait_for_timeout(500)
+        check("a value past its range is refused by the page before it is sent",
+              page.evaluate("!document.getElementById('x-edge_skip').validity.valid")
+              and get("/api/config")["edge_skip"] == before["edge_skip"])
+        page.fill("#x-edge_skip", str(before["edge_skip"]))
+        dialogs = []
+        page.on("dialog", lambda d: dialogs.append(d.message))
+        page.fill("#x-sustained_ma", "2800")
+        page.click("form:has(#x-sustained_ma) button[type=submit]")
+        s = until(lambda s: s["sustained_ma"] == 2800)
+        check("power limits save only after a warning about the adapter",
+              s["sustained_ma"] == 2800 and any("adapter" in m for m in dialogs), dialogs)
+        page.click("#expert [role=switch]")
+        page.wait_for_selector(".toast.error", timeout=4000)
+        check("protected mode is refused without a PIN, and the hub stays open", get("/api/config")["unprotected"] is True)
+        get(f"/api/set?band_height={before['band_height']}&edge_skip={before['edge_skip']}"
+            f"&sustained_ma={before['sustained_ma']}")
+
+        wide = browser.new_page(viewport={"width": 1280, "height": 900})
+        wide.goto(base + "/")
+        wide.wait_for_selector("#screens:not([inert])", timeout=8000)
+        check("a wide screen shows the rail of sections, not the phone's tabs",
+              wide.is_visible(".rail") and not wide.is_visible(".tabs") and wide.is_visible("#power"))
+        wide.click("[data-action=section][data-value=bed]")
+        check("Bed strip shows the bed's controls and wiring, and nothing else",
+              wide.is_visible("#bed-state") and wide.is_visible("#set-bed") and not wide.is_visible("#power")
+              and not wide.is_visible("#monitor-state") and wide.text_content("#page-title") == "Bed strip"
+              and wide.url.endswith("#bed"))
+        wide.click("[data-action=section][data-value=calibration]")
+        check("Calibration gathers the calibration page and the fine colour settings",
+              wide.is_visible("#set-calibrate") and wide.is_visible("#fine-colour") and not wide.is_visible("#set-bed"))
+        wide.goto(base + "/#settings")
+        wide.wait_for_timeout(300)
+        check("an old phone link opens its section on a wide screen", wide.url.endswith("#setup")
+              and wide.is_visible("#set-controller") and wide.text_content("#page-title") == "Setup")
+        wide.set_viewport_size({"width": 390, "height": 844})
+        wide.wait_for_timeout(300)
+        check("narrowing the window turns the rail back into the three tabs, on the tab that holds the section",
+              wide.is_visible(".tabs") and not wide.is_visible(".rail") and wide.url.endswith("#settings")
+              and wide.is_visible("#set-controller") and wide.is_visible("#set-calibrate"))
+        wide.close()
+
         light = browser.new_page(color_scheme="light")
         light.goto(base + "/")
         colours = light.evaluate("getComputedStyle(document.body).backgroundColor")
         light.close()
-        check("a phone in light mode gets the light look", colours == "rgb(244, 244, 247)", colours)
+        check("a phone in light mode gets the light look", colours == "rgb(238, 236, 227)", colours)
         browser.close()
     # Aborted requests log a network error to the console; anything else is the page's own fault.
     own = [p for p in problems if "Failed to load resource" not in p]
@@ -4776,16 +4953,17 @@ def test_security_api(base):
     check("HEAD on a page is fine", call("/", method="HEAD")[0] == 200)
     check("the manifest is served", call("/manifest.webmanifest")[0] == 200)
     import gzip
-    page = open("ambilight/web/index.html", "rb").read()
-    packed = urllib.request.Request(base + "/", headers={"Accept-Encoding": "gzip"})
-    with urllib.request.urlopen(packed, timeout=3) as r:
-        encoding, vary, body = r.headers.get("Content-Encoding"), r.headers.get("Vary"), r.read()
-    check("a browser that takes gzip gets the page at under a third of its size",
-          encoding == "gzip" and gzip.decompress(body) == page and len(body) * 3 < len(page)
-          and "Accept-Encoding" in (vary or ""), (encoding, len(body), len(page)))
-    with urllib.request.urlopen(base + "/", timeout=3) as r:
-        plain_encoding, plain = r.headers.get("Content-Encoding"), r.read()
-    check("...and one that does not gets it plain", plain_encoding is None and plain == page)
+    for url, path in (("/", PAGE), ("/app.css", "ambilight/web/app.css"), ("/app.js", "ambilight/web/app.js")):
+        page = open(path, "rb").read()
+        packed = urllib.request.Request(base + url, headers={"Accept-Encoding": "gzip"})
+        with urllib.request.urlopen(packed, timeout=3) as r:
+            encoding, vary, body = r.headers.get("Content-Encoding"), r.headers.get("Vary"), r.read()
+        check(f"a browser that takes gzip gets {url} at under a third of its size",
+              encoding == "gzip" and gzip.decompress(body) == page and len(body) * 3 < len(page)
+              and "Accept-Encoding" in (vary or ""), (encoding, len(body), len(page)))
+        with urllib.request.urlopen(base + url, timeout=3) as r:
+            plain_encoding, plain = r.headers.get("Content-Encoding"), r.read()
+        check(f"...and one that does not gets {url} plain", plain_encoding is None and plain == page)
     check("invalid settings are a 400, not a 500", call("/api/set?fps=fast")[0] == 400)
     check("a flash can only target a connected board",
           call("/api/flash/start?port=/dev/cu.nothing&ssid=x")[0] == 400)

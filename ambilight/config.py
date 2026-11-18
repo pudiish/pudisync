@@ -327,6 +327,42 @@ class Config:
             raise ValueError(f"at most {MAX_PROFILES} profiles; delete one first")
         return self.update({"user_profiles": saved, "profile": name})
 
+    def rename_profile(self, name, to):
+        """Give one of your looks a new name, in the same place in the list; the active look follows."""
+        to = self._free_name(to, keep=name)
+        saved = self.get("user_profiles")
+        if name not in saved:
+            raise ValueError(f"unknown profile {name!r}")
+        changes = {"user_profiles": {(to if key == name else key): look for key, look in saved.items()}}
+        if self.get("profile") == name:
+            changes["profile"] = to
+        return self.update(changes)
+
+    def duplicate_profile(self, name, to):
+        """Copy a look under a new name. A built-in brings its own settings over the current rest of the look."""
+        to = self._free_name(to)
+        with self._lock:
+            saved = dict(self._data["user_profiles"])
+            current = {k: self._data[k] for k in PROFILE_KEYS}
+        if name in PROFILES:
+            saved[to] = {**current, **PROFILES[name]}
+        elif name in saved:
+            saved[to] = dict(saved[name])
+        else:
+            raise ValueError(f"unknown profile {name!r}")
+        if len(saved) > MAX_PROFILES:
+            raise ValueError(f"at most {MAX_PROFILES} profiles; delete one first")
+        return self.update({"user_profiles": saved})
+
+    def _free_name(self, name, keep=None):
+        """`name` checked for a new look: valid, not a built-in, not taken (except by `keep`)."""
+        name = profile_name(name)
+        if name in PROFILES:
+            raise ValueError(f"{name} is a built-in profile; pick another name")
+        if name != keep and name in self.get("user_profiles"):
+            raise ValueError(f"you already have a look called {name}")
+        return name
+
     def delete_profile(self, name):
         saved = dict(self.get("user_profiles"))
         if name not in saved:
