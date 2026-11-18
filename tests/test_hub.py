@@ -2998,7 +2998,7 @@ def test_fire_glow():
 
 def test_user_profiles():
     print("\n36. Your own profiles: save the whole look, switch, delete")
-    from ambilight.config import PROFILE_KEYS, PROFILES
+    from ambilight.config import MAX_PROFILES, PROFILE_KEYS, PROFILES
 
     path = os.path.join(tempfile.mkdtemp(prefix="ambilight-profiles-"), "config.json")
     cfg = Config(path)
@@ -3039,6 +3039,32 @@ def test_user_profiles():
     reloaded = Config(path).get("user_profiles")
     check("a damaged profile on disk is dropped, a good one is clamped and kept",
           "Bad" not in reloaded and reloaded["Fine"]["saturation"] == 3.0, reloaded)
+
+    cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-looks-"), "config.json"))
+    cfg.update({"saturation": 1.6})
+    for name in ("Day", "Late night", "Film"):
+        cfg.save_profile(name)
+    cfg.apply_profile("Late night")
+    cfg.rename_profile("Late night", "Night")
+    check("a look can be renamed, keeping its place in the list",
+          list(cfg.get("user_profiles")) == ["Day", "Night", "Film"])
+    check("...and the look in use follows the new name", cfg.get("profile") == "Night")
+    check("renaming onto another of your looks is refused", "already" in refused(lambda n: cfg.rename_profile("Day", n), "Film"))
+    check("...onto a built-in too", "built-in" in refused(lambda n: cfg.rename_profile("Day", n), "vivid"))
+    check("...and a look that does not exist cannot be renamed", "unknown" in refused(lambda n: cfg.rename_profile(n, "X"), "Gone"))
+    check("renaming to the same name changes nothing", cfg.rename_profile("Day", "Day") == [])
+    cfg.duplicate_profile("immersive", "My immersive")
+    copy = cfg.get("user_profiles")["My immersive"]
+    check("duplicating a built-in makes a whole look of your own with its settings",
+          set(copy) == set(PROFILE_KEYS) and all(copy[k] == v for k, v in PROFILES["immersive"].items()))
+    check("...and leaves the built-in itself as it was", "immersive" not in cfg.get("user_profiles"))
+    cfg.duplicate_profile("Night", "Night 2")
+    check("duplicating one of yours copies it exactly",
+          cfg.get("user_profiles")["Night 2"] == cfg.get("user_profiles")["Night"])
+    check("a copy needs a name of its own", "already" in refused(lambda n: cfg.duplicate_profile("Day", n), "Film"))
+    for i in range(MAX_PROFILES - len(cfg.get("user_profiles"))):
+        cfg.duplicate_profile("Day", f"Day {i}")
+    check("copies stop at the limit of 20 looks", "at most" in refused(lambda n: cfg.duplicate_profile("Day", n), "One more"))
 
 
 def test_dark_scenes():
@@ -4381,6 +4407,37 @@ def test_page_in_browser(base):
         except PlaywrightError:
             listed = False
         check("the restore points made by Apply and Undo are listed", listed)
+
+        # Looks: pick one, compare it, copy it, rename the copy, try it and undo.
+        get("/api/profile/vivid")
+        page.goto(base + "/#tune")
+        page.click("#looks summary")
+        page.click("#look-list button:has-text('Immersive')")
+        page.click("[data-action=look-compare]")
+        diff = page.text_content("#look-diff")
+        check("Compare lists what a look would change from the lights now",
+              "Immersion" in diff and "0.15 → 0.7" in diff, diff)
+        check("a built-in look cannot be renamed or deleted",
+              page.is_disabled("#look-rename") and page.is_disabled("#look-delete"))
+        page.click("[data-action=look-form][data-value=duplicate]")
+        page.fill("#look-name", "Fireside")
+        page.click("#form-look button[type=submit]")
+        s = until(lambda s: "Fireside" in s["user_profiles"])
+        check("Duplicate saves a built-in as a look of your own",
+              s["user_profiles"].get("Fireside", {}).get("immersion") == 0.7, list(s["user_profiles"]))
+        page.click("[data-action=look-form][data-value=rename]")
+        page.fill("#look-name", "Campfire")
+        page.click("#form-look button[type=submit]")
+        s = until(lambda s: "Campfire" in s["user_profiles"])
+        check("Rename gives your look a new name", "Campfire" in s["user_profiles"] and "Fireside" not in s["user_profiles"])
+        page.click("[data-action=look-use]")
+        s = until(lambda s: s["profile"] == "Campfire")
+        check("Use switches to the picked look", s["profile"] == "Campfire" and s["immersion"] == 0.7)
+        page.click(".toast button:has-text('Undo')")
+        s = until(lambda s: s["profile"] == "vivid")
+        check("...and Undo goes back to the look before it, setting by setting",
+              s["profile"] == "vivid" and s["immersion"] == 0.15, (s["profile"], s["immersion"]))
+        get("/api/profiles/delete?name=Campfire")
 
         light = browser.new_page(color_scheme="light")
         light.goto(base + "/")

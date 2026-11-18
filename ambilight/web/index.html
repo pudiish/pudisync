@@ -457,6 +457,28 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
       </form>
     </div>
 
+    <details class="card group" id="looks">
+      <summary><h2>Looks</h2><span class="sum" id="looks-sum"></span></summary>
+      <div class="stack">
+        <p class="hint">Pick a look, then choose what to do with it. Built-in looks stay as they are: duplicate
+          one to make your own.</p>
+        <div class="chips" id="look-list" role="group" aria-label="Looks"></div>
+        <div class="row">
+          <button class="btn primary" type="button" data-action="look-use">Use</button>
+          <button class="btn" type="button" data-action="look-compare">Compare</button>
+          <button class="btn" type="button" data-action="look-form" data-value="duplicate">Duplicate</button>
+          <button class="btn" type="button" data-action="look-form" data-value="rename" id="look-rename">Rename</button>
+          <button class="btn" type="button" data-action="look-delete" id="look-delete">Delete</button>
+        </div>
+        <form class="inline" id="form-look" hidden>
+          <input type="text" id="look-name" maxlength="24" autocomplete="off" spellcheck="false" aria-label="Name for the look">
+          <button class="btn primary" type="submit">Save</button>
+        </form>
+        <p class="label" id="look-diff-title" hidden></p>
+        <dl class="kv" id="look-diff" hidden></dl>
+      </div>
+    </details>
+
     <details class="card group" id="fine-colour">
       <summary><h2>Fine colour</h2></summary>
       <div class="stack">
@@ -1024,6 +1046,7 @@ async function refresh() {
     rememberBoardUrls(s.board_urls);
     lastSeen = Date.now();
     if (!effects.length) loadEffects();
+    if (!Object.keys(builtinLooks).length) loadLooks();
     showLink("ok");
     return true;
   } catch (err) {
@@ -1448,11 +1471,16 @@ async function togglePower() {
   finally { powerBusy.on = false; btn.removeAttribute("aria-busy"); if (state) render(state); }
 }
 
+/* Trying a look is safe: Undo puts back every setting it changed, and the look that was in use. */
 async function pickStyle(name) {
+  const look = lookOf(name), before = state && look && {profile: state.profile};
+  if (before) Object.keys(look).forEach(k => { before[k] = state[k]; });
   hold("profile", name);
   renderProfiles(state);
   const body = await actHeld(["profile"], `/api/profile/${encodeURIComponent(name)}`);
-  if (body && !body.running) startSync();   // a style is a way of following the screen
+  if (!body) return;
+  if (before) toast(`Now using ${lookTitle(name)}.`, "info", {label: "Undo", run: () => act("/api/set", before)});
+  if (!body.running) startSync();   // a style is a way of following the screen
 }
 
 function buildSwatches(host, pick) {
@@ -1800,6 +1828,7 @@ function renderProfiles(s) {
   setText($("style-hint"), STYLES[active] || (mine ? `${s.profile}: your saved look. Tune changes it; save to keep.` : "A look of your own. Save it in Tune to keep it."));
   $("profile-delete").hidden = !mine;
   setText($("profile-delete"), mine ? `Delete ${s.profile}` : "Delete");
+  renderLooks(s);
 }
 
 function showProfileForm() {
@@ -1816,10 +1845,67 @@ async function saveProfile() {
   return body;
 }
 
-async function deleteProfile() {
-  const name = state && state.profile;
+async function deleteProfile(name) {
   if (!name || !confirm(`Delete the look ${name}? The lights keep looking as they do now.`)) return;
   await act("/api/profiles/delete", {name}, `Deleted ${name}.`);
+}
+
+/* ---------- the looks library: pick one, then use, compare, copy, rename or delete it ---------- */
+let builtinLooks = {}, lookPick = "", lookForm = "", looksKey = "";
+const lookTitle = name => name in STYLES ? name[0].toUpperCase() + name.slice(1) : name;
+const lookOf = name => builtinLooks[name] || (state && (state.user_profiles || {})[name]);
+
+function loadLooks() { return load("/api/profiles", b => { builtinLooks = b.builtin_looks; looksKey = ""; renderLooks(state); }); }
+
+function renderLooks(s) {
+  if (!s) return;
+  const names = [...Object.keys(builtinLooks), ...Object.keys(s.user_profiles || {})];
+  if (!names.includes(lookPick)) lookPick = names.includes(s.profile) ? s.profile : names[0] || "";
+  const key = [names.join("|"), s.profile, lookPick].join("/");
+  if (key === looksKey) return;
+  looksKey = key;
+  $("look-list").replaceChildren(...names.map(name => {
+    const b = button(lookTitle(name) + (name === s.profile ? " · in use" : ""), "chip", () => {
+      lookPick = name;
+      hideLookExtras();
+      renderLooks(state);
+    });
+    press(b, name === lookPick);
+    return b;
+  }));
+  $("look-rename").disabled = $("look-delete").disabled = lookPick in builtinLooks;
+  setText($("looks-sum"), `${names.length - Object.keys(builtinLooks).length} of yours`);
+}
+
+function hideLookExtras() { $("form-look").hidden = $("look-diff").hidden = $("look-diff-title").hidden = true; }
+
+function compareLook() {
+  const look = lookOf(lookPick) || {}, label = key => FADERS[key]?.label || key;
+  const rows = Object.entries(look).filter(([k, v]) => state && String(state[k]) !== String(v))
+    .map(([k, v]) => [label(k), `${state[k]} → ${v}`]);
+  hideLookExtras();
+  $("look-diff-title").hidden = $("look-diff").hidden = false;
+  setText($("look-diff-title"), rows.length ? `What ${lookTitle(lookPick)} changes from the lights now:`
+    : `${lookTitle(lookPick)} matches the lights now.`);
+  fillKv($("look-diff"), rows);
+}
+
+function showLookForm(mode) {
+  lookForm = mode;
+  hideLookExtras();
+  $("form-look").hidden = false;
+  $("look-name").value = mode === "rename" ? lookPick : `${lookTitle(lookPick)} copy`;
+  $("look-name").focus();
+}
+
+async function submitLook() {
+  const to = $("look-name").value.trim();
+  if (!to) return false;
+  const body = lookForm === "rename"
+    ? await act("/api/profiles/rename", {name: lookPick, to}, `Renamed to ${to}.`)
+    : await act("/api/profiles/duplicate", {name: lookPick, to}, `Saved a copy as ${to}.`);
+  if (body) { lookPick = to; hideLookExtras(); renderLooks(state); }
+  return body;
 }
 
 async function resetColours() {
@@ -2450,7 +2536,11 @@ const ACTIONS = {
   "scene": b => pickScene(b.dataset.value),
   "profile": b => pickStyle(b.dataset.value),
   "profile-save": showProfileForm,
-  "profile-delete": deleteProfile,
+  "profile-delete": () => deleteProfile(state && state.profile),
+  "look-use": () => pickStyle(lookPick),
+  "look-compare": compareLook,
+  "look-form": b => showLookForm(b.dataset.value),
+  "look-delete": () => deleteProfile(lookPick),
   "bed-mode": b => setBedMode(b.dataset.value),
   "bed-look": b => setKey("bed_look", b.dataset.value),
   "bed-side": b => setKey("bed_side", b.dataset.value),
@@ -2527,6 +2617,7 @@ function wire() {
   onSubmit("form-port", () => setKey("http_port", $("http_port").value, `Saved. Restart the hub to use port ${$("http_port").value}.`));
   onSubmit("form-pin", setPin);
   onSubmit("form-profile", saveProfile);
+  onSubmit("form-look", submitLook);
   onSubmit("form-bed", bedSetup);
   wirePaint();
   $("colour").addEventListener("input", throttle(() => runColour($("colour").value), 150));
