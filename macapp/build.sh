@@ -22,7 +22,7 @@ cp Info.plist "$APP/Contents/Info.plist"
 
 ICONSET=build/AppIcon.iconset
 rm -rf "$ICONSET" && mkdir -p "$ICONSET"
-swift Icon.swift build/icon-1024.png
+swift Icon.swift ../ambilight/web/icon.svg build/icon-1024.png 1024 100
 for size in 16 32 128 256 512; do
   sips -z $size $size build/icon-1024.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
   sips -z $((size * 2)) $((size * 2)) build/icon-1024.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null

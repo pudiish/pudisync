@@ -7,7 +7,7 @@ BASE_PYTHON ?= /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
 # Optional features to install too, e.g. `make venv EXTRAS="flash camera"`.
 EXTRAS ?=
 
-.PHONY: venv lock run test sim app clean
+.PHONY: venv lock run test sim app icons clean
 
 # Exactly what uv.lock pins, hashes checked; packages the lock doesn't list are removed.
 venv:
@@ -35,6 +35,11 @@ sim:
 
 app:
 	cd macapp && ./build.sh
+
+# ambilight/web/icon.svg is the one logo. After editing it, regenerate the
+# iPhone Home Screen PNG (iOS ignores SVG); `make app` renders the Mac icon itself.
+icons:
+	swift macapp/Icon.swift ambilight/web/icon.svg ambilight/web/apple-touch-icon.png 180
 
 clean:
 	find . -name __pycache__ -not -path './.git/*' -prune -exec rm -rf {} +
