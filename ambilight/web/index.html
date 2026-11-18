@@ -59,6 +59,7 @@ svg{flex:none}
   background:color-mix(in srgb,var(--bg) 82%,transparent);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
 .brand{display:flex;align-items:center;gap:9px;font-size:18px;font-weight:700;letter-spacing:-.02em}
 .brand b{color:var(--accent);font-weight:700}
+.brand .logo{display:block;flex:none}
 .link{display:flex;align-items:center;gap:7px;margin-left:auto;font-size:13px;color:var(--dim)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
 .dot[data-state=on]{background:var(--ok);box-shadow:0 0 8px var(--ok)}
@@ -272,7 +273,7 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
 </head>
 <body>
 <header class="top">
-  <h1 class="brand"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2 19h20" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="0.1 3.9"/></svg><span>Pudi<b>Sync</b></span></h1>
+  <h1 class="brand"><img class="logo" src="/icon.svg" width="28" height="28" alt=""><span>Pudi<b>Sync</b></span></h1>
   <p class="link" role="status"><i class="dot" id="head-lamp" aria-hidden="true"></i><span id="link-word">Connecting…</span></p>
   <nav class="tabs" aria-label="Sections">
     <button class="tab" type="button" data-action="tab" data-value="home"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-4 12.7V18h8v-2.3A7 7 0 0 0 12 3zM9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Home</button>

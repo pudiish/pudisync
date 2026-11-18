@@ -4614,6 +4614,11 @@ def test_connect_api(base):
     check("the page and the manifest both point to it",
           'rel="apple-touch-icon" href="/apple-touch-icon.png"' in page
           and any(i["src"] == "/apple-touch-icon.png" and i["type"] == "image/png" for i in manifest["icons"]))
+    code, ctype, svg = get("/icon.svg")
+    check("the header, the tab icon and the manifest all show the one logo, /icon.svg",
+          code == 200 and ctype.startswith("image/svg+xml") and b'aria-label="PudiSync"' in svg
+          and '<img class="logo" src="/icon.svg"' in page and 'rel="icon" href="/icon.svg"' in page
+          and any(i["src"] == "/icon.svg" for i in manifest["icons"]), (code, ctype))
 
 
 def main():

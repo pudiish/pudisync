@@ -1,3 +1,5 @@
+<img src="ambilight/web/icon.svg" width="96" height="96" alt="PudiSync logo">
+
 # PudiSync
 
 Screen-synced LED lighting for a WLED strip, driven from your phone's browser.
