@@ -2110,9 +2110,18 @@ ask("{silent}/json/si").then(() => console.log(JSON.stringify({{kind: "answered"
           result and result.get("kind") == "gave up" and result["ms"] < 5000, result)
 
 
-def page_script(path):
-    import pathlib, re
-    return re.search(r"<script>(.*?)</script>", pathlib.Path(path).read_text(), re.S).group(1)
+PAGE = "ambilight/web/index.html"
+PAGE_FILES = (PAGE, "ambilight/web/app.css", "ambilight/web/app.js")
+
+
+def page_script():
+    """The phone page's script, which lives in app.js."""
+    return open("ambilight/web/app.js").read()
+
+
+def page_text():
+    """The phone page as one text: markup, styles and script."""
+    return "\n".join(open(path).read() for path in PAGE_FILES)
 
 
 def js_block(script, start):
@@ -2157,7 +2166,7 @@ def test_phone_page_connection():
     if not shutil.which("node"):
         print("    (skipped: node not installed, so the page's script was not run)")
         return
-    script = page_script("ambilight/web/index.html")
+    script = page_script()
     plumbing = "\n".join(js_block(script, start) for start in
                          ("class HubError", "async function api"))
     timed = js_block(script, "async function timedFetch") if "async function timedFetch" in script else ""
@@ -3544,7 +3553,7 @@ def test_bed_strip():
     check("and the pin can be another, such as RX",
           bed.bus_config(hw_led, 180, 2800, 60, 2500, 3)["hw"]["led"]["ins"][1]["pin"] == [3])
     import re
-    picker = re.search(r'<select id="bed-pin">(.*?)</select>', open("ambilight/web/index.html").read(), re.S).group(1)
+    picker = re.search(r'<select id="bed-pin">(.*?)</select>', open(PAGE).read(), re.S).group(1)
     offered = re.findall(r'<option value="(\d+)">(\w+)</option>', picker)
     check("the page offers TX (GPIO1) first, the free hardware pin with memory for a long bed strip",
           offered[:1] == [("1", "TX")] and ("3", "RX") in offered, offered)
@@ -4063,7 +4072,7 @@ def test_telemetry_api(base):
     check("diagnostics carries the same block", set(get("/api/diagnostics")["telemetry"]) == set(t))
 
     import re
-    html = open("ambilight/web/index.html").read()
+    html = page_text()
     script = re.search(r"function renderTiming\(s\) \{.*?\n\}", html, re.S).group(0)
     stages = re.search(r"const TIMING_STAGES = (\[.*?\]);", html, re.S).group(1)
     check("the page has a Timing panel", 'id="timing"' in html and "renderTiming(s);" in html)
@@ -4078,8 +4087,9 @@ def test_one_interface():
     import gzip, re, shutil
     from ambilight.config import DEFAULTS
     from ambilight.routes import POST_ROUTES, ROUTES
-    html = open("ambilight/web/index.html").read()
-    markup, script = html[:html.index("<script>")], page_script("ambilight/web/index.html")
+    from ambilight.server import PAGES
+    html = page_text()
+    markup, script = open(PAGE).read(), page_script()
     tabs = re.findall(r'data-action="tab" data-value="(\w+)"', markup)
     check("three tabs: Home, Tune, Settings", tabs == ["home", "tune", "settings"], tabs)
     home = re.search(r'<section class="screen" id="tab-home".*?\n  </section>', markup, re.S).group(0)
@@ -4109,9 +4119,17 @@ def test_one_interface():
     check("every switch is a real setting", switches <= set(DEFAULTS), sorted(switches - set(DEFAULTS)))
     check("it is called PudiSync", "<title>PudiSync</title>" in html and 'content="PudiSync"' in html
           and "Ambilight Hub" not in html)
-    sent = len(gzip.compress(html.encode(), mtime=0))
-    check("it stays light: one file, no outside resources, under 40 kB as a phone downloads it",
+    sent = sum(len(gzip.compress(open(path, "rb").read(), mtime=0)) for path in PAGE_FILES)
+    check("it stays light: no outside resources, under 40 kB in all as a phone downloads it",
           sent < 40_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
+    from ambilight.server import packed
+    first = packed("index.html", b"page")
+    packed("app.js", b"script")
+    check("each page file is gzipped once, not again whenever another file is asked for",
+          packed("index.html", b"page") is first and packed("index.html", b"new page") is not first)
+    check("the page loads only its own two files, both served by the hub",
+          re.findall(r'(?:src|href)="(/app\.\w+)"', markup) == ["/app.css", "/app.js"]
+          and {"/app.css", "/app.js"} <= set(PAGES))
     check("it never builds markup from strings", "innerHTML" not in script and "eval(" not in script)
     check("it follows the device's light or dark appearance", "prefers-color-scheme:light" in html)
     wheels = re.findall(r'<div class="wheel" id="([\w-]+)"', markup)
@@ -4833,16 +4851,17 @@ def test_security_api(base):
     check("HEAD on a page is fine", call("/", method="HEAD")[0] == 200)
     check("the manifest is served", call("/manifest.webmanifest")[0] == 200)
     import gzip
-    page = open("ambilight/web/index.html", "rb").read()
-    packed = urllib.request.Request(base + "/", headers={"Accept-Encoding": "gzip"})
-    with urllib.request.urlopen(packed, timeout=3) as r:
-        encoding, vary, body = r.headers.get("Content-Encoding"), r.headers.get("Vary"), r.read()
-    check("a browser that takes gzip gets the page at under a third of its size",
-          encoding == "gzip" and gzip.decompress(body) == page and len(body) * 3 < len(page)
-          and "Accept-Encoding" in (vary or ""), (encoding, len(body), len(page)))
-    with urllib.request.urlopen(base + "/", timeout=3) as r:
-        plain_encoding, plain = r.headers.get("Content-Encoding"), r.read()
-    check("...and one that does not gets it plain", plain_encoding is None and plain == page)
+    for url, path in (("/", PAGE), ("/app.css", "ambilight/web/app.css"), ("/app.js", "ambilight/web/app.js")):
+        page = open(path, "rb").read()
+        packed = urllib.request.Request(base + url, headers={"Accept-Encoding": "gzip"})
+        with urllib.request.urlopen(packed, timeout=3) as r:
+            encoding, vary, body = r.headers.get("Content-Encoding"), r.headers.get("Vary"), r.read()
+        check(f"a browser that takes gzip gets {url} at under a third of its size",
+              encoding == "gzip" and gzip.decompress(body) == page and len(body) * 3 < len(page)
+              and "Accept-Encoding" in (vary or ""), (encoding, len(body), len(page)))
+        with urllib.request.urlopen(base + url, timeout=3) as r:
+            plain_encoding, plain = r.headers.get("Content-Encoding"), r.read()
+        check(f"...and one that does not gets {url} plain", plain_encoding is None and plain == page)
     check("invalid settings are a 400, not a 500", call("/api/set?fps=fast")[0] == 400)
     check("a flash can only target a connected board",
           call("/api/flash/start?port=/dev/cu.nothing&ssid=x")[0] == 400)
