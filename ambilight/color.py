@@ -192,11 +192,44 @@ def immerse(perceptual, amount):
     lifted = hsv_to_rgb(hsv)
 
     presence = colourful * level
+    lifted = fire_glow(lifted, hue, sat, level, presence, amount)
     colour, strength = theme(lifted, hue, presence)
     if colour is None:
         return lifted
     pull = IMMERSE_FLOOD * amount * strength * (1.0 - presence)
     return np.clip(lifted + (colour - lifted) * pull[:, None], 0.0, 1.0)
+
+
+FIRE_HUES = (0.17, 0.95)  # hues below the first or above the second: reds, oranges, yellows
+FIRE_SHARE = (0.5, 0.9)   # share of the frame's colour that must be fire before cores take it on
+FIRE_MASS = (0.3, 1.5)    # ...and how many LEDs' worth of it: a flame, not one stray pixel
+
+
+def fire_glow(perceptual, hue, sat, level, presence, amount):
+    """In a fire-coloured frame, bright near-white LEDs take the fire's colour.
+
+    A flame's core is white-hot on screen. Beside its orange body the eye reads
+    it as fire, but an LED shows the core alone, and a pale LED reads as plain
+    white on the wall. So when most of the frame's colour is fire (reds,
+    oranges, yellows), bright pale LEDs are pulled toward the fire's mean hue at
+    their own brightness, as far as Immersion goes. A frame with no fire (a
+    white page, a grey room, clouds in a blue sky) is left alone, and so is
+    anything already coloured, such as skin.
+    """
+    warm = presence * ((hue < FIRE_HUES[0]) | (hue > FIRE_HUES[1]))
+    mass = float(warm.sum())
+    if mass <= 0:
+        return perceptual
+    share = mass / float(presence.sum())
+    found = float(smoothstep(*FIRE_SHARE, share) * smoothstep(*FIRE_MASS, mass))
+    if found <= 0:
+        return perceptual
+    fire = (perceptual * warm[:, None]).sum(axis=0) / mass
+    # The fire's hue at each LED's own level, so a white-hot core stays the brightest light.
+    target = fire / max(float(fire.max()), 1e-6) * level[:, None]
+    pale = (1.0 - smoothstep(0.15, 0.35, sat)) * smoothstep(0.6, 0.9, level)
+    pull = amount * found * pale
+    return perceptual + (target - perceptual) * pull[:, None]
 
 
 def colourful_presence(perceptual):
