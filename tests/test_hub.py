@@ -4103,8 +4103,18 @@ def test_one_interface():
     check("the mouse is on Home too", 'data-switch="mouse_sync"' in home)
     check("old links and bookmarks open the screen that now holds them",
           all(re.search(rf"\b{old}: \"{new}\"", script) for old, new in
-              (("lights", "home"), ("effects", "home"), ("bed", "home"), ("picture", "tune"),
-               ("override", "tune"), ("setup", "settings"), ("advanced", "settings"))))
+              (("lights", "overview"), ("effects", "overview"), ("picture", "monitor"),
+               ("override", "monitor"), ("advanced", "setup"))))
+    sections = re.findall(r'data-action="section" data-value="(\w+)"', markup)
+    check("wide screens offer seven sections", sections ==
+          ["overview", "monitor", "bed", "mouse", "looks", "calibration", "setup"], sections)
+    screens = markup[markup.index('<div id="screens"'):]
+    cards = re.findall(r'<(?:div|details) class="card[^"]*"([^>]*)>', screens)
+    check("every card belongs to a section", all("data-section=" in attrs for attrs in cards),
+          [a for a in cards if "data-section=" not in a])
+    used = {s for value in re.findall(r'data-section="([\w ]+)"', screens) for s in value.split()}
+    check("every section has something in it, and no card names a section that is not offered",
+          used == set(sections), used ^ set(sections))
     ids = set(re.findall(r'id="([\w-]+)"', markup))
     wanted = set(re.findall(r'\$\("([\w-]+)"\)', script))
     check("every element the script reaches for is on the page", wanted <= ids, sorted(wanted - ids))
@@ -4380,11 +4390,18 @@ def test_page_in_browser(base):
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         bar = page.evaluate("Math.round(document.querySelector('.tabs').getBoundingClientRect().bottom) - innerHeight")
         check("on a phone the tab bar stays at the bottom of the screen, scrolled or not", bar == 0, bar)
-        page.set_viewport_size({"width": 1280, "height": 900})
+        for width in (768, 1280):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.evaluate("location.hash = 'overview'")
+            page.wait_for_timeout(200)
+            edges = page.evaluate("""[document.querySelector('.top').getBoundingClientRect().right,
+                document.querySelector('#power').getBoundingClientRect().left,
+                document.documentElement.scrollWidth - innerWidth]""")
+            check(f"at {width}px the sections sit in a rail beside the page, nothing under it or off the side",
+                  edges[0] > 0 and edges[1] > edges[0] and edges[2] <= 1, edges)
+        page.set_viewport_size({"width": 390, "height": 844})
         page.evaluate("location.hash = 'home'")
         page.wait_for_selector("#tab-home:not([hidden])")
-        tops = page.evaluate("[...document.querySelectorAll('#tab-home > .col')].map(c => Math.round(c.getBoundingClientRect().top))")
-        check("on a Mac or iPad, Home sits in two columns", len(tops) == 2 and tops[0] == tops[1], tops)
 
         page.route("**/api/status", lambda route: route.abort())
         page.wait_for_selector("#offline-banner:not([hidden])", timeout=12000)
@@ -4456,6 +4473,30 @@ def test_page_in_browser(base):
         check("...and Undo goes back to the look before it, setting by setting",
               s["profile"] == "vivid" and s["immersion"] == 0.15, (s["profile"], s["immersion"]))
         get("/api/profiles/delete?name=Campfire")
+
+        wide = browser.new_page(viewport={"width": 1280, "height": 900})
+        wide.goto(base + "/")
+        wide.wait_for_selector("#screens:not([inert])", timeout=8000)
+        check("a wide screen shows the rail of sections, not the phone's tabs",
+              wide.is_visible(".rail") and not wide.is_visible(".tabs") and wide.is_visible("#power"))
+        wide.click("[data-action=section][data-value=bed]")
+        check("Bed strip shows the bed's controls and wiring, and nothing else",
+              wide.is_visible("#bed-state") and wide.is_visible("#set-bed") and not wide.is_visible("#power")
+              and not wide.is_visible("#monitor-state") and wide.text_content("#page-title") == "Bed strip"
+              and wide.url.endswith("#bed"))
+        wide.click("[data-action=section][data-value=calibration]")
+        check("Calibration gathers the calibration page and the fine colour settings",
+              wide.is_visible("#set-calibrate") and wide.is_visible("#fine-colour") and not wide.is_visible("#set-bed"))
+        wide.goto(base + "/#settings")
+        wide.wait_for_timeout(300)
+        check("an old phone link opens its section on a wide screen", wide.url.endswith("#setup")
+              and wide.is_visible("#set-controller") and wide.text_content("#page-title") == "Setup")
+        wide.set_viewport_size({"width": 390, "height": 844})
+        wide.wait_for_timeout(300)
+        check("narrowing the window turns the rail back into the three tabs, on the tab that holds the section",
+              wide.is_visible(".tabs") and not wide.is_visible(".rail") and wide.url.endswith("#settings")
+              and wide.is_visible("#set-controller") and wide.is_visible("#set-calibrate"))
+        wide.close()
 
         light = browser.new_page(color_scheme="light")
         light.goto(base + "/")

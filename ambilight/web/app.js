@@ -2,9 +2,16 @@
 const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, FETCH_TIMEOUT_MS = 4000, PIN_KEY = "ambilight-pin";
 const BOARD_KEY = "ambilight-board";
 const TABS = ["home", "tune", "settings"];
+// Wide screens show one of these sections at a time; a phone shows the three tabs that hold them.
+const SECTIONS = {overview: "Overview", monitor: "Monitor strip", bed: "Bed strip", mouse: "Mouse", looks: "Looks",
+  calibration: "Calibration", setup: "Setup"};
+const FIRST = {home: "overview", tune: "monitor", settings: "setup"};
+// The phone tab that holds each section's own controls.
+const TAB_OF = {overview: "home", monitor: "tune", bed: "home", mouse: "home", looks: "tune", calibration: "settings",
+  setup: "settings"};
 // Old links and Home Screen bookmarks still land on the screen that now holds them.
-const MOVED = {lights: "home", effects: "home", bed: "home", picture: "tune", override: "tune",
-  setup: "settings", advanced: "settings"};
+const MOVED = {lights: "overview", effects: "overview", picture: "monitor", override: "monitor", advanced: "setup"};
+const WIDE = matchMedia("(min-width:700px)");
 const EDGE_KEYS = ["edge_bottom", "edge_right", "edge_top", "edge_left"];
 const COLOUR_KEYS = ["saturation", "colour_match", "white_kelvin", "wb_r", "wb_g", "wb_b",
   "led_gamma", "contrast", "black_level", "colour_weight", "spread"];
@@ -56,7 +63,7 @@ const FADERS = {
 const $ = id => document.getElementById(id);
 const $$ = sel => [...document.querySelectorAll(sel)];
 const faders = {}, editedAt = {}, pending = {};
-let state = null, pin = readPin(), offline = false, pinDismissed = false, currentTab = "", lastSeen = 0;
+let state = null, pin = readPin(), offline = false, pinDismissed = false, currentTab = "", currentSection = "", lastSeen = 0;
 let boardUrls = readBoardUrls(), reqSeq = 0;
 let wizardLive = false, markerAt = null, effects = [], boardEffects = [], metaLoadedAt = 0;
 let lastColour = SWATCHES[0][1], lastFx = null, sceneView = "", lastScene = "";
@@ -1697,32 +1704,51 @@ async function startWebcam(task) {
 }
 
 /* ---------- navigation and wiring ---------- */
+/* `name` is a section (wide screens), a tab (phones) or an old link; either way both are known after. */
 function showTab(name) {
   name = MOVED[name] || name;
-  if (!TABS.includes(name)) name = "home";
-  if (name === currentTab) return;
-  const leaving = currentTab;
-  currentTab = name;
-  TABS.forEach(t => { $(`tab-${t}`).hidden = t !== name; });
-  $$("[data-action=tab]").forEach(b => b.setAttribute("aria-current", b.dataset.value === name ? "page" : "false"));
-  history.replaceState(null, "", `#${name}`);
+  const section = name in SECTIONS ? name : FIRST[name] || "overview";
+  const tab = name in SECTIONS ? TAB_OF[section] : FIRST[name] ? name : "home";
+  const leaving = WIDE.matches ? currentSection === "setup" && section !== "setup" : currentTab === "settings" && tab !== "settings";
+  if (leaving && wizardLive) stopWizard({offer: true});
+  const moved = section !== currentSection || tab !== currentTab;
+  currentSection = section;
+  currentTab = tab;
+  layout();
+  if (!moved) return;
   window.scrollTo(0, 0);
-  if (leaving === "settings" && wizardLive) stopWizard({offer: true});
-  if (name === "home") { previewKey = ""; renderPreview(); }
-  if (name === "tune" && $("parts").open) drawPaint();
+  if (!WIDE.matches && name in SECTIONS && section !== FIRST[tab]) {
+    $$(`#tab-${tab} [data-section~="${section}"]`)[0].scrollIntoView({block: "start"});
+  }
+}
+
+/* Phones: one tab's screen, every card in it. Wide: every screen, only the chosen section's cards. */
+function layout() {
+  const wide = WIDE.matches;
+  if (wide && !currentSection) currentSection = FIRST[currentTab] || "overview";
+  TABS.forEach(t => { $(`tab-${t}`).hidden = !wide && t !== currentTab; });
+  $$("#screens [data-section]").forEach(el =>
+    el.toggleAttribute("data-off", wide && !el.dataset.section.split(" ").includes(currentSection)));
+  $$("[data-action=tab]").forEach(b => b.setAttribute("aria-current", b.dataset.value === currentTab ? "page" : "false"));
+  $$("[data-action=section]").forEach(b => b.setAttribute("aria-current", b.dataset.value === currentSection ? "page" : "false"));
+  setText($("page-title"), wide ? SECTIONS[currentSection] : currentTab[0].toUpperCase() + currentTab.slice(1));
+  history.replaceState(null, "", `#${wide ? currentSection : currentTab}`);
+  const shown = id => !$(id).closest("[data-off],[hidden]");
+  if (shown("preview")) { previewKey = ""; renderPreview(); }
+  if (shown("parts") && $("parts").open) drawPaint();
 }
 
 function goTo(target) {
-  const [tab, id] = target.split(":");
-  showTab(tab);
+  const [section, id] = target.split(":");
+  showTab(WIDE.matches ? section : $(id).closest(".screen").id.slice(4));
   const box = $(id);
-  if (!box) return;
   box.open = true;
   box.scrollIntoView({block: "start", behavior: "smooth"});
 }
 
 const ACTIONS = {
   "tab": b => showTab(b.dataset.value),
+  "section": b => showTab(b.dataset.value),
   "goto": b => goTo(b.dataset.value),
   "power": togglePower,
   "scene": b => pickScene(b.dataset.value),
@@ -1846,6 +1872,7 @@ function wire() {
   $("unlock").addEventListener("cancel", () => { pinDismissed = true; });
   window.addEventListener("resize", debounce(() => { previewKey = ""; renderPreview(); drawPaint(); }, 150));
   window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
+  WIDE.addEventListener("change", () => { if (!WIDE.matches) currentTab = TAB_OF[currentSection]; layout(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   window.addEventListener("online", poll);   // Wi-Fi is back: don't wait for the slow offline retry
   window.addEventListener("pageshow", event => { if (event.persisted) poll(); });
