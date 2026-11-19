@@ -35,8 +35,6 @@ PAGES = {
     "/icon.svg": ("icon.svg", "image/svg+xml"),
     # iOS ignores SVG Home Screen icons; without a PNG it shows a screenshot.
     "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
-    # The picture on the live preview's screen (the design's visual direction).
-    "/hero.jpg": ("hero.jpg", "image/jpeg"),
 }
 
 

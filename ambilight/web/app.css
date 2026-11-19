@@ -1,13 +1,15 @@
 /* Contrast is checked by the tests (4.5:1 text, 3:1 control edges); --line is for dividers only. */
 :root{
   color-scheme:dark;
-  --bg:#05080f;--surface:#0b1322;--raised:#13203a;--well:#060a13;
-  --line:#1b2a45;--line-hi:#56749f;
-  --ink:#e9f2ff;--dim:#9db2d3;--faint:#56698a;--led-off:#18233a;
-  --accent:#45c8ff;--accent-ink:#02131d;--ok:#3ee6a4;--bad:#ff7a7a;
-  --glow:transparent;--r:14px;--r-sm:10px;--tabbar:62px;
-  --rail-bg:#04070d;--rail-ink:#e9f2ff;--rail-dim:#9db2d3;--rail-on:#101b31;--rail-accent:#45c8ff;
-  --glass:rgb(11 19 34/.72);--edge:rgb(69 200 255/.16);--stars:.9;
+  --bg:#06070a;--surface:#0d0f14;--raised:#171a21;--well:#040507;
+  --line:#262a31;--line-hi:#6b7078;
+  --ink:#f4eee3;--dim:#b9b0a0;--faint:#6e685d;--led-off:#1c1f26;
+  --accent:#ffb13b;--accent-ink:#140b00;--ok:#5fe3c8;--bad:#ff5d52;
+  --glow:transparent;--r:0px;--r-sm:0px;--tabbar:62px;
+  --rail-bg:#040507;--rail-ink:#f4eee3;--rail-dim:#b9b0a0;--rail-on:#161920;--rail-accent:#ffb13b;
+  --glass:rgb(13 15 20/.82);--edge:rgb(255 177 59/.22);--stars:.55;--scan:1;--sparks:.9;
+  --hud:"Avenir Next Condensed","DIN Condensed","Bahnschrift Condensed","Roboto Condensed","Arial Narrow",sans-serif;
+  --cut:14px;
   --font:-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",Roboto,sans-serif;
   --serif:ui-serif,"New York",Georgia,serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -15,12 +17,12 @@
 /* Light when the page resolves to it: the device's setting on Auto, or the owner's pick (index.html, app.js). */
 :root[data-theme=light]{
   color-scheme:light;
-  --bg:#eef2f8;--surface:#ffffff;--raised:#f1f4f9;--well:#e3e9f2;
-  --line:#d5dde9;--line-hi:#7b8aa1;
-  --ink:#0c1526;--dim:#4a5870;--faint:#95a2b6;--led-off:#d3dbe6;
-  --accent:#0b63c5;--accent-ink:#ffffff;--ok:#11795a;--bad:#c0362c;
-  --rail-bg:#0b1322;--rail-on:#18253f;
-  --glass:rgb(255 255 255/.78);--edge:rgb(11 99 197/.14);--stars:0;
+  --bg:#e7e8eb;--surface:#f7f7f8;--raised:#ecedf0;--well:#dcdee2;
+  --line:#c9ccd2;--line-hi:#7a7f88;
+  --ink:#111317;--dim:#4b4f57;--faint:#9a9ea6;--led-off:#cfd2d8;
+  --accent:#8f4f00;--accent-ink:#ffffff;--ok:#0b6e5d;--bad:#b3261e;
+  --rail-bg:#0d0f14;--rail-on:#1b1e26;
+  --glass:rgb(247 247 248/.9);--edge:rgb(143 79 0/.25);--stars:0;--scan:0;--sparks:.35;
 }
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -29,8 +31,11 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--font);
   -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
 /* The room's light on the page too: the strip's live colour, faint, from the top. Off is no wash at all. */
 body::before,body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none}
-body::before{background:radial-gradient(130% 70% at 50% 0%,color-mix(in srgb,var(--glow) 26%,transparent),transparent 72%),
-  radial-gradient(90% 60% at 50% 110%,rgb(69 200 255/.07),transparent 70%)}
+body::before{background:radial-gradient(70% 55% at 0% 0%,color-mix(in srgb,var(--glow-a) 24%,transparent),transparent 75%),
+  radial-gradient(70% 55% at 50% 0%,color-mix(in srgb,var(--glow-b) 24%,transparent),transparent 75%),
+  radial-gradient(70% 55% at 100% 0%,color-mix(in srgb,var(--glow-c) 24%,transparent),transparent 75%),
+  radial-gradient(90% 60% at 50% 110%,rgb(255 177 59/.06),transparent 70%),
+  linear-gradient(rgb(255 177 59/.035) 1px,transparent 1px) 0 0/100% 48px,linear-gradient(90deg,rgb(255 177 59/.035) 1px,transparent 1px) 0 0/48px 100%}
 /* A still starfield, drawn by gradients alone: no image to fetch. Dark theme only. */
 body::after{opacity:var(--stars);background:
   radial-gradient(1px 1px at 23px 41px,#fff,transparent),radial-gradient(1px 1px at 141px 97px,#cfe9ff,transparent),
@@ -119,28 +124,28 @@ main{max-width:1080px;margin:0 auto;padding:4px 16px calc(var(--tabbar) + 24px +
 .stack{display:grid;gap:12px;align-content:start}
 .field{display:grid;gap:6px}
 .row{display:flex;flex-wrap:wrap;gap:8px}
-.row>.btn{flex:1 1 140px}
+.row>.btn{flex:0 0 auto}
 .inline{display:flex;gap:8px}
 .inline>input,.inline>select{flex:1;min-width:0}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
 .split{display:flex;align-items:center;justify-content:space-between;gap:12px}
 
 /* buttons */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;
   background:var(--raised);border:1px solid var(--line);border-radius:var(--r-sm);font-weight:600;font-size:14px;
   text-decoration:none;color:var(--ink);transition:transform .1s}
 .btn:active:not(:disabled){transform:scale(.97)}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;box-shadow:0 0 18px -4px var(--accent)}
-.btn.small{min-height:36px;padding:0 12px;font-size:13px}
+.btn.small{min-height:30px;padding:0 10px;font-size:12px}
 .btn.wide{width:100%}
 .btn.quiet{background:none}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;padding:4px;background:var(--well);border-radius:var(--r-sm)}
-.seg button{min-height:44px;padding:0 6px;background:none;border:0;border-radius:6px;color:var(--dim);font-size:14px;font-weight:600;
+.seg button{min-height:36px;padding:0 6px;background:none;border:0;border-radius:6px;color:var(--dim);font-size:14px;font-weight:600;
   transition:background .15s,color .15s}
 .seg button[aria-pressed=true]{background:var(--raised);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent),0 0 14px -4px var(--accent)}
-.seg.big button{min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:13px}
+.seg.big button{min-height:40px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:13px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{min-height:44px;padding:0 14px;background:var(--raised);border:1px solid var(--line);border-radius:999px;
+.chip{min-height:36px;padding:0 14px;background:var(--raised);border:1px solid var(--line);border-radius:999px;
   font-size:14px;font-weight:600;color:var(--ink)}
 .chip[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);border-color:transparent;box-shadow:0 0 18px -4px var(--accent)}
 
@@ -181,7 +186,7 @@ input[type=range]:disabled{opacity:.4}
   background:radial-gradient(closest-side,var(--glow),transparent);opacity:.32;transition:background .6s}
 .hero>*{position:relative}
 .hero-top{display:flex;align-items:center;gap:16px}
-.power{flex:none;display:grid;place-items:center;width:76px;height:76px;border-radius:50%;
+.power{flex:none;display:grid;place-items:center;width:66px;height:66px;border-radius:50%;
   background:var(--well);border:2px solid var(--line-hi);color:var(--dim);transition:background .2s,color .2s,box-shadow .3s}
 .power[aria-checked=true]{color:var(--accent);border-color:var(--accent);
   box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 18%,transparent),0 0 34px color-mix(in srgb,var(--glow) 80%,var(--accent)),
@@ -197,7 +202,6 @@ input[type=range]:disabled{opacity:.4}
 .flags{display:flex;flex-wrap:wrap;gap:6px}
 .flag{padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--accent) 18%,transparent);
   color:var(--accent);font-size:12px;font-weight:600}
-.preview{display:block;width:100%;height:110px;border-radius:var(--r-sm)}
 
 /* home: scene and devices */
 .swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:10px}
@@ -218,7 +222,7 @@ input[type=range]:disabled{opacity:.4}
 .recent .swatch{width:32px;min-height:32px}
 .recent span{font-size:12px;color:var(--dim);margin-right:2px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px}
-.tile{display:grid;gap:2px;align-content:start;min-height:64px;padding:10px 12px;text-align:left;
+.tile{display:grid;gap:2px;align-content:start;min-height:54px;padding:8px 10px;text-align:left;
   background:var(--raised);border:1px solid var(--line);border-radius:var(--r-sm)}
 .tile b{font-size:14px}
 .tile span{font-size:12px;line-height:1.3;color:var(--dim)}
@@ -297,8 +301,119 @@ dialog::backdrop{background:rgb(0 0 0/.6)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}}
 .tile.scene{gap:6px}
 .scene-bar{display:block;height:26px;border-radius:6px;box-shadow:inset 0 0 0 1px rgb(0 0 0/.2)}
-.tile.scene .about{color:var(--dim);font-size:12px;line-height:1.3}
+.tile.scene .about{color:var(--dim);font-size:12px;line-height:1.3;text-align:left;padding:0}
 .sound{align-items:center}
 .bass{flex:1;min-width:90px;height:8px;border-radius:4px;background:var(--well);overflow:hidden}
 .bass i{display:block;height:100%;width:0;background:var(--accent);box-shadow:0 0 10px var(--accent);transition:width .3s}
 @media (max-width:400px){.seg.quad{grid-auto-flow:row;grid-template-columns:1fr 1fr}}
+
+/* ---------- starship console ---------- */
+/* Scanlines over everything, faint, never in the way of a tap. */
+html::after{content:"";position:fixed;inset:0;z-index:50;pointer-events:none;opacity:var(--scan);
+  background:repeating-linear-gradient(0deg,rgb(0 0 0/.16) 0 1px,transparent 1px 3px),
+  radial-gradient(120% 90% at 50% 50%,transparent 60%,rgb(0 0 0/.45))}
+/* Condensed capitals for every label, the way a cockpit marks its controls. */
+.btn,.chip,.seg button,.tab,.sect,label,.label,h3,.link,.flag,.meters dt,.fader label,.switch,summary h2{
+  font-family:var(--hud);text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+.fader label,.switch{font-size:15px}
+h2{font-family:var(--hud);font-size:14px;letter-spacing:.22em}
+#screens{counter-reset:panel}
+.card h2::before{counter-increment:panel;content:counter(panel,decimal-leading-zero) "  \25B8  ";color:var(--faint)}
+.page-title{font:600 32px/1 var(--hud);letter-spacing:.24em;color:var(--ink);background:none;-webkit-text-fill-color:currentColor;
+  display:flex;align-items:center;gap:14px}
+.page-title::before{content:"//";color:var(--accent);letter-spacing:0}
+.page-title::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--accent),transparent)}
+.brand{font-family:var(--hud);text-transform:uppercase;letter-spacing:.18em;font-weight:600}
+/* Panels with cut corners and lit brackets. */
+.card{clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut));
+  background:
+    linear-gradient(var(--accent) 0 0) top right/26px 2px no-repeat,linear-gradient(var(--accent) 0 0) top right/2px 26px no-repeat,
+    linear-gradient(var(--accent) 0 0) bottom left/26px 2px no-repeat,linear-gradient(var(--accent) 0 0) bottom left/2px 26px no-repeat,
+    linear-gradient(135deg,transparent calc(var(--cut) - 1px),var(--edge) 0 calc(var(--cut) + 1px),transparent 0) top left/40px 40px no-repeat,
+    linear-gradient(315deg,transparent calc(var(--cut) - 1px),var(--edge) 0 calc(var(--cut) + 1px),transparent 0) bottom right/40px 40px no-repeat,
+    var(--glass)}
+.btn,.chip,.seg button,.tile,.banner,.toast,dialog,input[type=text],input[type=number],input[type=password],select{
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);border-radius:0}
+.chip,.btn{border-color:var(--edge);background:var(--raised)}
+.chip[aria-pressed=true],.btn.primary{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+.seg{border-radius:0;gap:2px;background:var(--well);border:1px solid var(--line)}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+.tile[aria-pressed=true]{background:color-mix(in srgb,var(--accent) 14%,var(--raised))}
+/* Readouts in amber monospace, like instrument panels. */
+.fader output,.meters dd,.readout{color:var(--accent);text-shadow:0 0 10px color-mix(in srgb,var(--accent) 45%,transparent)}
+/* Faders as segmented gauges with a bar for a handle. */
+input[type=range]::-webkit-slider-runnable-track{height:10px;border-radius:0;
+  background:repeating-linear-gradient(90deg,transparent 0 5px,var(--bg) 5px 7px),
+    linear-gradient(to right,var(--accent) var(--fill),var(--line) var(--fill));box-shadow:none}
+input[type=range]::-webkit-slider-thumb{width:8px;height:28px;margin-top:-9px;border-radius:0;background:var(--ink);
+  box-shadow:0 0 0 2px var(--accent),0 0 16px var(--accent)}
+input[type=range]::-moz-range-track{height:10px;border-radius:0}
+input[type=range]::-moz-range-progress{height:10px;border-radius:0}
+input[type=range]::-moz-range-thumb{width:8px;height:28px;border-radius:0;background:var(--ink);box-shadow:0 0 0 2px var(--accent)}
+.track,.track::after{border-radius:0}
+.switch[aria-checked=true] .track{background:var(--accent);box-shadow:0 0 14px -2px var(--accent)}
+/* The power button: a reticle that turns slowly while the lights run. */
+.power{position:relative;border-radius:50%}
+.power::after{content:"";position:absolute;inset:-9px;border-radius:50%;pointer-events:none;
+  background:conic-gradient(var(--accent) 0 9%,transparent 0 25%,var(--accent) 0 34%,transparent 0 50%,var(--accent) 0 59%,
+    transparent 0 75%,var(--accent) 0 84%,transparent 0);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0);mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0);
+  opacity:.35}
+.power[aria-checked=true]::after{opacity:1;animation:spin 14s linear infinite}
+@keyframes spin{to{transform:rotate(1turn)}}
+.dot[data-state=on]{animation:blink 2.4s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
+.top{border-bottom:1px solid var(--edge)}
+.tab[aria-current=page]{text-shadow:none}
+.bass{border-radius:0;height:10px;background:repeating-linear-gradient(90deg,transparent 0 5px,var(--bg) 5px 7px),var(--well)}
+@media (prefers-reduced-motion:reduce){.power::after,.dot{animation:none!important}}
+.hero-state{font-family:var(--hud);font-size:23px;font-weight:600;letter-spacing:.03em}
+
+/* ---------- ambience: the page takes the strip's light ---------- */
+/* Registered as colours so they glide: each poll's new light fades in over a little longer than a poll
+   lasts, so the page never jumps, only drifts. Unregistered browsers simply switch. */
+@property --glow{syntax:"<color>";inherits:true;initial-value:transparent}
+@property --glow-a{syntax:"<color>";inherits:true;initial-value:transparent}
+@property --glow-b{syntax:"<color>";inherits:true;initial-value:transparent}
+@property --glow-c{syntax:"<color>";inherits:true;initial-value:transparent}
+:root{transition:--glow 1.6s ease,--glow-a 1.6s ease,--glow-b 1.6s ease,--glow-c 1.6s ease}
+/* Each panel takes the light nearest it, never more than a tint: start, middle and end in turn. */
+.card{--tint:var(--glow-b)}
+.card:nth-child(3n+1){--tint:var(--glow-a)}
+.card:nth-child(3n){--tint:var(--glow-c)}
+.hero{--tint:var(--glow-b)}
+.card{box-shadow:inset 0 1px 0 rgb(255 255 255/.05),inset 0 0 60px -30px color-mix(in srgb,var(--tint) 55%,transparent),
+  0 18px 50px -30px rgb(0 0 0/.9);border-color:color-mix(in srgb,var(--tint) 30%,var(--edge))}
+.card h2,.page-title::before{color:color-mix(in srgb,var(--accent) 82%,var(--tint,var(--glow)))}
+.page-title::after{background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 70%,var(--glow-b)),transparent)}
+.tabs{border-top-color:color-mix(in srgb,var(--glow-b) 45%,var(--line));
+  box-shadow:0 -12px 40px -24px color-mix(in srgb,var(--glow-b) 70%,transparent)}
+.top{border-bottom-color:color-mix(in srgb,var(--glow-b) 35%,var(--edge))}
+@media (prefers-reduced-motion:reduce){:root{transition:none}}
+
+/* ---------- sparks: glints of the room's light drifting up the edges and through the hero ---------- */
+/* One tile of glints, repeated down a column twice the screen's height that slides up by one tile:
+   a transform only, which the browser moves without repainting. */
+main::before,main::after,.hero::after{content:"";position:fixed;z-index:-1;pointer-events:none;opacity:var(--sparks);
+  --spark:color-mix(in srgb,var(--glow-a) 65%,var(--accent));
+  background:
+    radial-gradient(1.5px 1.5px at 18px 40px,var(--spark),transparent),radial-gradient(1px 1px at 52px 130px,#fff,transparent),
+    radial-gradient(2px 2px at 30px 210px,var(--spark),transparent),radial-gradient(1px 1px at 64px 290px,var(--spark),transparent),
+    radial-gradient(1.5px 1.5px at 10px 350px,#fff,transparent),radial-gradient(2.5px 2.5px at 44px 410px,
+      color-mix(in srgb,var(--spark) 70%,transparent),transparent);
+  background-size:76px 440px;animation:drift 26s linear infinite}
+main::before{top:0;left:0;width:76px;height:880px;
+  -webkit-mask:linear-gradient(90deg,#000,transparent);mask:linear-gradient(90deg,#000,transparent)}
+main::after{top:0;right:0;width:76px;height:880px;--spark:color-mix(in srgb,var(--glow-c) 65%,var(--accent));
+  -webkit-mask:linear-gradient(-90deg,#000,transparent);mask:linear-gradient(-90deg,#000,transparent);animation-duration:34s}
+@media (min-width:700px){main::before{left:var(--rail)}}
+/* In the hero, a few glints rise through the panel in the middle of the strip's light. */
+.hero::after{position:absolute;inset:0 0 auto;height:880px;z-index:0;opacity:calc(var(--sparks) * .7);
+  --spark:color-mix(in srgb,var(--glow-b) 70%,var(--accent));background-size:150px 440px;animation-duration:40s;
+  -webkit-mask:linear-gradient(transparent,#000 30%,#000 60%,transparent);mask:linear-gradient(transparent,#000 30%,#000 60%,transparent)}
+.power::before{content:"";position:absolute;inset:-18px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(closest-side,color-mix(in srgb,var(--glow-b) 30%,transparent),transparent);
+  animation:breathe 5s ease-in-out infinite}
+@keyframes drift{to{transform:translateY(-440px)}}
+@keyframes breathe{50%{opacity:.4;transform:scale(.92)}}
+@media (prefers-reduced-motion:reduce){main::before,main::after,.hero::after,.power::before{animation:none!important}}
