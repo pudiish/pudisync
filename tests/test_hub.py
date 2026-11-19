@@ -4879,6 +4879,124 @@ def test_backup():
     check("a look keeps the settings a look can hold", set(PROFILE_KEYS) >= set(after["user_profiles"]["Fresh"]))
 
 
+def test_privacy():
+    print("\n49. Privacy: who may redirect or expose the screen, what is kept, what may reach the network")
+    import ast
+    import pathlib
+    import stat
+    from urllib.parse import parse_qs
+    from ambilight import access, backup, privacy, routes
+    from ambilight.discovery import lan_ip
+
+    check("this Mac is recognised by loopback, IPv4 or IPv6",
+          all(access.is_this_mac(a) for a in ("127.0.0.1", "::1", "::ffff:127.0.0.1")))
+    check("...and by its own network address, as the Mac app reaches it", access.is_this_mac(lan_ip()), lan_ip())
+    check("another device, or nonsense, is not this Mac",
+          not access.is_this_mac("203.0.113.9") and not access.is_this_mac("fe80::1%en0") and not access.is_this_mac("x"))
+
+    class Untouchable:
+        """Fails the test if an owner-only action reached the hardware or the disk."""
+
+        def __getattr__(self, name):
+            raise AssertionError(f"{name} ran for someone who is not the owner")
+
+    class Stub:
+        def __init__(self, cfg):
+            self.cfg, self.intent = cfg, type("Intent", (), {"nudge": lambda self: None})()
+            self.camera = self.provisioner = self.engine = self.pending_import = Untouchable()
+
+        def status(self):
+            return {}
+
+    folder = tempfile.mkdtemp(prefix="ambilight-privacy-")
+    cfg = Config(os.path.join(folder, "config.json"))
+    hub = Stub(cfg)
+
+    def ask(url, owner=False):
+        path, _, query = url.partition("?")
+        return routes.handle(hub, path, parse_qs(query, keep_blank_values=True), owner=owner)
+
+    for url in ("/api/set?wled_ip=203.0.113.9", "/api/set?wled_port=9", "/api/set?output=serial",
+                "/api/set?new_pin=1234", "/api/set?unprotected=0", "/api/set?http_port=9000",
+                "/api/camera/start", "/api/record/start", "/api/flash/networks",
+                "/api/flash/start?port=/dev/x&ssid=y", "/api/flash/adopt", "/api/backup/apply?id=x&groups=looks,connection"):
+        payload, code = ask(url)
+        check(f"another device without the PIN is refused: {url}", code == 409 and "PIN" in payload["error"], (code, payload))
+    check("...and nothing changed", cfg.get("wled_ip") == "4.3.2.1" and cfg.get("pin") == "" and cfg.get("output") == "udp")
+    check("lights and looks stay open to every device on the Wi-Fi",
+          ask("/api/set?saturation=1.5&bed_mode=off")[1] == 200 and cfg.get("saturation") == 1.5)
+    check("this Mac, or a device with the PIN, may redirect the strip",
+          ask("/api/set?wled_ip=192.168.1.40", owner=True)[1] == 200 and cfg.get("wled_ip") == "192.168.1.40")
+
+    point = backup.save_restore_point({**cfg.snapshot(), "wled_ip": "203.0.113.9"}, cfg.restore_folder(), "t", 1_000_000.0)
+    hub.intent = type("Intent", (), {"nudge": lambda self: None})()
+    payload, code = ask(f"/api/backup/restore?file={point}")
+    check("a restore that would redirect the strip needs the owner", code == 409 and cfg.get("wled_ip") == "192.168.1.40",
+          (code, payload))
+    point = backup.save_restore_point({**cfg.snapshot(), "saturation": 1.1}, cfg.restore_folder(), "t", 1_000_001.0)
+    check("...one that only changes the look does not", ask(f"/api/backup/restore?file={point}")[1] == 200
+          and cfg.get("saturation") == 1.1)
+
+    home = pathlib.Path(tempfile.mkdtemp(prefix="ambilight-files-"))
+    (home / "backups").mkdir()
+    (home / "recordings").mkdir()
+    exposed = [home / "config.json", home / "config.journal.jsonl", home / "backups" / "config-1.json",
+               home / "recordings" / "calibration-view.jpg"]
+    for path in exposed:
+        path.write_text("x")
+        os.chmod(path, 0o644)
+    log_file = open(home / "hub.log", "w")
+    os.chmod(home / "hub.log", 0o644)
+    before = os.umask(0o022)
+    try:
+        privacy.lock_down(home / "config.json", home / "recordings", (log_file,))
+        (home / "new.json").write_text("x")
+        new_mode = stat.S_IMODE((home / "new.json").stat().st_mode)
+    finally:
+        os.umask(before)
+        log_file.close()
+    modes = {p.name: oct(stat.S_IMODE(p.stat().st_mode)) for p in exposed + [home / "hub.log"]}
+    check("files the hub wrote before, and the log, become readable by this account alone",
+          set(modes.values()) == {"0o600"}, modes)
+    check("...folders too", oct(stat.S_IMODE((home / "recordings").stat().st_mode)) == "0o700")
+    check("every file the hub writes from then on is private", new_mode == 0o600, oct(new_mode))
+    for i in range(privacy.KEEP_RECORDINGS + 3):
+        (home / "recordings" / f"rec-202611{i + 10:02d}-000000.npz").write_bytes(b"x")
+    gone = privacy.prune_recordings(home / "recordings")
+    kept = sorted(p.name for p in (home / "recordings").glob("rec-*.npz"))
+    check(f"only the newest {privacy.KEEP_RECORDINGS} colour recordings are kept",
+          len(kept) == privacy.KEEP_RECORDINGS and len(gone) == 3 and kept[0] == "rec-20261113-000000.npz", gone)
+    check("...and the calibration files beside them are left alone", (home / "recordings" / "calibration-view.jpg").exists())
+
+    # Every module that can open a network connection, and why. A new one fails here until it is reviewed.
+    allowed = {"access.py": "binds a probe socket to tell this Mac's addresses; sends nothing",
+               "discovery.py": "finds this Mac's LAN address without sending a packet; Bonjour name",
+               "hostcache.py": "looks up the board's .local name",
+               "server.py": "the hub's own web server",
+               "wled.py": "the board's JSON API", "board.py": "puts the phone page on the board",
+               "output_wled_udp.py": "LED colours to the board", "output_wled_ddp.py": "LED colours to the board",
+               "camrun.py": "the webcam calibration talks to this hub on 127.0.0.1",
+               "provision.py": "WLED firmware from GitHub, only when setting up a new board"}
+    net = {"socket", "urllib.request", "http.client", "http.server", "ssl", "requests", "urllib3", "websocket",
+           "asyncio", "smtplib", "ftplib", "aiohttp", "httpx"}
+    found = set()
+    for path in pathlib.Path("ambilight").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                     else [node.module or ""] + [f"{node.module}.{a.name}" for a in node.names]
+                     if isinstance(node, ast.ImportFrom) else [])
+            if any(n in net or n.split(".")[0] in net - {"urllib"} for n in names):
+                found.add(path.name)
+    check("only the reviewed modules can reach the network: nothing phones home", found == set(allowed),
+          sorted(found ^ set(allowed)))
+    from ambilight.provision import wled_release_link
+    check("firmware comes only from WLED's releases on GitHub, over HTTPS",
+          wled_release_link("https://github.com/wled/WLED/releases/download/v16.0.1/WLED_16.0.1_ESP8266.bin")
+          and not wled_release_link("http://github.com/wled/WLED/releases/download/v16/x.bin")
+          and not wled_release_link("https://evil.example/wled/WLED/releases/download/x.bin")
+          and not wled_release_link("https://github.com/someone/WLED/releases/download/x.bin"))
+
+
 def test_backup_api(base):
     print("\n47. Backups over HTTP: export, preview, apply, undo")
 
@@ -5147,6 +5265,7 @@ def main():
     test_fire_glow()
     test_user_profiles()
     test_backup()
+    test_privacy()
     test_sync_modes()
     test_vivid_mode()
     test_enriched()

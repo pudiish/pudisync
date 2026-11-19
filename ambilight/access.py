@@ -32,6 +32,33 @@ def allowed_host(host_header):
     return host in ("localhost", own) or host.endswith(".local")
 
 
+class OwnerOnly(Exception):
+    """An action only the owner (this Mac, or a device with the PIN) may take was asked for by someone else."""
+
+
+def is_this_mac(client):
+    """True when a request comes from the Mac the hub runs on, by any of its own addresses.
+
+    Loopback, or an address this machine can bind to: the Mac app and a browser
+    on the Mac reach the hub by its .local name, which is its LAN address.
+    """
+    try:
+        address = ipaddress.ip_address(str(client).split("%")[0])
+    except ValueError:
+        return False
+    if address.version == 6 and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    if address.is_loopback:
+        return True
+    family = socket.AF_INET6 if address.version == 6 else socket.AF_INET
+    with socket.socket(family, socket.SOCK_DGRAM) as probe:
+        try:
+            probe.bind((str(address), 0))
+        except OSError:
+            return False
+    return True
+
+
 def allowed_fetch_site(value):
     """Only the hub's own pages, typed URLs and non-browser clients."""
     return value is None or value in ("same-origin", "none")

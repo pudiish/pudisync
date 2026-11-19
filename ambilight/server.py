@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import hostcache, routes, version
-from .access import PinGate, allowed_fetch_site, allowed_host
+from .access import PinGate, allowed_fetch_site, allowed_host, is_this_mac
 from .backup import Pending
 from .bed import Keeper
 from .camrun import CameraJob
@@ -112,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.pin_refused(query):
             return
-        self.run(path, lambda: routes.handle(self.hub, path, query))
+        self.run(path, lambda: routes.handle(self.hub, path, query, owner=self.is_owner()))
 
     def do_POST(self):
         """Only for routes that take a file. JSON alone: a browser must ask before
@@ -142,7 +142,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": f"the file is over {routes.MAX_BODY // 1024} kB"}, 413)
             return
         body = self.rfile.read(length)
-        self.run(path, lambda: routes.handle_post(self.hub, path, query, body))
+        self.run(path, lambda: routes.handle_post(self.hub, path, query, body, owner=self.is_owner()))
+
+    def is_owner(self):
+        """The Mac itself, or, once a PIN is set, any device: the PIN check has already let it in."""
+        return bool(self.hub.cfg.get("pin")) or is_this_mac(self.client_address[0])
 
     def pin_refused(self, query):
         """Answers the request itself, and returns True, when the PIN does not let it through."""
