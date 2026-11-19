@@ -487,7 +487,16 @@ This is built for a home LAN. It has no encryption and no user accounts.
   every API call needs the PIN; with none set the hub refuses all of them instead
   of letting everyone in. The flag cannot be turned on without a PIN
 - Flashing only targets a board that is actually plugged in, and firmware is
-  checked against the release's size and SHA-256 before anything is erased
+  checked against the release's size and SHA-256 before anything is erased; it
+  is only ever downloaded from WLED's releases on GitHub
+- Without a PIN, only **this Mac** can do what could expose the screen or the
+  network: change the board's address, ports or output, set the PIN or protected
+  mode, start the webcam or a recording, or flash a board. Other devices get a
+  409 asking for a PIN set on the Mac
+- Everything the hub writes is readable by this account alone, and colour
+  recordings and restore points keep only the newest ten
+
+What the hub sees, keeps and sends, file by file: [docs/PRIVACY.md](docs/PRIVACY.md).
 
 **Do not port-forward it or expose it to the internet.**
 

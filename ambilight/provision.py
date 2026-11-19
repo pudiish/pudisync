@@ -30,6 +30,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 try:                    # python.org builds often lack system CA certificates
@@ -175,9 +176,16 @@ def list_firmware():
         {"name": a["name"], "url": a["browser_download_url"], "size": a["size"],
          "digest": a.get("digest")}
         for a in release.get("assets", [])
-        if a["name"].endswith(".bin")
+        if a["name"].endswith(".bin") and wled_release_link(a.get("browser_download_url", ""))
     ]
     return {"version": release.get("tag_name"), "builds": builds}
+
+
+def wled_release_link(url):
+    """True only for an HTTPS download from WLED's own releases on GitHub: firmware is never fetched elsewhere."""
+    parts = urllib.parse.urlparse(url)
+    return (parts.scheme == "https" and parts.hostname == "github.com"
+            and parts.path.startswith("/wled/WLED/releases/download/"))
 
 
 def download_firmware(binary):

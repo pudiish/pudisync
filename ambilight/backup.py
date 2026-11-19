@@ -18,6 +18,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from .access import OwnerOnly
 from .config import DEFAULTS, MAX_PROFILES, PROFILE_KEYS, PROFILES, profile_name
 
 FORMAT = "pudisync-backup"
@@ -270,12 +271,19 @@ def restore_points(folder):
     return [{"file": name, "saved_at": iso(saved)} for saved, _, name in sorted(found, reverse=True)]
 
 
-def restore(cfg, folder, file, app_version, now):
-    """Put back a restore point, every group, after saving one of the present settings."""
+def restore(cfg, folder, file, app_version, now, connection=True):
+    """Put back a restore point, every group, after saving one of the present settings.
+
+    With connection False (a sender who is not the owner), a restore that would
+    change where the hub sends the screen's colours is refused, before anything changes.
+    """
     name = Path(file).name
     if not RESTORE_POINT.match(name) or not (Path(folder) / name).is_file():
         raise FileNotFoundError(f"no restore point named {name!r}")
     report = plan(cfg, parse((Path(folder) / name).read_bytes()))
+    if not connection and any(row["group"] == "connection" and row["status"] in ("change", "adjusted")
+                              for row in report["rows"]):
+        raise OwnerOnly("this restore changes the board connection")
     return apply(cfg, report, GROUPS, folder, app_version, now, exact=True)
 
 

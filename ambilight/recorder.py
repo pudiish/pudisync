@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import color
+from . import color, privacy
 
 RECORDINGS_DIR = Path(__file__).resolve().parent.parent / "recordings"
 
@@ -38,6 +38,7 @@ class Recorder:
     def save(self):
         np.savez_compressed(self.path, times=np.array(self.times, dtype=np.float64),
                             frames=np.array(self.frames, dtype=np.float32))
+        privacy.prune_recordings(self.path.parent)
         return self.path
 
 

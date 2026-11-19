@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from . import backup, bed, qr, version
+from .access import OwnerOnly
 from .config import DEFAULTS, PROFILES
 from .discovery import hub_urls
 from .effects import catalogue as effect_catalogue, state_for
@@ -25,16 +26,32 @@ CONFIG_SAVE_S = 1.0     # the board writes new settings to flash in its next loo
 
 
 class Query:
-    """The parsed query string, read one value at a time."""
+    """The parsed query string, read one value at a time, and whether its sender is the owner."""
 
-    def __init__(self, parsed):
+    def __init__(self, parsed, owner=True):
         self.parsed = parsed
+        self.owner = owner
 
     def one(self, key, default=None):
         return self.parsed.get(key, [default])[0]
 
     def flag(self, key, default="0"):
         return self.one(key, default) in ("1", "true", "on", "yes")
+
+
+# Without a PIN, any device on the same Wi-Fi can drive the hub, which is fine for
+# lights and looks. These could send the screen's colours elsewhere, open a camera,
+# keep a recording, reveal the Mac's Wi-Fi networks or lock the owner out, so they
+# need the owner: this Mac itself, or a device that knows the PIN.
+OWNER_SETTINGS = frozenset({"wled_ip", "wled_port", "ddp_port", "wled_http_port", "output", "serial_port",
+                            "serial_baud", "http_port", "unprotected", "new_pin"})
+OWNER_ONLY = ("only this Mac can do that while the hub has no PIN; set a PIN on the Mac "
+              "(Settings › Access and devices) and your other devices can too")
+
+
+def need_owner(q):
+    if not q.owner:
+        raise OwnerOnly(OWNER_ONLY)
 
 
 def pyserial_available():
@@ -120,6 +137,8 @@ def profile_delete(hub, q):
 
 
 def set_values(hub, q):
+    if OWNER_SETTINGS & set(q.parsed):
+        need_owner(q)
     # "pin" in a query authenticates (Shortcuts); changing it is "new_pin".
     changes = {k: v[0] for k, v in q.parsed.items() if k not in ("pin", "new_pin")}
     if "new_pin" in q.parsed:
@@ -147,8 +166,10 @@ def backup_preview(hub, q, body):
 
 
 def backup_apply(hub, q):
-    report = hub.pending_import.take(q.one("id", ""), time.monotonic())
     groups = [g for g in q.one("groups", "").split(",") if g]
+    if "connection" in groups:
+        need_owner(q)
+    report = hub.pending_import.take(q.one("id", ""), time.monotonic())
     result = backup.apply(hub.cfg, report, groups, hub.cfg.restore_folder(), version.build_id(), time.time())
     settings_changed(hub, result["changed"])
     return {**result, **hub.status()}, OK
@@ -160,9 +181,12 @@ def backup_list(hub, q):
 
 def backup_restore(hub, q):
     try:
-        result = backup.restore(hub.cfg, hub.cfg.restore_folder(), q.one("file", ""), version.build_id(), time.time())
+        result = backup.restore(hub.cfg, hub.cfg.restore_folder(), q.one("file", ""), version.build_id(), time.time(),
+                                connection=q.owner)
     except FileNotFoundError as exc:
         return {"error": str(exc)}, 404
+    except OwnerOnly:
+        raise OwnerOnly(OWNER_ONLY) from None
     settings_changed(hub, result["changed"])
     return {**result, **hub.status()}, OK
 
@@ -213,6 +237,7 @@ def monitors():
 
 # --- recordings: capture real scenes, replay them while tuning ----------------
 def record_start(hub, q):
+    need_owner(q)
     seconds = max(1.0, min(120.0, float(q.one("seconds", "20"))))
     try:
         name = hub.engine.start_recording(seconds)
@@ -370,10 +395,12 @@ def flash_check(hub, q):
 
 
 def flash_networks(hub, q):
+    need_owner(q)
     return known_networks(), OK
 
 
 def flash_start(hub, q):
+    need_owner(q)
     port, ssid = q.one("port", ""), q.one("ssid", "")
     if not port or not ssid:
         return {"error": "a port and a Wi-Fi name are required"}, 400
@@ -422,6 +449,7 @@ def camera_list(hub, q):
 
 
 def camera_start(hub, q):
+    need_owner(q)
     try:
         hub.camera.start(q.one("task", "calibrate"), q.one("camera") or None, int(q.one("seconds", "60")))
     except RuntimeError as exc:
@@ -439,6 +467,7 @@ def flash_status(hub, q):
 
 def flash_adopt(hub, q):
     """Point the hub at the board that was just provisioned."""
+    need_owner(q)
     st = hub.provisioner.status()
     if not st.get("ip"):
         return {"error": "no address to adopt yet"}, 409
@@ -503,20 +532,31 @@ POST_ROUTES = {
 MAX_BODY = backup.MAX_BYTES
 
 
-def handle_post(hub, path, parsed, body):
+def handle_post(hub, path, parsed, body, owner=False):
     """Run the POST handler for `path` with the request body. Returns (payload, status code)."""
     handler = POST_ROUTES.get(path)
     if handler is None:
         return {"error": "not found"}, 404
-    return handler(hub, Query(parsed), body)
+    return guarded(lambda: handler(hub, Query(parsed, owner), body))
 
 
-def handle(hub, path, parsed):
-    """Run the handler for `path`. Returns (payload, status code)."""
-    q = Query(parsed)
+def handle(hub, path, parsed, owner=False):
+    """Run the handler for `path`. Returns (payload, status code).
+
+    `owner` is whether the sender is this Mac or knows the PIN; without it the
+    owner-only actions are refused (fail closed when a caller forgets to say).
+    """
+    q = Query(parsed, owner)
     if path.startswith("/api/profile/"):
         return profile(hub, q, urllib.parse.unquote(path.rsplit("/", 1)[-1]))
     handler = ROUTES.get(path)
     if handler is None:
         return {"error": "not found"}, 404
-    return handler(hub, q)
+    return guarded(lambda: handler(hub, q))
+
+
+def guarded(run):
+    try:
+        return run()
+    except OwnerOnly as exc:
+        return {"error": str(exc)}, 409

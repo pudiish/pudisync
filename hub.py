@@ -15,11 +15,12 @@ import signal
 import sys
 import threading
 
-from ambilight import board, journal, version
+from ambilight import board, journal, privacy, version
 from ambilight.config import CONFIG_PATH, Config
 from ambilight.discovery import Advertiser, hub_urls
 from ambilight.engine import Engine
 from ambilight.plugins import CAPTURES, OUTPUTS
+from ambilight.recorder import RECORDINGS_DIR
 from ambilight.server import Hub, serve
 from ambilight.wizard import Wizard
 from ambilight.wled import WLEDClient
@@ -103,6 +104,10 @@ def main():
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = parse_args(sys.argv[1:])
+    # Before anything is written: settings, journal, restore points, recordings and the log stay this account's.
+    tightened = privacy.lock_down(args.config, RECORDINGS_DIR, (sys.stdout, sys.stderr))
+    if tightened:
+        logging.getLogger("hub").info("made %d existing files private to this account", len(tightened))
     config = Config(args.config)
     exit_code = one_shot(args, config)
     if exit_code is not None:
