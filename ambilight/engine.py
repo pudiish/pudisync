@@ -52,8 +52,8 @@ def beat_on(cfg):
 
 
 def wants_sound(cfg):
-    """True when screen sync uses the sound: a beat effect, or the style's Audio Reactivity. Never under Calm."""
-    return beat_on(cfg) or experience.style_wants_sound(cfg)
+    """True when screen sync uses the sound: a beat effect, or Follow the sound. Never under Calm."""
+    return beat_on(cfg) or experience.sync_wants_sound(cfg)
 
 log = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ class OutputStage:
         self.last_target = None
         self.bed = bed.BedStage()
         self.meter = None       # the engine's BassMeter, when the beat effects can hear the sound
-        self.style = experience.StyleStage()
+        self.sound = experience.SoundStage()
         self.room = experience.RoomStage()
         self.room_since = None  # when Room Studio took the strip; None while the screen drives it
 
@@ -203,8 +203,7 @@ class OutputStage:
             age = now - self.last_target
             fade = max(0.0, 1.0 - (age - self.STALE_S) / self.FADE_S if age > self.STALE_S else 1.0)
             levels = color.to_led(shown, cfg) * fade
-            # The style reshapes the screen's own colours; the beat effects then act on that.
-            levels = self.style.apply(levels, now, cfg, self.features(now))
+            levels = self.sound.apply(levels, now, cfg, self.features(now))
             if self.meter is not None and beat_on(cfg):
                 levels = self.on_beat(levels, now, cfg)
             return self.finish(levels, now, cfg, self.smoother.target, fade)

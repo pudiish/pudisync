@@ -6,14 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com). Versions: [SemVer](https
 
 ### Added
 - Experience engine (`docs/EXPERIENCE.md`, from the R&D toolkit in `docs/toolkit/`). Two destinations: Monitor Sync and Room Studio.
-- Monitor Sync looks Cinematic (slow glide, faint drift of light, for films) and Trippy (the screen's own colours folded, warped and flowing along the strip; moves with the sound off).
-- *Follow the sound* on Home: Off, Subtle, Balanced or Expressive, remembered per style and off for everyone until chosen. The sound only modulates bounded parameters and eases back to neutral when it stops or goes stale; a black screen stays black.
+- *Follow the sound* on Home: Off, Subtle, Balanced or Expressive, off until chosen. The bass breathes Vivid or Immersive a little and eases back to neutral when the sound stops or goes stale.
 - Calm switch (`calm`): no motion from the sound and no sound captured, in one tap.
 - Live bass meter, beat count and tempo on Home, and a Test beat button that runs a synthetic beat through the normal output path and guard with no sound opened.
 - Room Studio, its own tab and section: Neon Coast, Aurora, Deep Ocean, Golden Hour and Hearth, drawn from palettes with no screen capture, through the same calibration, zones, brightness and safety guard. Brightness, speed, colour intensity and its own *Follow the sound*; duplicate, rename, delete, reset, export and import scenes (strict JSON: no code, addresses or safety settings).
 
+### Removed
+- The Pulse, Cinematic and Trippy looks (the owner's call: Vivid and Immersive are the looks). A config left on one moves to Vivid. Beat bounce and Beat shake stay in Expert settings.
+
 ### Changed
-- Pulse made visible (audio handoff Phase A): the bounce wave is ±18 LEDs (was 6) and fades over 0.45 s (was 0.28), dark scenes glow in their own hue on the beat while true black stays black, and Shake ripples brightness along the strip so it shows on even colours. A beat adds at most 8% of full white to the whole strip, under the guard's 10% flash swing. Measured with `tools/beat_visibility.py`: bright 32 to 194 LEDs changed, dark scene's biggest change 3 to 27 of 255.
+- Beat bounce and Beat shake made visible (audio handoff Phase A): the bounce wave is ±18 LEDs (was 6) and fades over 0.45 s (was 0.28), dark scenes glow in their own hue on the beat while true black stays black, and Shake ripples brightness along the strip so it shows on even colours. A beat adds at most 8% of full white to the whole strip, under the guard's 10% flash swing. Measured with `tools/beat_visibility.py`: bright 32 to 194 LEDs changed, dark scene's biggest change 3 to 27 of 255.
 
 ### Changed
 - New PudiSync logo: a glowing ribbon P. `ambilight/web/icon.svg` is the only drawing of it; the phone page header, browser tab, manifest, README, the iPhone Home Screen PNG (`make icons`) and the Mac app icon (`make app`) are all rendered from that file.

@@ -47,29 +47,16 @@ PROFILES = {
                   "colour_weight": 0.75, "enrich": 0.5, "contrast": 1.2, "dark_boost": 0.8, "white_kelvin": 4500,
                   "bass_bounce": 0.0, "bass_shake": 0.0},
 }
-# Pulse (2026-11-20, the owner's ask): Vivid's warm, rich picture with the bass moving it.
-# Each bass beat sends a wave of the scene's colour out from the middle of the screen and
-# jolts the colours; Shake stays at half so faces and text edges do not wobble far.
-PROFILES["pulse"] = {**PROFILES["vivid"], "bass_bounce": 0.8, "bass_shake": 0.5}
-# Every built-in look says which style it moves with, so switching looks never keeps another's motion.
-for _look in PROFILES.values():
-    _look["style"] = "none"
-# Cinematic and Trippy (2026-11-20, the experience engine, docs/EXPERIENCE.md).
-# Cinematic: Immersive's flood with a slower glide, gentler contrast and a warm white,
-# for films; its style adds only a faint drift of light, and its sound reaction stays
-# small and slow. Trippy: Vivid's colour with the screen's own colours folded, warped
-# and flowing along the strip (experience.StyleStage.trippy).
-PROFILES["cinematic"] = {**PROFILES["immersive"], "blend": 0.22, "saturation": 1.2, "immersion": 0.6,
-                         "contrast": 1.4, "white_kelvin": 4000, "style": "cinematic"}
-PROFILES["trippy"] = {**PROFILES["vivid"], "saturation": 1.5, "immersion": 0.3, "spread": 0.45,
-                      "style": "trippy"}
 # Modes that existed before Immersive. A config naming one keeps its settings
 # but loses the name, since no built-in mode matches that look any more.
 RETIRED_PROFILES = ("movie", "game", "enriched")
+# Looks the owner removed on 2026-11-20, keeping Vivid and Immersive: a config naming
+# one moves to Vivid whole, so no beat or motion of theirs is left running unnamed.
+REMOVED_PROFILES = ("pulse", "cinematic", "trippy")
 # What a profile of your own saves: the whole look, not the strip's setup.
 PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
                 "colour_weight", "spread", "black_level", "enrich", "dark_boost", "adaptive", "hue_balance", "adaptive_pace", "bass_bounce", "bass_shake", "mouse_sync",
-                "style", "trippy_speed", "trippy_warp", "trippy_colour", "trippy_texture", "cinematic_motion",
+
                 "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect", "bed_speed",
                 "bed_brightness")
 PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
@@ -145,18 +132,11 @@ DEFAULTS = {
     # sideways and lets them settle. Either one on makes the hub hear the Mac's sound.
     "bass_bounce": 0.0,
     "bass_shake": 0.0,
-    # Monitor Sync style (experience.py): none (the picture as graded), cinematic or trippy.
-    "style": "none",
-    # Audio Reactivity per style: off, subtle, balanced or expressive. Off for all, so
-    # nobody's look starts following the sound without them asking.
-    "audio_react": {"none": "off", "cinematic": "off", "trippy": "off"},
+    # Follow the sound (experience.SoundStage): off, subtle, balanced or expressive. Off,
+    # so nobody's lights start following the sound without them asking.
+    "audio_react": "off",
     # Calm: no motion from the sound at all, and the sound is not captured, in one tap.
     "calm": False,
-    "trippy_speed": 0.55,
-    "trippy_warp": 0.32,
-    "trippy_colour": 0.72,
-    "trippy_texture": 0.22,
-    "cinematic_motion": 0.3,
     # Room Studio (experience.py): a scene from a palette, no screen capture.
     "room_scene": "neon_coast",
     "room_brightness": 1.0,
@@ -269,6 +249,8 @@ class Config:
             clean["zones"] = [z for z in clean["zones"] if z["keep"]]
         if clean.get("profile") in RETIRED_PROFILES and clean["profile"] not in clean.get("user_profiles", {}):
             clean["profile"] = ""
+        if clean.get("profile") in REMOVED_PROFILES and clean["profile"] not in clean.get("user_profiles", {}):
+            clean.update(PROFILES["vivid"], profile="vivid")
         with self._lock:
             self._data.update(clean)
 
@@ -303,8 +285,6 @@ class Config:
             return colour_matrix(raw)
         if key == "user_profiles":
             return user_profiles(raw)
-        if key == "audio_react":
-            return audio_react(raw, self._data.get("audio_react", DEFAULTS["audio_react"]))
         if key == "room_custom":
             from .experience import custom_scenes
 
@@ -364,8 +344,7 @@ class Config:
         if name in PROFILES:
             changes = dict(PROFILES[name])
         elif name in saved:
-            # Looks saved before styles existed move as the picture does.
-            changes = {"style": "none", **saved[name]}
+            changes = dict(saved[name])
         else:
             raise ValueError(f"unknown profile {name!r}")
         changes["profile"] = name
@@ -453,11 +432,6 @@ _LIMITS = {
     "adaptive_pace": (0.0, 1.0),
     "bass_bounce": (0.0, 1.0),
     "bass_shake": (0.0, 1.0),
-    "trippy_speed": (0.0, 2.0),
-    "trippy_warp": (0.0, 1.0),
-    "trippy_colour": (0.0, 1.0),
-    "trippy_texture": (0.0, 1.0),
-    "cinematic_motion": (0.0, 1.0),
     "room_brightness": (0.0, 1.0),
     "room_speed": (0.0, 3.0),
     "room_intensity": (0.0, 1.0),
@@ -502,10 +476,9 @@ CHOICES = {
     "bed_mode": ("screen", "effect", "colour", "off"),
     "bed_look": ("mood", "side", "blend"),
     "bed_side": ("whole", "bottom", "right", "top", "left"),
-    "style": ("none", "cinematic", "trippy"),
+    "audio_react": ("off", "subtle", "balanced", "expressive"),
     "room_audio": ("off", "subtle", "balanced", "expressive"),
 }
-AUDIO_CHOICES = CHOICES["room_audio"]
 
 # Free-text settings and the shape they must have. The controller address
 # goes into URLs and sockets, so it must be a bare IP or host name.
@@ -578,30 +551,6 @@ def user_profiles(raw):
             clean[profile_name(name)] = {k: _coerce(k, v) for k, v in look.items() if k in PROFILE_KEYS}
         except ValueError as exc:
             log.warning("dropping profile %r: %s", name, exc)
-    return clean
-
-
-def audio_react(raw, current):
-    """{style: level}. A query may set one style as "trippy:balanced"; the others keep their level."""
-    if isinstance(raw, str):
-        text = raw.strip()
-        if ":" in text and not text.startswith("{"):
-            style, _, level = text.partition(":")
-            raw = {**current, style.strip().lower(): level.strip().lower()}
-        else:
-            try:
-                raw = json.loads(text)
-            except ValueError as exc:
-                raise ValueError(f"audio_react is not valid JSON: {exc}") from None
-    if not isinstance(raw, dict):
-        raise ValueError("audio_react must be an object of style: level")
-    clean = dict(DEFAULTS["audio_react"])
-    for style, level in raw.items():
-        if style not in CHOICES["style"]:
-            raise ValueError(f"audio_react has no style {style!r}")
-        if level not in AUDIO_CHOICES:
-            raise ValueError(f"audio_react levels are {', '.join(AUDIO_CHOICES)}")
-        clean[style] = level
     return clean
 
 

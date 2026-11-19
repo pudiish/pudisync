@@ -482,7 +482,7 @@ def test_api(base):
     check("and switched back to by name", s["profile"] == "Late Night" and abs(s["immersion"] - 0.7) < 1e-6)
     listed = get("/api/profiles")
     check("profiles are listed, built-in and your own",
-          listed["builtin"] == ["vivid", "immersive", "pulse", "cinematic", "trippy"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
+          listed["builtin"] == ["vivid", "immersive"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
     s = get("/api/profiles/delete?name=Late%20Night")
     check("and deleted", "Late Night" not in get("/api/profiles")["user"])
 
@@ -3432,17 +3432,12 @@ def test_sync_modes():
     from ambilight.smoothing import settle_seconds
 
     vivid, immersive = PROFILES.get("vivid", {}), PROFILES.get("immersive", {})
-    check("the sync modes are Vivid, Immersive, Pulse, Cinematic and Trippy",
-          list(PROFILES) == ["vivid", "immersive", "pulse", "cinematic", "trippy"], list(PROFILES))
+    check("the sync modes are Vivid and Immersive", list(PROFILES) == ["vivid", "immersive"], list(PROFILES))
     recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight", "enrich", "contrast", "dark_boost",
-              "white_kelvin", "bass_bounce", "bass_shake", "style"}
-    pulse = PROFILES.get("pulse", {})
-    check("Pulse is Vivid with the bass moving it",
-          {k: v for k, v in pulse.items() if not k.startswith("bass_")} == {k: v for k, v in vivid.items() if not k.startswith("bass_")}
-          and pulse["bass_bounce"] > 0 and pulse["bass_shake"] > 0)
-    check("Vivid and Immersive switch the beat off, so leaving Pulse stops it",
+              "white_kelvin", "bass_bounce", "bass_shake"}
+    check("Vivid and Immersive switch the beat off",
           all(PROFILES[m]["bass_bounce"] == PROFILES[m]["bass_shake"] == 0 for m in ("vivid", "immersive")))
-    check("each sets motion, colour, warmth, beat, style and shadow depth together",
+    check("each sets motion, colour, warmth, beat and shadow depth together",
           all(set(look) == recipe for look in PROFILES.values()),
           (sorted(vivid), sorted(immersive)))
     check("and only what a profile of your own also keeps", recipe <= set(PROFILE_KEYS))
@@ -5525,7 +5520,7 @@ def test_experience():
     mod = ex.AudioMod()
     loud = {**live, "valid": True, "confidence": 1.0, "bass_envelope": 1.0, "onset_strength": 1.0,
             "mid_energy": 1.0, "high_energy": 1.0}
-    maps = ex.STYLES["trippy"]["mappings"]
+    maps = ex.SCENES["neon_coast"]["audio_reactivity"]["mappings"]
     for i in range(120):
         got = mod.update(loud, maps, "expressive", i / 60)
     check("Expressive never goes past each mapping's depth", all(got[m["target"]] <= m["depth"] + 1e-6 for m in maps), got)
@@ -5545,7 +5540,7 @@ def test_experience():
     def run(settings, frames=300, target=target, beat_at=None, plain=False):
         stage = eng.OutputStage()
         if plain:
-            stage.style.apply = lambda levels, *rest: levels
+            stage.sound.apply = lambda levels, *rest: levels
         stage.meter = beat.BassMeter()
         stage.set_target(target, 0.0)
         out = []
@@ -5562,36 +5557,16 @@ def test_experience():
           all(np.array_equal(a, b) for a, b in zip(natural, run(PROFILES["vivid"], plain=True)[0])))
     immersive, _ = run(PROFILES["immersive"])
     check("...and so is Immersive", all(np.array_equal(a, b) for a, b in zip(immersive, run(PROFILES["immersive"], plain=True)[0])))
-    trippy, _ = run(PROFILES["trippy"])
-    check("Trippy moves on its own with the sound off", np.abs(trippy[-1] - trippy[-30]).mean() > 3,
-          round(float(np.abs(trippy[-1] - trippy[-30]).mean()), 2))
-    check("...and looks unlike Vivid", np.abs(trippy[-1] - natural[-1]).mean() > 5)
-    red = np.tile(np.float32([[0.9, 0.1, 0.05]]), (240, 1))
-    reds, _ = run({**PROFILES["trippy"], "audio_react": {"none": "off", "cinematic": "off", "trippy": "expressive"}},
-                  target=red, beat_at=200)
-    hues = [f[:, 0] >= f[:, 1:].max(axis=1) for f in reds[-30:]]
-    check("Trippy with the sound on still shows the screen's own colour: a red screen stays red",
-          all(h[f.max(axis=1) > 8].all() for h, f in zip(hues, reds[-30:])))
-    black, _ = run({**PROFILES["trippy"], "audio_react": {"none": "off", "cinematic": "off", "trippy": "expressive"}},
-                   target=np.zeros((240, 3), np.float32), beat_at=250)
-    check("a black screen stays black in Trippy, beat or no beat", max(f.max() for f in black[240:]) == 0)
-    cinema, _ = run(PROFILES["cinematic"])
-    drift = np.abs(cinema[-1] - cinema[-30]).mean()
-    check("Cinematic moves, but only faintly", 0 < drift < 3, round(float(drift), 2))
-
-    check("the sound is wanted only when an effect or the style's level asks for it, never under Calm",
-          not eng.wants_sound(cfg)
-          and eng.wants_sound({**cfg, "style": "trippy", "audio_react": {**cfg["audio_react"], "trippy": "subtle"}})
-          and not eng.wants_sound({**cfg, "style": "none", "audio_react": {**cfg["audio_react"], "trippy": "subtle"}})
-          and not eng.wants_sound({**PROFILES["pulse"], **{k: v for k, v in cfg.items() if k not in PROFILES["pulse"]},
-                                   "calm": True}))
-    pulse_calm, _ = run({**PROFILES["pulse"], "calm": True}, beat_at=30)
-    pulse_still, _ = run({**PROFILES["pulse"]})
+    check("the sound is wanted only when a beat effect or Follow the sound asks for it, never under Calm",
+          not eng.wants_sound(cfg) and eng.wants_sound({**cfg, "audio_react": "subtle"})
+          and not eng.wants_sound({**cfg, "audio_react": "subtle", "calm": True})
+          and not eng.wants_sound({**cfg, "bass_bounce": 0.8, "calm": True}))
+    pulse_calm, _ = run({**{**PROFILES["vivid"], "bass_bounce": 0.8, "bass_shake": 0.5}, "calm": True}, beat_at=30)
+    pulse_still, _ = run({**PROFILES["vivid"], "bass_bounce": 0.8, "bass_shake": 0.5})
     check("Calm stops the beat effects even when a beat arrives", np.array_equal(pulse_calm[40], pulse_still[40]))
 
     # Every effect on at once, beats at three a second: the one guard keeps the flashes within WCAG.
-    every = {**PROFILES["trippy"], "bass_bounce": 1.0, "bass_shake": 1.0,
-             "audio_react": {"none": "off", "cinematic": "off", "trippy": "expressive"}}
+    every = {**PROFILES["vivid"], "bass_bounce": 1.0, "bass_shake": 1.0, "audio_react": "expressive"}
     stage = eng.OutputStage()
     stage.meter = beat.BassMeter()
     stage.set_target(np.tile(np.float32([[0.8, 0.7, 0.6]]), (240, 1)), 0.0)
@@ -5659,22 +5634,15 @@ def test_experience():
         json.dump(old, fh)
     config = Config(path)
     snap = config.snapshot()
-    check("a config from before the experience engine loads as it was: Pulse and its beat settings kept",
-          snap["profile"] == "pulse" and snap["bass_bounce"] == 0.8 and snap["bass_shake"] == 0.5)
-    check("...with no style, every sound level off, Calm off, and Room Studio idle",
-          snap["style"] == "none" and set(snap["audio_react"].values()) == {"off"} and not snap["calm"]
+    check("a config left on a removed look (Pulse) moves to Vivid whole, beat effects off",
+          snap["profile"] == "vivid" and snap["bass_bounce"] == 0 and snap["bass_shake"] == 0)
+    check("...with Follow the sound off, Calm off, and Room Studio idle",
+          snap["audio_react"] == "off" and not snap["calm"]
           and snap["room_scene"] == "neon_coast" and snap["room_audio"] == "off")
-    config.apply_profile("trippy")
     config.apply_profile("Late night")
-    check("a look saved before styles existed moves as the picture does", config.get("style") == "none")
-    config.update({"audio_react": "trippy:balanced"})
-    check("one style's sound level changes alone", config.get("audio_react") ==
-          {"none": "off", "cinematic": "off", "trippy": "balanced"}, config.get("audio_react"))
-    config.apply_profile("vivid")
-    check("...and each style keeps its own level when you switch looks", config.get("audio_react")["trippy"] == "balanced")
-    for raw in ("trippy:loud", "disco:subtle", "[1,2]"):
+    check("a look of your own still applies", config.get("profile") == "Late night")
+    for raw in ("loud", "trippy:balanced", "[1,2]"):
         check(f"audio_react refuses {raw!r}", _refuses(lambda raw=raw: config.update({"audio_react": raw})))
-    check("a style must be one the hub has", _refuses(lambda: config.update({"style": "fractal"})))
     config.update({"room_custom": {"mine_a": {**good, "id": "mine_a", "name": "Mine"}, "aurora": good,
                                    "bad_one": {**good, "id": "bad_one", "renderer": "x"}}})
     check("stored scenes of your own validate; one claiming a built-in's id or broken is dropped",

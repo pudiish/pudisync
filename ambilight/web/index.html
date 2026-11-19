@@ -107,9 +107,6 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
           <div class="chips" id="styles" role="group" aria-labelledby="styles-label">
             <button class="chip" type="button" data-action="profile" data-value="vivid" aria-pressed="false">Vivid</button>
             <button class="chip" type="button" data-action="profile" data-value="immersive" aria-pressed="false">Immersive</button>
-            <button class="chip" type="button" data-action="profile" data-value="pulse" aria-pressed="false">Pulse</button>
-            <button class="chip" type="button" data-action="profile" data-value="cinematic" aria-pressed="false">Cinematic</button>
-            <button class="chip" type="button" data-action="profile" data-value="trippy" aria-pressed="false">Trippy</button>
           </div>
           <p class="hint" id="style-hint"></p>
           <p class="label" id="audio-label">Follow the sound</p>
@@ -248,20 +245,6 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
           placeholder="Name, e.g. Late night" aria-label="Look name">
         <button class="btn primary" type="submit">Save</button>
       </form>
-    </div>
-
-    <div class="card" data-section="monitor looks" id="motion">
-      <h2>Motion</h2>
-      <p class="hint" id="motion-hint">Cinematic and Trippy move the screen's own colours along the strip.</p>
-      <div class="stack" id="motion-trippy">
-        <div class="fader" data-fader="trippy_speed"></div>
-        <div class="fader" data-fader="trippy_warp" data-hint="How far the screen's colours bend and fold."></div>
-        <div class="fader" data-fader="trippy_colour"></div>
-        <div class="fader" data-fader="trippy_texture"></div>
-      </div>
-      <div class="stack" id="motion-cinematic">
-        <div class="fader" data-fader="cinematic_motion" data-hint="A faint, slow drift of light along the strip."></div>
-      </div>
     </div>
 
     <details class="card group" id="looks" data-section="looks">

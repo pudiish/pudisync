@@ -1,10 +1,9 @@
-"""Looks that move, and Room Studio: the experience engine (docs/EXPERIENCE.md).
+"""Sound as an add-on, and Room Studio: the experience engine (docs/EXPERIENCE.md).
 
 Two destinations share one set of parts:
 
-- Monitor Sync styles (Cinematic, Trippy) reshape the screen's own colours
-  along the strip. The screen stays the source: a black frame stays black, and
-  every colour shown is one the screen sent.
+- Monitor Sync (Vivid, Immersive) follows the screen; with Follow the sound on,
+  the bass breathes its brightness a little.
 - Room Studio scenes paint the strip from a palette alone, with no screen
   capture at all.
 
@@ -96,22 +95,6 @@ def waves(x, phase, count, seed=0):
     return total / max(1, count)
 
 
-def sample(levels, positions, ring):
-    """The strip's colours read at fractional LED positions, blending neighbours; wraps round a ring."""
-    count = len(levels)
-    if ring:
-        positions = np.mod(positions, count)
-    else:
-        # Reflect off the ends so the picture folds back instead of piling up there.
-        span = 2 * (count - 1) if count > 1 else 1
-        positions = np.mod(positions, span)
-        positions = np.where(positions > count - 1, span - positions, positions)
-    low = np.floor(positions).astype(np.int64)
-    high = (low + 1) % count if ring else np.minimum(low + 1, count - 1)
-    mix = (positions - low)[:, None].astype(np.float32)
-    return levels[low] * (1.0 - mix) + levels[high] * mix
-
-
 # --- audio as an add-on -------------------------------------------------------
 class AudioMod:
     """Audio features -> bounded parameter offsets, each through its own attack/release envelope.
@@ -155,107 +138,31 @@ class Motion:
         return self.phase, self.drift
 
 
-# --- Monitor Sync styles --------------------------------------------------------------
+# --- Monitor Sync: the bass breathes the picture --------------------------------------
 def _mapping(feature, target, depth, attack_ms, release_ms, minimum_confidence):
     return {"feature": feature, "target": target, "depth": depth, "attack_ms": attack_ms,
             "release_ms": release_ms, "minimum_confidence": minimum_confidence}
 
 
-# Each style's audio mappings. "none" is Natural, Vivid and Pulse: there the sound
-# only breathes the brightness a little, and only when the person turns it on.
-STYLES = {
-    "none": {"name": "Natural", "mappings": [
-        _mapping("bass_envelope", "brightness_modulation", 0.06, 120, 600, 0.3)]},
-    "cinematic": {"name": "Cinematic", "mappings": [
-        # Slow and gated high: dialogue rarely clears 0.65 confidence with a bass envelope worth showing.
-        _mapping("bass_envelope", "brightness_modulation", 0.05, 500, 1800, 0.4),
-        _mapping("onset_strength", "impact_amount", 0.08, 120, 900, 0.65)]},
-    "trippy": {"name": "Trippy", "mappings": [
-        _mapping("bass_envelope", "warp_strength", 0.18, 120, 700, 0.25),
-        _mapping("onset_strength", "impact_amount", 0.22, 20, 420, 0.45),
-        _mapping("mid_energy", "motion_speed", 0.12, 180, 900, 0.3),
-        _mapping("high_energy", "texture_amount", 0.06, 100, 600, 0.35)]},
-}
+# Vivid and Immersive: the sound only breathes the brightness a little, and only when turned on.
+SYNC_MAPPINGS = [_mapping("bass_envelope", "brightness_modulation", 0.06, 120, 600, 0.3)]
 
 
-class StyleStage:
-    """The selected Monitor Sync style, applied to LED levels after to_led and before the beat effects."""
+class SoundStage:
+    """Follow the sound for screen sync, applied to LED levels after to_led and before the beat effects."""
 
     def __init__(self):
         self.audio = AudioMod()
-        self.motion = Motion()
-        self.kick = Motion()
 
     def apply(self, levels, now, cfg, features):
-        style = cfg.get("style", "none")
-        level = "off" if cfg.get("calm") else audio_level(cfg, style)
-        mod = self.audio.update(features, STYLES.get(style, STYLES["none"])["mappings"], level, now)
-        ring = cfg.get("layout") == "frame"
-        if style == "trippy":
-            return self.trippy(levels, now, cfg, mod, ring)
-        if style == "cinematic":
-            return self.cinematic(levels, now, cfg, mod)
-        return breathe(levels, mod["brightness_modulation"])
-
-    def trippy(self, levels, now, cfg, mod, ring):
-        """The screen's colours folded, warped and flowing along the strip, like a 1D kaleidoscope.
-
-        Every colour is read from the screen frame itself, so the strip still
-        follows the picture; with the sound off it keeps moving on its own.
-        """
-        count = len(levels)
-        if count < 2:
-            return levels
-        speed = cfg.get("trippy_speed", 0.55) * (1.0 + 2.0 * mod["motion_speed"])
-        phase, drift = self.motion.advance(now, speed, speed * 0.21)
-        # A beat kicks the phase forward smoothly, a ripple rather than a restart.
-        kick, _ = self.kick.advance(now, mod["impact_amount"] * 4.0)
-        phase += kick
-        warp = clamp01(cfg.get("trippy_warp", 0.32) + mod["warp_strength"])
-        x = np.arange(count, dtype=np.float64) / (count - 1)
-        field = waves(x, phase, 3, seed=7) * 0.6 + noise(x * 3.0 + drift, seed=11) * 0.4
-        warped = sample(levels, (x + warp * 0.18 * field) * (count - 1), ring)
-        # Kaleidoscope fold: the screen read forward then back, three times along the strip, drifting.
-        fold = np.abs(np.mod(x * 3.0 + drift * 0.5, 2.0) - 1.0)
-        folded = sample(levels, fold * (count - 1), ring)
-        mix = clamp01(cfg.get("trippy_colour", 0.72)) * 0.6
-        out = warped * (1.0 - mix) + folded * mix
-        out = saturate(out, 1.0 + 0.5 * cfg.get("trippy_colour", 0.72))
-        texture = clamp01(cfg.get("trippy_texture", 0.22) + mod["texture_amount"])
-        shimmer = waves(x * 4.0, phase * 1.7, 2, seed=23)
-        return out * (1.0 + 0.25 * texture * shimmer + 0.15 * mod["impact_amount"] * field)[:, None]
-
-    def cinematic(self, levels, now, cfg, mod):
-        """The screen as it is, with a slow, faint drift of light along the strip; the sound only breathes it."""
-        count = len(levels)
-        if count < 2:
-            return levels
-        motion = clamp01(cfg.get("cinematic_motion", 0.3))
-        phase, _ = self.motion.advance(now, 0.05 + 0.1 * motion)
-        x = np.arange(count, dtype=np.float64) / (count - 1)
-        drift = 0.12 * motion * waves(x, phase, 2, seed=3)
-        swell = mod["brightness_modulation"] + mod["impact_amount"] * 0.5
-        return levels * (1.0 + drift + swell)[:, None]
+        level = "off" if cfg.get("calm") else cfg.get("audio_react", "off")
+        amount = self.audio.update(features, SYNC_MAPPINGS, level, now)["brightness_modulation"]
+        return levels if amount <= 0 else levels * (1.0 + amount)
 
 
-def breathe(levels, amount):
-    """The whole strip a little brighter with the bass; amount is at most a few percent."""
-    return levels if amount <= 0 else levels * (1.0 + amount)
-
-
-def saturate(levels, amount):
-    """Colour pushed away from each LED's grey by `amount`, brightness kept, never below zero."""
-    grey = levels.mean(axis=1, keepdims=True)
-    return np.clip(grey + (levels - grey) * amount, 0.0, None)
-
-
-def audio_level(cfg, style):
-    return cfg.get("audio_react", {}).get(style, "off")
-
-
-def style_wants_sound(cfg):
-    """True when the chosen style's Audio Reactivity is on (and Calm is off)."""
-    return not cfg.get("calm") and audio_level(cfg, cfg.get("style", "none")) != "off"
+def sync_wants_sound(cfg):
+    """True when screen sync's Follow the sound is on (and Calm is off)."""
+    return not cfg.get("calm") and cfg.get("audio_react", "off") != "off"
 
 
 # --- Room Studio --------------------------------------------------------------------
