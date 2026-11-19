@@ -11,10 +11,12 @@ delivers them; `scale` turns them into rows of this plugin's smaller frames.
 """
 import logging
 import threading
+import time
 
 import numpy as np
 
 from . import PERMISSION_HINT, CapturePlugin
+from ..beat import RATE
 from .capture_quartz import QuartzCapture
 
 # The edges are averaged into a few dozen LEDs per side, so more width only
@@ -76,6 +78,9 @@ def _receiver_class():
         class AmbilightFrameReceiver(NSObject, protocols=[objc.protocolNamed("SCStreamOutput"),
                                                           objc.protocolNamed("SCStreamDelegate")]):
             def stream_didOutputSampleBuffer_ofType_(self, stream, buffer, kind):
+                if kind == SCK.SCStreamOutputTypeAudio:
+                    self.hear(buffer)
+                    return
                 if kind != SCK.SCStreamOutputTypeScreen:
                     return
                 # Idle, blank and suspended frames carry no new pixels.
@@ -87,8 +92,38 @@ def _receiver_class():
             def stream_didStopWithError_(self, stream, error):
                 self.latest.fail(error.localizedDescription())
 
+            @objc.python_method
+            def hear(self, buffer):
+                """Hand one block of sound to the listener; it stays in memory and is never kept.
+
+                Nothing may raise out of here: an exception on ScreenCaptureKit's
+                queue ends the whole hub, so a failure stops the hearing instead.
+                """
+                listener = getattr(self, "listener", None)
+                if listener is None:
+                    return
+                try:
+                    listener(mono_samples(buffer), time.perf_counter())
+                except Exception:
+                    log.exception("could not read the screen stream's sound; the beat effects stop")
+                    self.listener = None
+
         _receiver = AmbilightFrameReceiver
     return _receiver
+
+
+def mono_samples(buffer):
+    """One ScreenCaptureKit audio buffer as mono float32 samples (the stream is set to one channel)."""
+    import CoreMedia
+
+    block = CoreMedia.CMSampleBufferGetDataBuffer(buffer)
+    if block is None:
+        return np.zeros(0, np.float32)
+    length = CoreMedia.CMBlockBufferGetDataLength(block)
+    status, data = CoreMedia.CMBlockBufferCopyDataBytes(block, 0, length, bytearray(length))
+    if status != 0:
+        raise OSError(f"reading the sound failed (CoreMedia status {status})")
+    return np.frombuffer(data, dtype=np.float32)
 
 
 def _explain(error):
@@ -120,6 +155,7 @@ def _await(start, what, timeout=OPEN_TIMEOUT_S):
 
 class SCKCapture(CapturePlugin):
     name = "screencapturekit"
+    hears = True
 
     @staticmethod
     def available():
@@ -175,10 +211,17 @@ class SCKCapture(CapturePlugin):
         config.setPixelFormat_(Quartz.kCVPixelFormatType_32BGRA)
         config.setShowsCursor_(False)       # Quartz leaves the cursor out too
         config.setQueueDepth_(3)            # one held by the newest frame, two for the stream
+        if self.listener is not None:
+            # The Mac's sound, for the beat effects only: mono at 48 kHz, the hub's own sound left out.
+            config.setCapturesAudio_(True)
+            config.setSampleRate_(RATE)
+            config.setChannelCount_(1)
+            config.setExcludesCurrentProcessAudio_(True)
 
         self._latest = _Latest()
         self._receiver = _receiver_class().alloc().init()
         self._receiver.latest = self._latest
+        self._receiver.listener = self.listener
         content_filter = SCK.SCContentFilter.alloc().initWithDisplay_excludingWindows_(display, [])
         self._stream = SCK.SCStream.alloc().initWithFilter_configuration_delegate_(
             content_filter, config, self._receiver)
@@ -186,6 +229,11 @@ class SCKCapture(CapturePlugin):
             self._receiver, SCK.SCStreamOutputTypeScreen, None, None)
         if not added:
             raise OSError(f"could not attach to the screen stream: {error}")
+        if self.listener is not None:
+            added, error = self._stream.addStreamOutput_type_sampleHandlerQueue_error_(
+                self._receiver, SCK.SCStreamOutputTypeAudio, None, None)
+            if not added:
+                raise OSError(f"could not hear the screen stream's sound: {error}")
         try:
             _await(self._stream.startCaptureWithCompletionHandler_, "starting the stream")
             self._seen = 0

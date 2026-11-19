@@ -12,6 +12,11 @@ every change (`make test`).
 - **Only while sync is on.** Turning the lights off, or Colour or Effect, stops the capture.
 - **A webcam only when you start a webcam calibration** (Settings › Colour calibration),
   and never the Mac's built-in camera.
+- **The Mac's sound only while a beat effect is on** (the Pulse look, or Beat bounce or
+  Beat shake). It comes through the same Screen Recording permission. Only the last
+  43 ms are held in memory, long enough to measure the bass, and each block is then
+  overwritten: **sound is never recorded, stored or sent anywhere**, and with the beat
+  effects off it is not captured at all.
 
 ## What happens to the picture
 

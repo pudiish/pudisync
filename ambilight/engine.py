@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-from . import bed, color, mouse, processing, zones as zonelib
+from . import beat, bed, color, mouse, processing, zones as zonelib
 from .plugins import CAPTURES, OUTPUTS, PERMISSION_HINT
 from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
@@ -37,6 +37,11 @@ PROTECTED_HOLD_S = 2.5
 # What the strip shows meanwhile: the lamp's warm white (#ffb46b) at a soft level,
 # graded, limited and smoothed like any frame, so it eases in and out.
 PROTECTED_GLOW = np.array([1.0, 0.706, 0.42], np.float32) * 0.55
+
+
+def wants_sound(cfg):
+    """True when a beat effect is on: only then is the Mac's sound captured at all."""
+    return cfg.get("bass_bounce", 0.0) > 0 or cfg.get("bass_shake", 0.0) > 0
 
 log = logging.getLogger(__name__)
 
@@ -152,6 +157,15 @@ class OutputStage:
         self.guard = Guard()
         self.last_target = None
         self.bed = bed.BedStage()
+        self.meter = None       # the engine's BassMeter, when the beat effects can hear the sound
+
+    def on_beat(self, levels, now, cfg):
+        """The last bass beat's bounce and shake, before zones and the safety guard."""
+        age, strength = now - self.meter.last_beat, self.meter.strength
+        ring = cfg["layout"] == "frame"
+        centre = cfg["edge_bottom"] / 2.0 if ring else (cfg["left_led"] + cfg["right_led"]) / 2.0
+        levels = beat.bounce(levels, centre, age, strength, cfg.get("bass_bounce", 0.0))
+        return beat.shake(levels, age, strength, cfg.get("bass_shake", 0.0), ring=ring)
 
     def set_target(self, target, now):
         with self.lock:
@@ -169,6 +183,8 @@ class OutputStage:
             age = now - self.last_target
             fade = max(0.0, 1.0 - (age - self.STALE_S) / self.FADE_S if age > self.STALE_S else 1.0)
             levels = color.to_led(shown, cfg) * fade
+            if self.meter is not None and wants_sound(cfg):
+                levels = self.on_beat(levels, now, cfg)
             # Zones paint over the sync layer after smoothing, so a solid zone
             # is not dragged toward screen colour.
             composed = zonelib.composite(levels, cfg["zones"], cfg["led_count"])
@@ -363,6 +379,8 @@ class Engine:
         # Smoothing state outlives a capture restart, so a display waking up
         # glides back in instead of snapping.
         self.stage = OutputStage()
+        # Bass beats from the sound, heard only while Bounce or Shake is on (beat.py).
+        self.meter = self.stage.meter = beat.BassMeter()
         self.emitter = None
         self.output_fps = 0.0
         self.out = None
@@ -479,6 +497,7 @@ class Engine:
         capture, failure = None, None
         for plugin in capture_plugins():
             candidate = plugin()
+            candidate.listener = self.meter.feed if getattr(plugin, "hears", False) and wants_sound(self.cfg.snapshot()) else None
             try:
                 width, height = candidate.open(
                     resolve_display(self.cfg.get("monitor_index"), plugin.display_count()),
@@ -530,6 +549,8 @@ class Engine:
         plugin = type(capture)
         opened_with = (self.cfg.get("band_height"), self.cfg.get("monitor_index"),
                        resolve_display(self.cfg.get("monitor_index"), plugin.display_count()))
+        # The sound is captured only while a beat effect is on; switching one on or off reopens the stream.
+        heard_with = getattr(capture, "listener", None) is not None
         next_display_check = time.perf_counter() + DISPLAY_CHECK_S
         next_lock_check = 0.0
         tracker = _PictureTracker()
@@ -546,6 +567,8 @@ class Engine:
                     return      # _run reopens the capture on the display now in use
             elif (cfg["band_height"], cfg["monitor_index"]) != opened_with[:2]:
                 return      # a setting changed: reopen with the new one
+            if getattr(plugin, "hears", False) and wants_sound(cfg) != heard_with:
+                return      # a beat effect went on or off: reopen, hearing the sound only when one is on
 
             # A locked Mac shows the lock screen, not anything worth mirroring;
             # without fresh targets the output stage fades the strip out. Asking

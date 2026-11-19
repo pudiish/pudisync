@@ -41,16 +41,22 @@ PROFILES = {
     # stayed pale. At 3000 K and 1.4 whites are a rich warm (206, 101, 34) and beige
     # turns amber, while sky and grass keep their colour (warmth touches pale colours only).
     "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.4, "immersion": 0.15, "spread": 0.3,
-              "colour_weight": 0.5, "enrich": 1.0, "contrast": 2.0, "dark_boost": 0.4, "white_kelvin": 3000},
+              "colour_weight": 0.5, "enrich": 1.0, "contrast": 2.0, "dark_boost": 0.4, "white_kelvin": 3000,
+              "bass_bounce": 0.0, "bass_shake": 0.0},
     "immersive": {"blend": 0.35, "fps": 60, "saturation": 1.35, "immersion": 0.7, "spread": 0.55,
-                  "colour_weight": 0.75, "enrich": 0.5, "contrast": 1.2, "dark_boost": 0.8, "white_kelvin": 4500},
+                  "colour_weight": 0.75, "enrich": 0.5, "contrast": 1.2, "dark_boost": 0.8, "white_kelvin": 4500,
+                  "bass_bounce": 0.0, "bass_shake": 0.0},
 }
+# Pulse (2026-11-20, the owner's ask): Vivid's warm, rich picture with the bass moving it.
+# Each bass beat sends a wave of the scene's colour out from the middle of the screen and
+# jolts the colours; Shake stays at half so faces and text edges do not wobble far.
+PROFILES["pulse"] = {**PROFILES["vivid"], "bass_bounce": 0.8, "bass_shake": 0.5}
 # Modes that existed before Immersive. A config naming one keeps its settings
 # but loses the name, since no built-in mode matches that look any more.
 RETIRED_PROFILES = ("movie", "game", "enriched")
 # What a profile of your own saves: the whole look, not the strip's setup.
 PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightness", "white_kelvin",
-                "colour_weight", "spread", "black_level", "enrich", "dark_boost", "adaptive", "hue_balance", "adaptive_pace", "mouse_sync",
+                "colour_weight", "spread", "black_level", "enrich", "dark_boost", "adaptive", "hue_balance", "adaptive_pace", "bass_bounce", "bass_shake", "mouse_sync",
                 "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect", "bed_speed",
                 "bed_brightness")
 PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
@@ -121,6 +127,11 @@ DEFAULTS = {
     # slower in calm scenes and following faster in action (smoothing.Smoother.pace).
     # 0 off (Response alone), 1 full.
     "adaptive_pace": 1.0,
+    # Beat effects (beat.py), 0 off to 1 full. Bounce: each bass beat sends a wave of the
+    # scene's colour outward from the middle of the screen. Shake: it jolts the colours
+    # sideways and lets them settle. Either one on makes the hub hear the Mac's sound.
+    "bass_bounce": 0.0,
+    "bass_shake": 0.0,
     # LED safety (safety.py). Defaults suit a 5V 5A supply: peaks stay under
     # 3.8A (WLED's own limiter, set to 4A, is the hardware-side backstop) and a
     # bright scene held for minutes settles at 3A.
@@ -400,6 +411,8 @@ _LIMITS = {
     "adaptive": (0.0, 1.0),
     "hue_balance": (0.0, 1.0),
     "adaptive_pace": (0.0, 1.0),
+    "bass_bounce": (0.0, 1.0),
+    "bass_shake": (0.0, 1.0),
     "power_limit_ma": (200, 20000),
     "sustained_ma": (200, 20000),
     "supply_ma": (0, 50000),

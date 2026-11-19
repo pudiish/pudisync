@@ -34,7 +34,7 @@ HOLD_S = 600.0              # how long a previewed import waits for its Apply
 GROUPS = {
     "looks": ("profile", "saturation", "blend", "brightness", "fps", "white_kelvin", "contrast",
               "colour_weight", "immersion", "enrich", "dark_boost", "adaptive", "hue_balance",
-              "adaptive_pace", "spread", "user_profiles", "mouse_sync", "bed_mode", "bed_look",
+              "adaptive_pace", "bass_bounce", "bass_shake", "spread", "user_profiles", "mouse_sync", "bed_mode", "bed_look",
               "bed_side", "bed_colour", "bed_effect", "bed_speed", "bed_brightness"),
     "layout": ("led_count", "left_led", "right_led", "fade_leds", "band_height", "layout", "edge_bottom",
                "edge_right", "edge_top", "edge_left", "screen_mm_w", "screen_mm_h", "led_pitch_mm",

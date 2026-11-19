@@ -18,6 +18,10 @@ class CapturePlugin(ABC):
     # Captured pixels per screen pixel. Band heights and margins in the config
     # are screen pixels; a plugin that delivers smaller frames sets this.
     scale = 1.0
+    # Whether it can also hear the Mac's sound. One that can calls `listener`
+    # (set before open, or None) with mono float samples and the time they arrived.
+    hears = False
+    listener = None
 
     @staticmethod
     def available():

@@ -9,6 +9,8 @@
 
   FADERS.enrich = {label: "Tone", min: 0, max: 100, scale: 100, fmt: offOr};
   FADERS.adaptive_pace = {label: "Adaptive pace", min: 0, max: 100, scale: 100, fmt: offOr};
+  FADERS.bass_bounce = {label: "Beat bounce", min: 0, max: 100, scale: 100, fmt: offOr};
+  FADERS.bass_shake = {label: "Beat shake", min: 0, max: 100, scale: 100, fmt: offOr};
 
   function fader(key, hint) {
     const host = make("div", {className: "fader"});
@@ -74,6 +76,11 @@
     make("h3", {textContent: "Picture engine"}),
     fader("enrich", "How far darks sink and brights lift, without changing any colour. Part of every look."),
     fader("adaptive_pace", "How far the light's speed follows the picture: slower in calm scenes, faster in action."),
+    make("h3", {textContent: "Beat"}),
+    make("p", {className: "hint", textContent: "The light moves with the bass of whatever plays on the Mac. Turning either "
+      + "on lets the hub hear the Mac's sound, in memory only: it is never recorded or sent anywhere."}),
+    fader("bass_bounce", "Each beat sends a wave of the scene's colour out from the middle of the screen."),
+    fader("bass_shake", "Each beat jolts the colours sideways and lets them settle."),
     numbers("Mapping", "Where the hub reads the screen. Change these only if the light at the edges looks wrong.", [
       ["band_height", "Edge band (px)", 10, 1000], ["edge_skip", "Edge skipped (px)", 0, 100],
       ["screen_mm_w", "Screen width (mm)", 50, 5000, "any"], ["screen_mm_h", "Screen height (mm)", 50, 5000, "any"],
