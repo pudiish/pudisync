@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-from . import beat, bed, color, mouse, processing, zones as zonelib
+from . import beat, bed, color, experience, mouse, processing, zones as zonelib
 from .plugins import CAPTURES, OUTPUTS, PERMISSION_HINT
 from .plugins.output_wled_udp import HOLD_FOREVER
 from .recorder import Recorder, new_path
@@ -39,9 +39,21 @@ PROTECTED_HOLD_S = 2.5
 PROTECTED_GLOW = np.array([1.0, 0.706, 0.42], np.float32) * 0.55
 
 
+# Room Studio eases in from dark over this long rather than snapping on.
+ROOM_FADE_IN_S = 1.0
+# Room scenes go through the person's own LED calibration (strip balance, LED gamma,
+# black level, hue balance), but not the screen-only stages: the palette is the look.
+ROOM_NEUTRAL = {"contrast": 1.0, "adaptive": 0.0, "dark_boost": 0.0, "white_kelvin": 6500}
+
+
+def beat_on(cfg):
+    """True when Bounce or Shake is on and Calm is off."""
+    return not cfg.get("calm") and (cfg.get("bass_bounce", 0.0) > 0 or cfg.get("bass_shake", 0.0) > 0)
+
+
 def wants_sound(cfg):
-    """True when a beat effect is on: only then is the Mac's sound captured at all."""
-    return cfg.get("bass_bounce", 0.0) > 0 or cfg.get("bass_shake", 0.0) > 0
+    """True when screen sync uses the sound: a beat effect, or the style's Audio Reactivity. Never under Calm."""
+    return beat_on(cfg) or experience.style_wants_sound(cfg)
 
 log = logging.getLogger(__name__)
 
@@ -158,6 +170,9 @@ class OutputStage:
         self.last_target = None
         self.bed = bed.BedStage()
         self.meter = None       # the engine's BassMeter, when the beat effects can hear the sound
+        self.style = experience.StyleStage()
+        self.room = experience.RoomStage()
+        self.room_since = None  # when Room Studio took the strip; None while the screen drives it
 
     def on_beat(self, levels, now, cfg):
         """The last bass beat's bounce and shake, before zones and the safety guard."""
@@ -172,9 +187,14 @@ class OutputStage:
             self.smoother.set_target(target, now)
             self.last_target = now
 
+    def features(self, now):
+        return self.meter.features(now) if self.meter is not None else beat.neutral_features()
+
     def frame(self, now, cfg):
         """Bytes to send now, or None before the first target."""
         with self.lock:
+            if self.room_since is not None:
+                return self.room_frame(now, cfg)
             shown = self.smoother.step(now, settle_seconds(cfg["blend"]), cfg.get("adaptive_pace", 0.0))
             if shown is None:
                 return None
@@ -183,18 +203,40 @@ class OutputStage:
             age = now - self.last_target
             fade = max(0.0, 1.0 - (age - self.STALE_S) / self.FADE_S if age > self.STALE_S else 1.0)
             levels = color.to_led(shown, cfg) * fade
-            if self.meter is not None and wants_sound(cfg):
+            # The style reshapes the screen's own colours; the beat effects then act on that.
+            levels = self.style.apply(levels, now, cfg, self.features(now))
+            if self.meter is not None and beat_on(cfg):
                 levels = self.on_beat(levels, now, cfg)
-            # Zones paint over the sync layer after smoothing, so a solid zone
-            # is not dragged toward screen colour.
-            composed = zonelib.composite(levels, cfg["zones"], cfg["led_count"])
-            safe = self.guard.apply(composed * cfg["brightness"], now, {**cfg, **shares(cfg)[0]})
-            pixels = self.quantizer.apply(safe)
-            if not bed.streams(cfg):
-                return pixels
-            # Board LEDs between the hub's and the bed's (a monitor strip longer than its frame) stay dark.
-            gap = np.zeros((bed.first_led(cfg) - len(pixels), 3), dtype=np.uint8)
-            return np.concatenate([pixels, gap, self.bed.frame(self.smoother.target, now, cfg, fade)])
+            return self.finish(levels, now, cfg, self.smoother.target, fade)
+
+    def room_frame(self, now, cfg):
+        """Room Studio: the scene's colours for every LED, through the same calibration, zones and guard."""
+        scene = experience.scene_for(cfg)
+        perceptual = self.room.render(scene, cfg["led_count"], now, cfg, self.features(now))
+        fade = min(1.0, max(0.0, now - self.room_since) / ROOM_FADE_IN_S)
+        levels = color.to_led(perceptual, {**cfg, **ROOM_NEUTRAL}) * (experience.room_level(scene, cfg) * fade)
+        return self.finish(levels, now, cfg, perceptual, fade)
+
+    def finish(self, levels, now, cfg, colours, fade):
+        """Zones, brightness, the safety guard and quantizing: the one way out for every frame."""
+        # Zones paint over the sync layer after smoothing, so a solid zone
+        # is not dragged toward screen colour.
+        composed = zonelib.composite(levels, cfg["zones"], cfg["led_count"])
+        safe = self.guard.apply(composed * cfg["brightness"], now, {**cfg, **shares(cfg)[0]})
+        pixels = self.quantizer.apply(safe)
+        if not bed.streams(cfg):
+            return pixels
+        # Board LEDs between the hub's and the bed's (a monitor strip longer than its frame) stay dark.
+        gap = np.zeros((bed.first_led(cfg) - len(pixels), 3), dtype=np.uint8)
+        return np.concatenate([pixels, gap, self.bed.frame(colours, now, cfg, fade)])
+
+    def enter_room(self, now):
+        with self.lock:
+            self.room_since = now
+
+    def leave_room(self):
+        with self.lock:
+            self.room_since = None
 
     def safety(self):
         with self.lock:
@@ -370,6 +412,8 @@ class Engine:
         self.output_name = "none"
         self.capture_size = ""
         self.paused = None
+        # "screen": the screen drives the strip. "room": a Room Studio scene does, and nothing is captured.
+        self.mode = "screen"
         # True while protected video blacks out the capture and the strip glows warm instead.
         self.protected = False
         # Set by the setup wizard to paint a fixed pattern instead of the screen.
@@ -396,30 +440,54 @@ class Engine:
         return self.errors["capture"] or self.errors["output"]
 
     # --- lifecycle ---------------------------------------------------------
-    def start(self):
+    def start(self, mode="screen"):
+        """Drive the strip from the screen ("screen") or a Room Studio scene ("room").
+
+        Switching mode stops the other's threads first, so Room Studio never
+        leaves a screen capture running, and the screen never a scene.
+        """
+        if mode not in ("screen", "room"):
+            raise ValueError("mode is screen or room")
         with self.lifecycle:
-            if self.running:
+            if self.running and self.mode == mode:
                 return True
+            if self.running:
+                self._halt()
             # A fresh event per run: a thread from an earlier run that missed
             # its join can never be revived by clearing a shared flag.
             stop = self.stop_event = threading.Event()
             self.errors = {"capture": None, "output": None}
             self.telemetry.reset()
-            self._thread = threading.Thread(target=self._run, args=(stop,), daemon=True, name="sync")
+            self.mode = mode
+            if mode == "room":
+                self.stage.enter_room(time.perf_counter())
+                self.capture_name, self.capture_size, self.paused, self.protected = "none", "", None, False
+            else:
+                self.stage.leave_room()
+            work = self._run if mode == "screen" else self._listen
+            self._thread = threading.Thread(target=work, args=(stop,), daemon=True, name=f"{mode}-source")
             self.emitter = threading.Thread(target=self.emit_loop, args=(stop,), daemon=True, name="emit")
             self.running = True
             self._thread.start()
             self.emitter.start()
-            self.awake = KeepAwake.start()
+            if self.awake is None:
+                self.awake = KeepAwake.start()
             return True
+
+    def _halt(self):
+        """End this run's threads; the caller holds the lifecycle lock."""
+        self.stop_event.set()
+        for thread in (self._thread, self.emitter):
+            if thread is not None:
+                thread.join(timeout=2.0)
+        self.running = False
+        self.fps = 0.0
 
     def stop(self):
         with self.lifecycle:
-            self.stop_event.set()
-            for thread in (self._thread, self.emitter):
-                if thread is not None:
-                    thread.join(timeout=2.0)
-            self.running = False
+            self._halt()
+            self.stage.leave_room()
+            self.mode = "screen"
             self.mouse.release()
             if self.awake is not None:
                 self.awake.stop()
@@ -486,6 +554,49 @@ class Engine:
                 log.exception("sync loop failed")
                 self.errors["capture"] = f"sync hit an error and is retrying: {exc}"
                 stop.wait(RETRY_DISPLAY_S)
+
+    def _listen(self, stop):
+        """Room Studio's source thread: it hears the sound while the scene follows it, and nothing else.
+
+        No screen is captured. When the scene's Audio Reactivity is off (or Calm
+        is on) the sound stream is closed too.
+        """
+        while not stop.is_set():
+            if not experience.room_wants_sound(self.cfg.snapshot()):
+                self.capture_name = "none"
+                stop.wait(0.5)
+                continue
+            ears = self._open_ears()
+            if ears is None:
+                stop.wait(RETRY_DISPLAY_S)
+                continue
+            try:
+                while not stop.is_set() and experience.room_wants_sound(self.cfg.snapshot()):
+                    stop.wait(0.5)
+            finally:
+                ears.close()
+                self.capture_name = "none"
+
+    def _open_ears(self):
+        """A stream of the Mac's sound alone, or None, saying why; the scene carries on without it."""
+        failure = None
+        for plugin in capture_plugins():
+            if not hasattr(plugin, "open_sound"):
+                continue
+            candidate = plugin()
+            candidate.listener = self.meter.feed
+            try:
+                candidate.open_sound(resolve_display(self.cfg.get("monitor_index"), plugin.display_count()))
+            except Exception as exc:
+                log.warning("could not hear the sound with %s: %s", plugin.name, exc)
+                failure = exc
+                continue
+            self.capture_name = f"{plugin.name} (sound only)"
+            self.errors["capture"] = None
+            return candidate
+        self.errors["capture"] = (f"the scene cannot hear the sound ({failure or 'no capture source can'}); "
+                                  "it carries on without it")
+        return None
 
     def _open_capture(self):
         """Start the first capture source that works. Returns None and records why on failure.
@@ -712,8 +823,15 @@ class Engine:
             self.errors["output"] = f"release failed: {exc}"
 
     def status(self):
+        now = time.perf_counter()
         return {
             "running": self.running,
+            # What drives the strip while it runs: the screen, or a Room Studio scene.
+            "source": self.mode if self.running else None,
+            "room_name": experience.scene_for(self.cfg.snapshot())["name"],
+            "audio": {**self.meter.status(now),
+                      "wanted": self.running and (experience.room_wants_sound(self.cfg.snapshot())
+                                                  if self.mode == "room" else wants_sound(self.cfg.snapshot()))},
             "measured_fps": round(self.fps, 1),
             "output_fps": round(self.output_fps, 1),
             "paused": self.paused,

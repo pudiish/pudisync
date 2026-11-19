@@ -183,6 +183,24 @@ class SCKCapture(CapturePlugin):
         self._bgra = None
 
     def open(self, monitor_index, band_height):
+        frame = self._start(monitor_index, picture=True)
+        self.band = min(round(band_height * self.scale), frame.shape[0])
+        self.inset = 0
+        return frame.shape[1], frame.shape[0]
+
+    def open_sound(self, monitor_index):
+        """The Mac's sound alone, for Room Studio.
+
+        ScreenCaptureKit hears sound only through a display's stream, so one is
+        opened, but no screen output is attached and its picture is set to
+        2x2 pixels once a second: no screen pixels ever reach the hub. macOS
+        still shows its screen-recording indicator while the stream is open.
+        """
+        if self.listener is None:
+            raise ValueError("open_sound needs a listener")
+        self._start(monitor_index, picture=False)
+
+    def _start(self, monitor_index, picture):
         import CoreMedia
         import Quartz
         import ScreenCaptureKit as SCK
@@ -205,9 +223,9 @@ class SCKCapture(CapturePlugin):
         width, height = max(1, round(screen_w * self.scale)), max(1, round(screen_h * self.scale))
 
         config = SCK.SCStreamConfiguration.alloc().init()
-        config.setWidth_(width)
-        config.setHeight_(height)
-        config.setMinimumFrameInterval_(CoreMedia.CMTimeMake(1, STREAM_FPS))
+        config.setWidth_(width if picture else 2)
+        config.setHeight_(height if picture else 2)
+        config.setMinimumFrameInterval_(CoreMedia.CMTimeMake(1, STREAM_FPS if picture else 1))
         config.setPixelFormat_(Quartz.kCVPixelFormatType_32BGRA)
         config.setShowsCursor_(False)       # Quartz leaves the cursor out too
         config.setQueueDepth_(3)            # one held by the newest frame, two for the stream
@@ -225,10 +243,11 @@ class SCKCapture(CapturePlugin):
         content_filter = SCK.SCContentFilter.alloc().initWithDisplay_excludingWindows_(display, [])
         self._stream = SCK.SCStream.alloc().initWithFilter_configuration_delegate_(
             content_filter, config, self._receiver)
-        added, error = self._stream.addStreamOutput_type_sampleHandlerQueue_error_(
-            self._receiver, SCK.SCStreamOutputTypeScreen, None, None)
-        if not added:
-            raise OSError(f"could not attach to the screen stream: {error}")
+        if picture:
+            added, error = self._stream.addStreamOutput_type_sampleHandlerQueue_error_(
+                self._receiver, SCK.SCStreamOutputTypeScreen, None, None)
+            if not added:
+                raise OSError(f"could not attach to the screen stream: {error}")
         if self.listener is not None:
             added, error = self._stream.addStreamOutput_type_sampleHandlerQueue_error_(
                 self._receiver, SCK.SCStreamOutputTypeAudio, None, None)
@@ -237,13 +256,10 @@ class SCKCapture(CapturePlugin):
         try:
             _await(self._stream.startCaptureWithCompletionHandler_, "starting the stream")
             self._seen = 0
-            frame = self._newest(OPEN_TIMEOUT_S)
+            return self._newest(OPEN_TIMEOUT_S) if picture else None
         except Exception:
             self.close()
             raise
-        self.band = min(round(band_height * self.scale), frame.shape[0])
-        self.inset = 0
-        return frame.shape[1], frame.shape[0]
 
     def _newest(self, timeout):
         count, buffer = self._latest.wait(self._seen, timeout)

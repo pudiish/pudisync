@@ -28,6 +28,7 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
   <symbol id="i-bed" viewBox="0 0 24 24"><path d="M3 18V7M3 14h18v4M21 14v-2a3 3 0 0 0-3-3h-7v5M7 11.5h.01"/></symbol>
   <symbol id="i-mouse" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v3"/></symbol>
   <symbol id="i-looks" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5"/></symbol>
+  <symbol id="i-room" viewBox="0 0 24 24"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2zM19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></symbol>
   <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></symbol>
 </svg>
 <header class="top">
@@ -36,6 +37,7 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
   <nav class="tabs" aria-label="Sections">
     <button class="tab" type="button" data-action="tab" data-value="home"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-home"/></svg>Home</button>
     <button class="tab" type="button" data-action="tab" data-value="tune"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-tune"/></svg>Tune</button>
+    <button class="tab" type="button" data-action="tab" data-value="room"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-room"/></svg>Room</button>
     <button class="tab" type="button" data-action="tab" data-value="settings"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
   </nav>
   <nav class="rail" aria-label="Sections">
@@ -44,6 +46,7 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
     <button class="sect" type="button" data-action="section" data-value="bed"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-bed"/></svg>Bed strip</button>
     <button class="sect" type="button" data-action="section" data-value="mouse"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-mouse"/></svg>Mouse</button>
     <button class="sect" type="button" data-action="section" data-value="looks"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-looks"/></svg>Looks</button>
+    <button class="sect" type="button" data-action="section" data-value="room"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-room"/></svg>Room Studio</button>
     <button class="sect" type="button" data-action="section" data-value="calibration"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-target"/></svg>Calibration</button>
     <button class="sect" type="button" data-action="section" data-value="setup"><svg class="ico" width="22" height="22" aria-hidden="true"><use href="#i-gear"/></svg>Setup</button>
   </nav>
@@ -96,6 +99,7 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
           <button type="button" data-action="scene" data-value="screen" aria-pressed="false">Screen</button>
           <button type="button" data-action="scene" data-value="colour" aria-pressed="false">Colour</button>
           <button type="button" data-action="scene" data-value="effect" aria-pressed="false">Effect</button>
+          <button type="button" data-action="scene" data-value="room" aria-pressed="false">Room</button>
         </div>
         <p class="banner" id="fx-serial" hidden>Colours and effects need the board on Wi-Fi. Switch output in Settings › Capture and output.</p>
         <div class="stack" id="pane-screen">
@@ -104,8 +108,29 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
             <button class="chip" type="button" data-action="profile" data-value="vivid" aria-pressed="false">Vivid</button>
             <button class="chip" type="button" data-action="profile" data-value="immersive" aria-pressed="false">Immersive</button>
             <button class="chip" type="button" data-action="profile" data-value="pulse" aria-pressed="false">Pulse</button>
+            <button class="chip" type="button" data-action="profile" data-value="cinematic" aria-pressed="false">Cinematic</button>
+            <button class="chip" type="button" data-action="profile" data-value="trippy" aria-pressed="false">Trippy</button>
           </div>
           <p class="hint" id="style-hint"></p>
+          <p class="label" id="audio-label">Follow the sound</p>
+          <div class="seg quad" id="audio-react" role="group" aria-labelledby="audio-label" data-key="audio_react">
+            <button type="button" data-action="audio" data-value="off" aria-pressed="false">Off</button>
+            <button type="button" data-action="audio" data-value="subtle" aria-pressed="false">Subtle</button>
+            <button type="button" data-action="audio" data-value="balanced" aria-pressed="false">Balanced</button>
+            <button type="button" data-action="audio" data-value="expressive" aria-pressed="false">Expressive</button>
+          </div>
+          <div class="row sound">
+            <span class="bass" id="bass" role="img" aria-label="Bass level"><i id="bass-bar"></i></span>
+            <span class="hint" id="bass-word">No sound</span>
+            <button class="btn small" type="button" data-action="beat-test">Test beat</button>
+          </div>
+          <button class="switch" type="button" role="switch" aria-checked="false" data-switch="calm"
+            aria-describedby="calm-hint">Calm<span class="track" aria-hidden="true"></span></button>
+          <p class="hint" id="calm-hint">No motion from the sound at all, and the sound is not listened to.</p>
+        </div>
+        <div class="stack" id="pane-room" hidden>
+          <p class="hint" id="room-now">Room Studio lights the strip from a scene of its own; the screen is not captured.</p>
+          <button class="btn" type="button" data-action="open-room">Open Room Studio</button>
         </div>
         <div class="stack" id="pane-colour" hidden>
           <div class="swatches" id="swatches" role="group" aria-label="Colours"></div>
@@ -225,6 +250,20 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
       </form>
     </div>
 
+    <div class="card" data-section="monitor looks" id="motion">
+      <h2>Motion</h2>
+      <p class="hint" id="motion-hint">Cinematic and Trippy move the screen's own colours along the strip.</p>
+      <div class="stack" id="motion-trippy">
+        <div class="fader" data-fader="trippy_speed"></div>
+        <div class="fader" data-fader="trippy_warp" data-hint="How far the screen's colours bend and fold."></div>
+        <div class="fader" data-fader="trippy_colour"></div>
+        <div class="fader" data-fader="trippy_texture"></div>
+      </div>
+      <div class="stack" id="motion-cinematic">
+        <div class="fader" data-fader="cinematic_motion" data-hint="A faint, slow drift of light along the strip."></div>
+      </div>
+    </div>
+
     <details class="card group" id="looks" data-section="looks">
       <summary><h2>Looks</h2><span class="sum" id="looks-sum"></span></summary>
       <div class="stack">
@@ -292,6 +331,20 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
         <button class="btn" type="button" data-action="parts-clear" id="parts-clear" hidden>Clear all parts</button>
       </div>
     </details>
+  </section>
+
+  <section class="screen" id="tab-room" aria-label="Room" hidden>
+    <div class="card" data-section="room">
+      <h2>Scenes</h2>
+      <p class="hint">Room Studio lights the strip from a scene of its own. The screen is not captured.</p>
+      <div class="tiles" id="room-cards" role="group" aria-label="Room scenes" data-key="room_scene"><p class="hint">Loading scenes…</p></div>
+      <div class="row">
+        <button class="btn primary" type="button" data-action="room-start">Light the room</button>
+        <button class="btn" type="button" data-action="room-stop">Stop</button>
+      </div>
+    </div>
+    <div class="card" data-section="room" id="room-controls"></div>
+    <div class="card" data-section="room" id="room-mine" data-key="room_custom"><p class="hint">Loading…</p></div>
   </section>
 
   <section class="screen" id="tab-settings" aria-label="Settings" hidden>

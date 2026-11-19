@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import backup, bed, qr, version
+from . import backup, bed, experience, qr, version
 from .access import OwnerOnly
 from .config import DEFAULTS, PROFILES
 from .discovery import hub_urls
@@ -152,6 +152,149 @@ def settings_changed(hub, changed):
     """What else must happen after settings change, however they were changed."""
     if any(key.startswith("bed_") for key in changed):
         hub.intent.nudge()
+
+
+# --- Room Studio: scenes from a palette, no screen capture (experience.py) ----------
+ROOM_FIELDS = {"motion_speed", "colour_intensity", "warp_strength", "texture_amount", "noise_scale",
+               "wave_count", "brightness"}
+
+
+def room_scenes(hub, q):
+    cfg = hub.cfg.snapshot()
+    return {"scenes": experience.catalogue(cfg["room_custom"]), "active": experience.scene_for(cfg)["id"],
+            "running": hub.engine.running and hub.engine.mode == "room",
+            "levels": list(experience.AUDIO_LEVELS)}, OK
+
+
+def room_start(hub, q):
+    """Light the strip with a scene. The screen is not captured; the board is asked for the
+    sync preset as for screen sync, so its watcher keeps the stream on."""
+    scene = q.one("scene")
+    if scene:
+        if scene not in experience.all_scenes(hub.cfg.get("room_custom")):
+            return {"error": f"no scene called {scene!r}"}, 404
+        hub.cfg.update({"room_scene": scene})
+    hub.wizard.stop()
+    hub.intent.resume()
+    hub.wled.set_preset(hub.cfg.get("sync_preset"))
+    hub.engine.start("room")
+    hub.intent.nudge()
+    return hub.status(), OK
+
+
+def room_stop(hub, q):
+    if hub.engine.running and hub.engine.mode == "room":
+        return sync_off(hub, q)
+    return hub.status(), OK
+
+
+def _custom(hub):
+    return dict(hub.cfg.get("room_custom"))
+
+
+def _own_scene(hub, scene_id):
+    custom = _custom(hub)
+    if scene_id not in custom:
+        raise ValueError("only your own scenes can be changed; duplicate a built-in one first")
+    return custom
+
+
+def room_duplicate(hub, q):
+    """A copy of any scene under a new name, made active; built-ins stay as they are."""
+    source = experience.all_scenes(hub.cfg.get("room_custom")).get(q.one("id", ""))
+    if source is None:
+        return {"error": "no such scene"}, 404
+    custom = _custom(hub)
+    if len(custom) >= experience.MAX_CUSTOM_SCENES:
+        raise ValueError(f"at most {experience.MAX_CUSTOM_SCENES} scenes of your own; delete one first")
+    name = (q.one("name") or f"My {source['name']}").strip()
+    clone = experience.copy_scene(source, name, set(experience.all_scenes(custom)))
+    custom[clone["id"]] = clone
+    hub.cfg.update({"room_custom": custom, "room_scene": clone["id"]})
+    return {"scene": clone["id"], **hub.status()}, OK
+
+
+def room_edit(hub, q):
+    """Change one of your scenes: its name, a parameter, or its palette (hex colours, comma-separated)."""
+    scene_id = q.one("id", "")
+    custom = _own_scene(hub, scene_id)
+    scene = {**custom[scene_id], "parameters": dict(custom[scene_id]["parameters"])}
+    for key in q.parsed:
+        if key in ("id", "pin"):
+            continue
+        value = q.one(key)
+        if key == "name":
+            scene["name"] = value
+        elif key == "palette":
+            colours = [c.strip() for c in value.split(",") if c.strip()]
+            if len(colours) < 2:
+                raise ValueError("a palette needs at least two colours")
+            # The first colour closes the loop too, so the drift never shows a seam.
+            colours = colours + [colours[0]]
+            scene["palette"] = [{"position": round(i / (len(colours) - 1), 4), "hex": c if c.startswith("#")
+                                 else "#" + c} for i, c in enumerate(colours)]
+        elif key in ROOM_FIELDS:
+            scene["parameters"][key] = value
+        else:
+            raise ValueError(f"a scene has no setting {key!r}")
+    custom[scene_id] = experience.validate_scene(scene)
+    hub.cfg.update({"room_custom": custom})
+    return hub.status(), OK
+
+
+def room_reset(hub, q):
+    """Your copy of a built-in back to it, or the quick controls back to their defaults."""
+    scene_id = q.one("id", "")
+    custom = _custom(hub)
+    changes = {k: DEFAULTS[k] for k in ("room_brightness", "room_speed", "room_intensity", "room_audio")}
+    if scene_id in custom and custom[scene_id].get("based_on") in experience.SCENES:
+        base = experience.SCENES[custom[scene_id]["based_on"]]
+        custom[scene_id] = experience.validate_scene({**base, "id": scene_id, "name": custom[scene_id]["name"],
+                                                      "based_on": base["id"]})
+        changes["room_custom"] = custom
+    hub.cfg.update(changes)
+    return hub.status(), OK
+
+
+def room_delete(hub, q):
+    scene_id = q.one("id", "")
+    custom = _own_scene(hub, scene_id)
+    del custom[scene_id]
+    changes = {"room_custom": custom}
+    if hub.cfg.get("room_scene") == scene_id:
+        changes["room_scene"] = DEFAULTS["room_scene"]
+    hub.cfg.update(changes)
+    return hub.status(), OK
+
+
+def room_export(hub, q):
+    scene = experience.all_scenes(hub.cfg.get("room_custom")).get(q.one("id", ""))
+    if scene is None:
+        return {"error": "no such scene"}, 404
+    return scene, OK
+
+
+def room_import(hub, q, body):
+    """A scene file, checked strictly, added as one of your own under a free id."""
+    if len(body) > ROOM_MAX_BODY:
+        raise ValueError("a scene file is a few kB at most")
+    try:
+        scene = experience.validate_scene(body.decode("utf-8"))
+    except UnicodeDecodeError:
+        raise ValueError("the scene file is not text") from None
+    custom = _custom(hub)
+    if len(custom) >= experience.MAX_CUSTOM_SCENES:
+        raise ValueError(f"at most {experience.MAX_CUSTOM_SCENES} scenes of your own; delete one first")
+    scene["id"] = experience.free_id(scene["id"], set(experience.all_scenes(custom)))
+    custom[scene["id"]] = experience.validate_scene(scene)
+    hub.cfg.update({"room_custom": custom})
+    return {"scene": scene["id"], **hub.status()}, OK
+
+
+def beat_test(hub, q):
+    """A synthetic beat through the normal output path and guard; no sound is opened."""
+    hub.engine.meter.fire(time.perf_counter())
+    return hub.status(), OK
 
 
 # --- backups: a file of your settings, read back only after a report -----------
@@ -523,12 +666,23 @@ ROUTES = {
     "/api/backup/apply": backup_apply,
     "/api/backup/list": backup_list,
     "/api/backup/restore": backup_restore,
+    "/api/room/scenes": room_scenes,
+    "/api/room/start": room_start,
+    "/api/room/stop": room_stop,
+    "/api/room/duplicate": room_duplicate,
+    "/api/room/edit": room_edit,
+    "/api/room/reset": room_reset,
+    "/api/room/delete": room_delete,
+    "/api/room/export": room_export,
+    "/api/beat/test": beat_test,
 }
 
 # The only addresses that take a request body: a JSON file, at most MAX_BODY bytes.
 POST_ROUTES = {
     "/api/backup/preview": backup_preview,
+    "/api/room/import": room_import,
 }
+ROOM_MAX_BODY = 16 * 1024
 MAX_BODY = backup.MAX_BYTES
 
 

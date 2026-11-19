@@ -12,11 +12,17 @@ every change (`make test`).
 - **Only while sync is on.** Turning the lights off, or Colour or Effect, stops the capture.
 - **A webcam only when you start a webcam calibration** (Settings › Colour calibration),
   and never the Mac's built-in camera.
-- **The Mac's sound only while a beat effect is on** (the Pulse look, or Beat bounce or
-  Beat shake). It comes through the same Screen Recording permission. Only the last
-  43 ms are held in memory, long enough to measure the bass, and each block is then
-  overwritten: **sound is never recorded, stored or sent anywhere**, and with the beat
-  effects off it is not captured at all.
+- **The Mac's sound only while something uses it**: a beat effect (the Pulse look, or
+  Beat bounce or Beat shake), a look's *Follow the sound* set above Off, or a Room
+  Studio scene's *Follow the sound* set above Off. **Calm** turns all of these off in
+  one tap and closes the sound. It comes through the same Screen Recording permission.
+  Only the last 43 ms are held in memory, long enough to measure the bass, mids and
+  highs, and each block is then overwritten: **sound is never recorded, stored or sent
+  anywhere**, and with nothing using it, it is not captured at all.
+- **Room Studio never captures the screen.** A scene is drawn from its own palette. When
+  a scene follows the sound, macOS needs a display stream to deliver it, so one is
+  opened with no picture output attached (2x2 pixels, once a second, never read); macOS
+  still shows its recording indicator meanwhile.
 
 ## What happens to the picture
 

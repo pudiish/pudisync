@@ -117,6 +117,8 @@ strip quietly goes dark mid-film.
 numbers in the PR. Synthetic protected-video frames switch to the mood look
 within 1 s, and dark scenes don't.
 
+Experience engine work (`docs/EXPERIENCE.md`) tests on port base 8850.
+
 ### 2 · transport (test port base 8810)
 
 **Why.** One ESP8266 on 2.4 GHz Wi-Fi drives about 300 LEDs (monitor plus bed)

@@ -24,7 +24,7 @@ from .config import DEFAULTS, MAX_PROFILES, PROFILE_KEYS, PROFILES, profile_name
 FORMAT = "pudisync-backup"
 SCHEMA_VERSION = 1
 MAX_BYTES = 256 * 1024      # a full backup is a few kB; this bounds the work a file can cause
-MAX_DEPTH = 6               # deepest real shape: file > settings > user_profiles > look > value
+MAX_DEPTH = 8               # deepest real shape: file > settings > room_custom > scene > audio > mappings > mapping > value
 MAX_LOOKS_IN_FILE = 100
 KEEP_RESTORE_POINTS = 10
 HOLD_S = 600.0              # how long a previewed import waits for its Apply
@@ -35,7 +35,9 @@ GROUPS = {
     "looks": ("profile", "saturation", "blend", "brightness", "fps", "white_kelvin", "contrast",
               "colour_weight", "immersion", "enrich", "dark_boost", "adaptive", "hue_balance",
               "adaptive_pace", "bass_bounce", "bass_shake", "spread", "user_profiles", "mouse_sync", "bed_mode", "bed_look",
-              "bed_side", "bed_colour", "bed_effect", "bed_speed", "bed_brightness"),
+              "bed_side", "bed_colour", "bed_effect", "bed_speed", "bed_brightness", "style", "audio_react", "calm",
+              "trippy_speed", "trippy_warp", "trippy_colour", "trippy_texture", "cinematic_motion", "room_scene",
+              "room_brightness", "room_speed", "room_intensity", "room_audio", "room_custom"),
     "layout": ("led_count", "left_led", "right_led", "fade_leds", "band_height", "layout", "edge_bottom",
                "edge_right", "edge_top", "edge_left", "screen_mm_w", "screen_mm_h", "led_pitch_mm",
                "box_mm_w", "box_mm_h", "edge_skip", "letterbox", "bed_leds", "bed_reverse", "zones"),
