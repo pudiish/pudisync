@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "trippy",
+  "name": "Trippy",
+  "description": "A screen-colour-led psychedelic procedural style with optional audio modulation.",
+  "experience_type": "monitor_style",
+  "renderer": "trippy_1d",
+  "parameters": {
+    "motion_speed": 0.55,
+    "colour_intensity": 0.72,
+    "warp_strength": 0.32,
+    "texture_amount": 0.22,
+    "impact_amount": 0.18,
+    "noise_scale": 0.8,
+    "wave_count": 3,
+    "brightness": 1.0
+  },
+  "palette": [
+    {"position": 0.0, "hex": "#18204C"},
+    {"position": 0.28, "hex": "#7342B8"},
+    {"position": 0.58, "hex": "#12AEBB"},
+    {"position": 0.82, "hex": "#F04D91"},
+    {"position": 1.0, "hex": "#18204C"}
+  ],
+  "audio_reactivity": {
+    "supported": true,
+    "default_level": "off",
+    "mappings": [
+      {"feature": "bass_envelope", "target": "warp_strength", "depth": 0.18, "attack_ms": 120, "release_ms": 700, "minimum_confidence": 0.25},
+      {"feature": "onset_strength", "target": "impact_amount", "depth": 0.22, "attack_ms": 20, "release_ms": 420, "minimum_confidence": 0.45},
+      {"feature": "mid_energy", "target": "motion_speed", "depth": 0.12, "attack_ms": 180, "release_ms": 900, "minimum_confidence": 0.3},
+      {"feature": "high_energy", "target": "texture_amount", "depth": 0.06, "attack_ms": 100, "release_ms": 600, "minimum_confidence": 0.35}
+    ]
+  },
+  "compatibility": {"topology": "strip_1d", "requires_monitor_frame": true}
+}

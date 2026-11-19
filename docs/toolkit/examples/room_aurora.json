@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "aurora",
+  "name": "Aurora",
+  "description": "Slow teal, green and violet atmospheric movement.",
+  "experience_type": "room_scene",
+  "renderer": "aurora_1d",
+  "parameters": {"motion_speed": 0.12, "colour_intensity": 0.62, "warp_strength": 0.28, "texture_amount": 0.12, "impact_amount": 0.0, "noise_scale": 0.6, "wave_count": 3, "brightness": 0.5},
+  "palette": [
+    {"position": 0.0, "hex": "#071B2D"},
+    {"position": 0.30, "hex": "#087F75"},
+    {"position": 0.58, "hex": "#63C98D"},
+    {"position": 0.80, "hex": "#6152A5"},
+    {"position": 1.0, "hex": "#071B2D"}
+  ],
+  "audio_reactivity": {"supported": true, "default_level": "off", "mappings": [
+    {"feature": "bass_envelope", "target": "motion_speed", "depth": 0.06, "attack_ms": 700, "release_ms": 2000, "minimum_confidence": 0.35},
+    {"feature": "mid_energy", "target": "warp_strength", "depth": 0.05, "attack_ms": 500, "release_ms": 1600, "minimum_confidence": 0.35}
+  ]},
+  "compatibility": {"topology": "strip_1d", "requires_monitor_frame": false}
+}

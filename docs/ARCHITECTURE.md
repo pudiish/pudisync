@@ -37,6 +37,8 @@ pipeline, a way of controlling it, or a one-off setup tool.
 | `ambilight/color.py` | 273 | Colour grading: sRGB to linear, white balance, saturation, skin tones, "immersion", final LED colour. Pure maths. |
 | `ambilight/smoothing.py` | 124 | How the light moves between frames (no flicker, response speed, dithering). |
 | `ambilight/zones.py` | 140 | Splits the strip into regions, each with its own mode (screen, colour, effect). |
+| `ambilight/experience.py` | 580 | Looks that move and Room Studio: 1D noise and waves, Audio Reactivity (Off/Subtle/Balanced/Expressive), the Cinematic and Trippy styles, the five room scenes, and strict scene-file validation. See `docs/EXPERIENCE.md`. |
+| `ambilight/beat.py` | 245 | One sound analyser: beats for Pulse, and the shared feature frame (bass, mids, highs, envelope, onset, confidence) every look and scene reads. |
 | `ambilight/safety.py` | 99 | Brightness and current limits so the strip and 5V supply are not overdriven. |
 | `ambilight/telemetry.py` | 99 | Live timing per stage (capture, process, colour, smooth, send), delivered fps, drops and picture age, for the status API. |
 | `ambilight/version.py` | 19 | The running build: the `VERSION` file plus the git commit. |

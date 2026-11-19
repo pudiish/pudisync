@@ -1,14 +1,14 @@
 "use strict";
 const POLL_MS = 1500, OFFLINE_MS = 5000, HOLD_MS = 2000, FETCH_TIMEOUT_MS = 4000, PIN_KEY = "ambilight-pin";
 const BOARD_KEY = "ambilight-board";
-const TABS = ["home", "tune", "settings"];
+const TABS = ["home", "tune", "room", "settings"];
 // Wide screens show one of these sections at a time; a phone shows the three tabs that hold them.
 const SECTIONS = {overview: "Overview", monitor: "Monitor strip", bed: "Bed strip", mouse: "Mouse", looks: "Looks",
-  calibration: "Calibration", setup: "Setup"};
-const FIRST = {home: "overview", tune: "monitor", settings: "setup"};
+  room: "Room Studio", calibration: "Calibration", setup: "Setup"};
+const FIRST = {home: "overview", tune: "monitor", room: "room", settings: "setup"};
 // The phone tab that holds each section's own controls.
-const TAB_OF = {overview: "home", monitor: "tune", bed: "home", mouse: "home", looks: "tune", calibration: "settings",
-  setup: "settings"};
+const TAB_OF = {overview: "home", monitor: "tune", bed: "home", mouse: "home", looks: "tune", room: "room",
+  calibration: "settings", setup: "settings"};
 // Old links and Home Screen bookmarks still land on the screen that now holds them.
 const MOVED = {lights: "overview", effects: "overview", picture: "monitor", override: "monitor", advanced: "setup"};
 const WIDE = matchMedia("(min-width:700px)");
@@ -22,7 +22,9 @@ const HUE_NAMES = [[18, "Red"], [40, "Orange"], [66, "Yellow"], [100, "Lime"], [
 const WARMEST_K = 2200, COOLEST_K = 6500, RECENT_KEY = "pudisync-recent-colours", RECENT_MAX = 6;
 const STYLES = {vivid: "Vivid has deep shadows and full highlights, and still lights the room in dark scenes.",
   immersive: "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action.",
-  pulse: "Pulse is Vivid moving with the bass: each beat sends a wave of colour out from the screen."};
+  pulse: "Pulse is Vivid moving with the bass: each beat sends a wave of colour out from the screen.",
+  cinematic: "Cinematic glides slowly with a faint drift of light, for films. The sound only ever breathes it.",
+  trippy: "Trippy folds and warps the screen's own colours into flowing patterns, sound or no sound."};
 const PART_NAMES = {sync: "Scene", warm: "Lamp", solid: "Colour", off: "Off"};
 const PART_TINT = {warm: "#ffb46b"};
 const BAUDS = [115200, 230400, 460800, 500000, 921600, 1000000, 2000000];
@@ -59,6 +61,11 @@ const FADERS = {
   fx_speed: {label: "Speed", min: 0, max: 255, local: true, fmt: v => pct(v / 255), apply: () => rerunEffect()},
   fx_intensity: {label: "Intensity", min: 0, max: 255, local: true, fmt: v => pct(v / 255), apply: () => rerunEffect()},
   part_brightness: {label: "Brightness", min: 0, max: 100, scale: 100, local: true, fmt: pct, apply: () => drawPaint()},
+  trippy_speed: {label: "Motion speed", min: 0, max: 200, scale: 100, fmt: pct},
+  trippy_warp: {label: "Warp", min: 0, max: 100, scale: 100, fmt: offOr},
+  trippy_colour: {label: "Colour intensity", min: 0, max: 100, scale: 100, fmt: pct},
+  trippy_texture: {label: "Texture", min: 0, max: 100, scale: 100, fmt: offOr},
+  cinematic_motion: {label: "Drift", min: 0, max: 100, scale: 100, fmt: offOr},
 };
 
 const $ = id => document.getElementById(id);
@@ -354,7 +361,7 @@ const modeOf = s => s.mode || (s.running ? "sync" : s.wled_on ? "effect" : "off"
 /* The scene the board shows: screen sync, a plain colour (effect 0) or an effect; or off. */
 function sceneOf(s) {
   const mode = modeOf(s);
-  if (mode === "sync") return "screen";
+  if (mode === "sync") return s.source === "room" ? "room" : "screen";
   if (mode === "off") return "off";
   return s.wled_fx && s.wled_fx !== 0 ? "effect" : "colour";
 }
@@ -402,6 +409,9 @@ function heroView(s, {offline, scene, effectName}) {
   if (scene === "screen") return fault
     ? {lamp: "fault", word: "No link", state: "Syncing, board not answering", hint: "The hub keeps sending; the board may be restarting."}
     : {lamp: "on", word: "Syncing", state: "Following your screen", hint: "Tap to turn every light off."};
+  if (scene === "room") return fault
+    ? {lamp: "fault", word: "No link", state: "Room scene, board not answering", hint: "The hub keeps sending; the board may be restarting."}
+    : {lamp: "effect", word: "Room", state: s.room_name || "Room Studio", hint: "Tap to turn every light off."};
   if (fault) return {lamp: "fault", word: "No board", state: "Can't reach the board", hint: "Tap to start screen sync once it's back."};
   if (scene === "colour") return {lamp: "effect", word: "Colour", state: s.wled_col ? colourName(`#${s.wled_col}`) : "Colour",
     hint: "Tap to turn every light off."};
@@ -426,6 +436,8 @@ function render(s) {
   $("engine-banner").hidden = !s.last_error;
   if (s.last_error) setText($("engine-error"), friendly(s.last_error));
   renderProfiles(s);
+  renderSound(s);
+  if (window.renderRoom) window.renderRoom(s);
   renderZonesFromStatus(s);
   renderSettings(s);
   renderTiming(s);
@@ -470,6 +482,7 @@ function renderScene(s) {
   $("pane-screen").hidden = pane !== "screen";
   $("pane-colour").hidden = pane !== "colour";
   $("pane-effect").hidden = pane !== "effect";
+  $("pane-room").hidden = pane !== "room";
   $("fx-serial").hidden = s.output !== "serial" || pane === "screen";
   const colour = held("colour", scene === "colour" && s.wled_col ? `#${s.wled_col}` : null);
   if (colour) lastColour = colour;
@@ -662,6 +675,12 @@ function runColour(hex) {
   return actHeld(["scene", "colour"], "/api/effect/run", {fx: 0, color: colour.slice(1)});
 }
 
+function startRoom() {
+  hold("scene", "room");
+  if (state) { renderScene(state); renderHero(state); }
+  return actHeld(["scene"], "/api/room/start");
+}
+
 function startSync() {
   hold("scene", "screen");
   if (state) { renderScene(state); renderHero(state); }
@@ -671,6 +690,7 @@ function startSync() {
 /* Every scene button acts at once: no pane that only changes the view. */
 function pickScene(scene) {
   if (scene === "screen") return startSync();
+  if (scene === "room") return startRoom();
   if (scene === "colour") return runColour(lastColour);
   const first = effects[0];
   if (lastFx == null && first) pickEffect(first);
@@ -1048,6 +1068,38 @@ function renderProfiles(s) {
   const mine = names.includes(s.profile);
   setText($("style-hint"), STYLES[active] || (mine ? `${s.profile}: your saved look. Tune changes it; save to keep.` : "A look of your own. Save it in Tune to keep it."));
   renderLooks(s);
+}
+
+/* The sound, as an add-on to the chosen style: its level, the live bass meter and Calm. */
+function renderSound(s) {
+  const style = s.style || "none", level = held("audio", (s.audio_react || {})[style] || "off");
+  $$("[data-action=audio]").forEach(b => press(b, b.dataset.value === level));
+  const audio = s.audio || {};
+  setText($("audio-label"), s.calm ? "Follow the sound (Calm is on)" : "Follow the sound");
+  $("bass-bar").style.width = pct(audio.hearing ? audio.bass_level : 0);
+  setText($("bass-word"), !audio.wanted ? "Not listening" : !audio.hearing ? "Listening: no sound"
+    : audio.bpm ? `${audio.bpm} BPM, ${audio.beats} beats` : `${audio.beats} beats`);
+  const motion = s.style === "trippy" || s.style === "cinematic" ? s.style : "";
+  $("motion-trippy").hidden = motion !== "trippy";
+  $("motion-cinematic").hidden = motion !== "cinematic";
+  setText($("motion-hint"), motion ? `${lookTitle(motion)}: how it moves.`
+    : "Pick Cinematic or Trippy on Home to move the screen's own colours along the strip.");
+}
+
+function pickAudio(level) {
+  const style = (state && state.style) || "none";
+  hold("audio", level);
+  if (state) renderSound(state);
+  return actHeld(["audio"], "/api/set", {audio_react: `${style}:${level}`});
+}
+
+/* Room Studio's controls load the first time it is shown, so the page everyone loads stays light. */
+let roomLoaded = false;
+function loadRoom() {
+  if (roomLoaded) return;
+  roomLoaded = true;
+  document.body.append(make("script", {src: "/room.js",
+    onerror: () => { roomLoaded = false; toast("Couldn't load Room Studio. Try again.", "error"); }}));
 }
 
 function showProfileForm() {
@@ -1756,6 +1808,7 @@ function layout() {
   const shown = id => !$(id).closest("[data-off],[hidden]");
   if (shown("preview")) { previewKey = ""; renderPreview(); }
   if (shown("parts") && $("parts").open) drawPaint();
+  if (shown("room-cards")) loadRoom();
 }
 
 function goTo(target) {
@@ -1813,6 +1866,11 @@ const ACTIONS = {
   "unlock-cancel": () => { pinDismissed = true; $("unlock").close(); },
   "pair": openPair,
   "theme": b => pickTheme(b.dataset.value),
+  "audio": b => pickAudio(b.dataset.value),
+  "beat-test": () => act("/api/beat/test"),
+  "room-start": startRoom,
+  "room-stop": () => act("/api/room/stop"),
+  "open-room": () => showTab("room"),
 };
 
 function onSwitch(btn) {

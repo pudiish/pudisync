@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "cinematic",
+  "name": "Cinematic",
+  "description": "Restrained screen-led ambience with optional low-depth audio enhancement.",
+  "experience_type": "monitor_style",
+  "renderer": "cinematic_1d",
+  "parameters": {"motion_speed": 0.18, "colour_intensity": 0.25, "warp_strength": 0.04, "texture_amount": 0.0, "impact_amount": 0.12, "brightness": 1.0},
+  "palette": [
+    {"position": 0.0, "hex": "#17213A"},
+    {"position": 0.5, "hex": "#365A78"},
+    {"position": 1.0, "hex": "#B77A52"}
+  ],
+  "audio_reactivity": {
+    "supported": true,
+    "default_level": "off",
+    "mappings": [
+      {"feature": "bass_envelope", "target": "motion_speed", "depth": 0.06, "attack_ms": 500, "release_ms": 1800, "minimum_confidence": 0.4},
+      {"feature": "onset_strength", "target": "impact_amount", "depth": 0.08, "attack_ms": 120, "release_ms": 900, "minimum_confidence": 0.65}
+    ]
+  },
+  "compatibility": {"topology": "strip_1d", "requires_monitor_frame": true}
+}

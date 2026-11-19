@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "neon_coast",
+  "name": "Neon Coast",
+  "description": "An original 1980s Miami-inspired neon night scene.",
+  "experience_type": "room_scene",
+  "renderer": "neon_coast_1d",
+  "parameters": {"motion_speed": 0.22, "colour_intensity": 0.68, "warp_strength": 0.12, "texture_amount": 0.08, "impact_amount": 0.12, "noise_scale": 0.5, "wave_count": 2, "brightness": 0.55},
+  "palette": [
+    {"position": 0.0, "hex": "#10142D"},
+    {"position": 0.24, "hex": "#5545A9"},
+    {"position": 0.49, "hex": "#24D9E8"},
+    {"position": 0.72, "hex": "#FF4F9A"},
+    {"position": 0.88, "hex": "#FF865C"},
+    {"position": 1.0, "hex": "#10142D"}
+  ],
+  "audio_reactivity": {
+    "supported": true,
+    "default_level": "off",
+    "mappings": [
+      {"feature": "bass_envelope", "target": "warp_strength", "depth": 0.08, "attack_ms": 260, "release_ms": 1200, "minimum_confidence": 0.3},
+      {"feature": "onset_strength", "target": "impact_amount", "depth": 0.12, "attack_ms": 60, "release_ms": 700, "minimum_confidence": 0.5}
+    ]
+  },
+  "compatibility": {"topology": "strip_1d", "requires_monitor_frame": false}
+}

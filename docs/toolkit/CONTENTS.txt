@@ -1,0 +1,21 @@
+ACCEPTANCE_TESTS.md
+AGENT_MASTER_PROMPT.md
+ALGORITHM_PLAYBOOK.md
+ARCHITECTURE.md
+EXECUTION_PLAN.md
+MODE_CATALOG.md
+PRODUCT_BRIEF.md
+README_FIRST.md
+ROOM_STUDIO_SPEC.md
+SCENE_AND_MODE_AUTHORING_GUIDE.md
+baseline/PudiSync audio engine requirements handoff.md
+decisions/ADR-001-two-experiences-audio-add-on.md
+decisions/ADR-002-first-release-scope.md
+decisions/AGENT_OUTPUT_TEMPLATE.md
+examples/monitor_cinematic.json
+examples/monitor_trippy.json
+examples/room_aurora.json
+examples/room_neon_coast.json
+research/OPEN_SOURCE_RESEARCH.md
+research/REFERENCE_MATRIX.md
+schemas/experience.schema.json

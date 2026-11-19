@@ -29,6 +29,7 @@ PAGES = {
     "/app.css": ("app.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/expert.js": ("expert.js", "text/javascript; charset=utf-8"),
+    "/room.js": ("room.js", "text/javascript; charset=utf-8"),
     "/calibrate": ("calibrate.html", "text/html; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icon.svg": ("icon.svg", "image/svg+xml"),
