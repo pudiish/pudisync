@@ -51,7 +51,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $page) {
-                Label("Overview", systemImage: "lightbulb").tag(Page.overview)
+                Label("Overview", systemImage: "lightbulb").listItemTint(Theme.accent).tag(Page.overview)
                 // Each light's own section, with its state at a glance.
                 DeviceRow(title: "Monitor strip", detail: stripDetail, symbol: "display", lit: stripLit,
                           alert: store.status?.wledReachable == false).tag(Page.monitor)
@@ -60,10 +60,12 @@ struct ContentView: View {
                 DeviceRow(title: "Mouse", detail: mouseDetail, symbol: "computermouse",
                           lit: store.status?.mouse?.connected == true && store.status?.mouseSync == true, alert: false)
                     .tag(Page.mouse)
-                Label("Looks", systemImage: "square.stack.3d.up").tag(Page.looks)
-                Label("Calibration", systemImage: "scope").tag(Page.calibration)
-                Label("Setup", systemImage: "gearshape").tag(Page.setup)
+                Label("Looks", systemImage: "square.stack.3d.up").listItemTint(Theme.accent).tag(Page.looks)
+                Label("Calibration", systemImage: "scope").listItemTint(Theme.accent).tag(Page.calibration)
+                Label("Setup", systemImage: "gearshape").listItemTint(Theme.accent).tag(Page.setup)
             }
+            // A sidebar list takes the system accent unless it is tinted itself.
+            .tint(Theme.accent)
             .navigationSplitViewColumnWidth(min: 210, ideal: 230)
             .safeAreaInset(edge: .bottom) { brand }
         } detail: {
