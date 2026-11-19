@@ -4573,6 +4573,52 @@ def test_page_in_browser(base):
     get("/api/profile/vivid")
 
 
+def test_page_in_webkit(base):
+    print("\n48. The phone page in WebKit, Safari's engine, as an iPhone and an iPad")
+    try:
+        from playwright.sync_api import sync_playwright, Error as PlaywrightError
+    except ImportError:
+        print("    (skipped: playwright not installed)")
+        return
+    with sync_playwright() as play:
+        try:
+            browser = play.webkit.launch()
+        except PlaywrightError:
+            print("    (skipped: no WebKit for playwright; `python -m playwright install webkit` adds it)")
+            return
+        for device, places in (("iPhone SE", ("home", "tune", "settings")),
+                               ("iPad Pro 11 landscape", ("overview", "monitor", "bed", "mouse", "looks",
+                                                          "calibration", "setup"))):
+            context = browser.new_context(**play.devices[device])
+            page = context.new_page()
+            problems = []
+            page.on("pageerror", lambda exc: problems.append(str(exc)))
+            page.goto(base + "/")
+            page.wait_for_selector("#screens:not([inert])", timeout=10000)
+            rail = len(places) == 7
+            check(f"{device}: {'the rail of sections' if rail else 'the three tabs'} and nothing else",
+                  page.is_visible(".rail") == rail and page.is_visible(".tabs") == (not rail))
+            spilled = []
+            for place in places:
+                page.evaluate(f"location.hash = '{place}'")
+                page.wait_for_timeout(200)
+                if page.evaluate("document.documentElement.scrollWidth > innerWidth + 1"):
+                    spilled.append(place)
+            check(f"{device}: nothing runs off the side of any screen", not spilled, spilled)
+            page.evaluate(f"location.hash = '{'setup' if rail else 'settings'}'")
+            page.wait_for_timeout(200)
+            page.tap("#set-expert summary")
+            try:
+                page.wait_for_selector("#x-band_height", timeout=5000)
+                loaded = True
+            except PlaywrightError:
+                loaded = False
+            check(f"{device}: expert settings load when opened", loaded)
+            check(f"{device}: the page's script ran without an error", not problems, problems[:3])
+            context.close()
+        browser.close()
+
+
 def test_soak_verdict():
     print("\n43. The soak script's verdict on memory and frame rate")
     import math
@@ -5129,6 +5175,7 @@ def main():
         test_backup_api(base)
         test_connect_api(base)
         test_page_in_browser(base)
+        test_page_in_webkit(base)
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")
