@@ -92,6 +92,7 @@ def _receiver_class():
             def stream_didStopWithError_(self, stream, error):
                 self.latest.fail(error.localizedDescription())
 
+            @objc.python_method
             def hear(self, buffer):
                 """Hand one block of sound to the listener; it stays in memory and is never kept.
 

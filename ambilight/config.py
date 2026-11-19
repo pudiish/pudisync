@@ -41,10 +41,16 @@ PROFILES = {
     # stayed pale. At 3000 K and 1.4 whites are a rich warm (206, 101, 34) and beige
     # turns amber, while sky and grass keep their colour (warmth touches pale colours only).
     "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.4, "immersion": 0.15, "spread": 0.3,
-              "colour_weight": 0.5, "enrich": 1.0, "contrast": 2.0, "dark_boost": 0.4, "white_kelvin": 3000},
+              "colour_weight": 0.5, "enrich": 1.0, "contrast": 2.0, "dark_boost": 0.4, "white_kelvin": 3000,
+              "bass_bounce": 0.0, "bass_shake": 0.0},
     "immersive": {"blend": 0.35, "fps": 60, "saturation": 1.35, "immersion": 0.7, "spread": 0.55,
-                  "colour_weight": 0.75, "enrich": 0.5, "contrast": 1.2, "dark_boost": 0.8, "white_kelvin": 4500},
+                  "colour_weight": 0.75, "enrich": 0.5, "contrast": 1.2, "dark_boost": 0.8, "white_kelvin": 4500,
+                  "bass_bounce": 0.0, "bass_shake": 0.0},
 }
+# Pulse (2026-11-20, the owner's ask): Vivid's warm, rich picture with the bass moving it.
+# Each bass beat sends a wave of the scene's colour out from the middle of the screen and
+# jolts the colours; Shake stays at half so faces and text edges do not wobble far.
+PROFILES["pulse"] = {**PROFILES["vivid"], "bass_bounce": 0.8, "bass_shake": 0.5}
 # Modes that existed before Immersive. A config naming one keeps its settings
 # but loses the name, since no built-in mode matches that look any more.
 RETIRED_PROFILES = ("movie", "game", "enriched")

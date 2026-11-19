@@ -482,7 +482,7 @@ def test_api(base):
     check("and switched back to by name", s["profile"] == "Late Night" and abs(s["immersion"] - 0.7) < 1e-6)
     listed = get("/api/profiles")
     check("profiles are listed, built-in and your own",
-          listed["builtin"] == ["vivid", "immersive"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
+          listed["builtin"] == ["vivid", "immersive", "pulse"] and "Late Night" in listed["user"] and listed["active"] == "Late Night")
     s = get("/api/profiles/delete?name=Late%20Night")
     check("and deleted", "Late Night" not in get("/api/profiles")["user"])
 
@@ -3419,10 +3419,16 @@ def test_sync_modes():
     from ambilight.smoothing import settle_seconds
 
     vivid, immersive = PROFILES.get("vivid", {}), PROFILES.get("immersive", {})
-    check("there are exactly two sync modes: Vivid and Immersive", list(PROFILES) == ["vivid", "immersive"], list(PROFILES))
+    check("the sync modes are Vivid, Immersive and Pulse", list(PROFILES) == ["vivid", "immersive", "pulse"], list(PROFILES))
     recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight", "enrich", "contrast", "dark_boost",
-              "white_kelvin"}
-    check("each sets motion, colour, warmth and shadow depth together", set(vivid) == set(immersive) == recipe,
+              "white_kelvin", "bass_bounce", "bass_shake"}
+    pulse = PROFILES.get("pulse", {})
+    check("Pulse is Vivid with the bass moving it",
+          {k: v for k, v in pulse.items() if not k.startswith("bass_")} == {k: v for k, v in vivid.items() if not k.startswith("bass_")}
+          and pulse["bass_bounce"] > 0 and pulse["bass_shake"] > 0)
+    check("Vivid and Immersive switch the beat off, so leaving Pulse stops it",
+          all(PROFILES[m]["bass_bounce"] == PROFILES[m]["bass_shake"] == 0 for m in ("vivid", "immersive")))
+    check("each sets motion, colour, warmth, beat and shadow depth together", set(vivid) == set(immersive) == set(pulse) == recipe,
           (sorted(vivid), sorted(immersive)))
     check("and only what a profile of your own also keeps", recipe <= set(PROFILE_KEYS))
     check("a fresh install starts in Vivid, exactly",

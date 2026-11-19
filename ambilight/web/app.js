@@ -21,7 +21,8 @@ const HUE_NAMES = [[18, "Red"], [40, "Orange"], [66, "Yellow"], [100, "Lime"], [
   [220, "Sky blue"], [255, "Blue"], [285, "Purple"], [320, "Magenta"], [345, "Pink"], [360, "Red"]];
 const WARMEST_K = 2200, COOLEST_K = 6500, RECENT_KEY = "pudisync-recent-colours", RECENT_MAX = 6;
 const STYLES = {vivid: "Vivid has deep shadows and full highlights, and still lights the room in dark scenes.",
-  immersive: "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action."};
+  immersive: "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action.",
+  pulse: "Pulse is Vivid moving with the bass: each beat sends a wave of colour out from the screen."};
 const PART_NAMES = {sync: "Scene", warm: "Lamp", solid: "Colour", off: "Off"};
 const PART_TINT = {warm: "#ffb46b"};
 const BAUDS = [115200, 230400, 460800, 500000, 921600, 1000000, 2000000];
