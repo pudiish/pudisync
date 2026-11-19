@@ -16,9 +16,11 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 log = logging.getLogger(__name__)
 
 # The two sync modes, each a whole look: how fast the light follows, how the
-# colour feels and how deep the shadows go. They never touch brightness, warmth
-# or the calibration, so picking one cannot undo a measured strip; the Home
-# sliders fine-tune whichever is chosen. Both keep the Enriched tone stage (enrich.py),
+# colour feels, how warm its whites are and how deep the shadows go. They never
+# touch brightness or the calibration, so picking one cannot undo a measured
+# strip; the Home sliders fine-tune whichever is chosen. Each carries its own
+# warmth (2026-11-20), so switching between them never leaves one with the
+# other's white. Both keep the Enriched tone stage (enrich.py),
 # which sinks darks and lifts brights without moving hue.
 # - Vivid stays close to the screen: full highlights, deep shadows, a light
 #   flood so a dark scene still lights the room.
@@ -32,13 +34,16 @@ log = logging.getLogger(__name__)
 #   in every mode, which is why the old modes all looked alike.
 PROFILES = {
     # Vivid's immersion stays low: a heavy flood pulls the wall's colour away from
-    # the screen's. Saturation 1.2 was the owner's pick by eye on 2026-11-16.
-    # Spread 0.3: on a 30 s live recording more spread cut LED-to-LED shimmer
-    # (1.44 to 1.34) for a small loss of sharpness.
-    "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.2, "immersion": 0.15, "spread": 0.3,
-              "colour_weight": 0.5, "enrich": 1.0, "contrast": 2.0, "dark_boost": 0.4},
+    # the screen's. Spread 0.3: on a 30 s live recording more spread cut LED-to-LED
+    # shimmer (1.44 to 1.34) for a small loss of sharpness.
+    # Warm and rich (2026-11-20): at 4500 K and saturation 1.2 the owner found Vivid
+    # too white; a white page reached the strip as (203, 151, 107), and pale scenes
+    # stayed pale. At 3000 K and 1.4 whites are a rich warm (206, 101, 34) and beige
+    # turns amber, while sky and grass keep their colour (warmth touches pale colours only).
+    "vivid": {"blend": 0.5, "fps": 60, "saturation": 1.4, "immersion": 0.15, "spread": 0.3,
+              "colour_weight": 0.5, "enrich": 1.0, "contrast": 2.0, "dark_boost": 0.4, "white_kelvin": 3000},
     "immersive": {"blend": 0.35, "fps": 60, "saturation": 1.35, "immersion": 0.7, "spread": 0.55,
-                  "colour_weight": 0.75, "enrich": 0.5, "contrast": 1.2, "dark_boost": 0.8},
+                  "colour_weight": 0.75, "enrich": 0.5, "contrast": 1.2, "dark_boost": 0.8, "white_kelvin": 4500},
 }
 # Modes that existed before Immersive. A config naming one keeps its settings
 # but loses the name, since no built-in mode matches that look any more.
@@ -72,7 +77,7 @@ DEFAULTS = {
     "fade_leds": 12,
     "band_height": 150,
     "profile": "vivid",
-    "saturation": 1.2,
+    "saturation": 1.4,
     "blend": 0.5,
     "brightness": 1.0,
     "fps": 60,
@@ -87,7 +92,7 @@ DEFAULTS = {
     # (camcal.py), row-major 3x3; empty = the WS2812B datasheet model.
     "led_matrix": [],
     # The strip's white point. 6500 keeps the screen's own D65; lower is warmer.
-    "white_kelvin": 4500,
+    "white_kelvin": 3000,
     "wb_r": 1.0,
     "wb_g": 1.0,
     "wb_b": 1.0,

@@ -1437,11 +1437,14 @@ def test_config():
 
     recovered.update({"brightness": 0.55, "white_kelvin": 3200, "contrast": 1.1})
     recovered.apply_profile("immersive")
-    kept = {k: recovered.get(k) for k in ("brightness", "white_kelvin")}
-    check("a sync mode never touches brightness or warmth, and brings its own contrast",
-          kept == {"brightness": 0.55, "white_kelvin": 3200}
+    check("a sync mode never touches brightness, and brings its own warmth and contrast",
+          recovered.get("brightness") == 0.55
+          and recovered.get("white_kelvin") == PROFILES["immersive"]["white_kelvin"]
           and recovered.get("contrast") == PROFILES["immersive"]["contrast"]
-          and recovered.get("blend") == PROFILES["immersive"]["blend"], kept)
+          and recovered.get("blend") == PROFILES["immersive"]["blend"], recovered.get("white_kelvin"))
+    recovered.apply_profile("vivid")
+    check("switching back to Vivid brings back its own warm white, not Immersive's",
+          recovered.get("white_kelvin") == PROFILES["vivid"]["white_kelvin"] == 3000)
 
     # Zones in the same request as a new LED count are checked against the new
     # count, not the old one (an old count of 97 squeezed the "off" zone onto LED 96).
@@ -3278,8 +3281,9 @@ def test_sync_modes():
 
     vivid, immersive = PROFILES.get("vivid", {}), PROFILES.get("immersive", {})
     check("there are exactly two sync modes: Vivid and Immersive", list(PROFILES) == ["vivid", "immersive"], list(PROFILES))
-    recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight", "enrich", "contrast", "dark_boost"}
-    check("each sets motion, colour and shadow depth together", set(vivid) == set(immersive) == recipe,
+    recipe = {"blend", "fps", "saturation", "immersion", "spread", "colour_weight", "enrich", "contrast", "dark_boost",
+              "white_kelvin"}
+    check("each sets motion, colour, warmth and shadow depth together", set(vivid) == set(immersive) == recipe,
           (sorted(vivid), sorted(immersive)))
     check("and only what a profile of your own also keeps", recipe <= set(PROFILE_KEYS))
     check("a fresh install starts in Vivid, exactly",
@@ -3724,8 +3728,9 @@ def test_shared_supply():
     path = os.path.join(tempfile.mkdtemp(prefix="ambilight-supply-"), "config.json")
     cfg = Config(path)
     # The defaults, plus a 200-LED bed set up with the form's suggested 2 A.
+    # Neutral white draws the most current, so the limits are checked against the worst case.
     cfg.update({"led_count": 180, "bed_leds": 200, "bed_start": 180, "bed_mode": "screen",
-                "bed_brightness": 1.0, "black_level": 0.0})
+                "bed_brightness": 1.0, "black_level": 0.0, "white_kelvin": 6500})
     budget = 5000 * 0.8
     check("a fresh install assumes the 5 A adapter its limits were sized for",
           cfg.snapshot().get("supply_ma") == 5000)
