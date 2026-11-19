@@ -4373,9 +4373,10 @@ def test_one_interface():
     sent = sum(len(gzip.compress(open(path, "rb").read(), mtime=0)) for path in PAGE_FILES)
     # 40 kB until 2026-11-20, when the owner chose to add the appearance switch at a slightly higher budget;
     # 43 kB from the experience engine (2026-11-20): the sound controls on Home and the Room tab. Room
-    # Studio's own controls load only when it opens (room.js), as the expert settings do.
+    # Studio's own controls load only when it opens (room.js), as the expert settings do. 44 kB from the
+    # owner's sci-fi look (2026-11-20): glass panels, glowing controls and a starfield drawn in CSS.
     check("it stays light: no outside resources, under 42 kB in all as a phone downloads it",
-          sent < 43_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
+          sent < 44_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
     from ambilight.server import packed
     first = packed("index.html", b"page")
     packed("app.js", b"script")
@@ -4818,7 +4819,7 @@ def test_page_in_browser(base):
         light = browser.new_page(color_scheme="light")
         light.goto(base + "/")
         colours = light.evaluate("getComputedStyle(document.body).backgroundColor")
-        check("a phone in light mode gets the light look", colours == "rgb(238, 236, 227)", colours)
+        check("a phone in light mode gets the light look", colours == "rgb(238, 242, 248)", colours)
         light.goto(base + "/#settings")
         light.wait_for_selector("#screens:not([inert])", timeout=8000)
         light.click("#set-access summary")
@@ -4828,7 +4829,7 @@ def test_page_in_browser(base):
         light.wait_for_selector("#screens:not([inert])", timeout=8000)
         dark_kept = light.evaluate("getComputedStyle(document.body).backgroundColor")
         check("Dark turns a light-mode device dark, and it stays dark after a reload",
-              dark_now == dark_kept == "rgb(23, 26, 23)", (dark_now, dark_kept))
+              dark_now == dark_kept == "rgb(5, 8, 15)", (dark_now, dark_kept))
         light.click("#set-access summary")
         light.click("[data-action=theme][data-value='']")
         check("Auto goes back to following the device",

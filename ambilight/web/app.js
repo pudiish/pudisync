@@ -455,14 +455,21 @@ function renderHero(s) {
 function glowOf(s, scene) {
   if (offline || scene === "off") return "transparent";
   if (scene === "colour" && s.wled_col) return `#${s.wled_col}`;
-  if (scene === "screen" && (s.preview || []).length) return average(s.preview);
+  if ((scene === "screen" || scene === "room") && (s.preview || []).length) return average(s.preview);
   return "var(--accent)";
 }
 
+/* The board is sent light, not screen values: a WS2812B's level is linear in light, so it is
+   shown through the sRGB curve, as bright and as coloured as the strip looks on the wall. */
+const lightToScreen = v => { const x = v / 255; return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055)); };
+const channels = hex => { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const ledColour = hex => `rgb(${channels(hex).map(lightToScreen).join(" ")})`;
+
+/* Light mixes linearly, so the room's colour is the mean of the LEDs' light, then shown as the eye sees it. */
 function average(list) {
   const sum = [0, 0, 0];
-  for (const hex of list) { const n = parseInt(hex.slice(1), 16); sum[0] += n >> 16 & 255; sum[1] += n >> 8 & 255; sum[2] += n & 255; }
-  return `rgb(${sum.map(v => Math.round(v / list.length)).join(" ")})`;
+  for (const hex of list) channels(hex).forEach((v, i) => { sum[i] += v; });
+  return `rgb(${sum.map(v => lightToScreen(v / list.length)).join(" ")})`;
 }
 
 function renderScene(s) {
@@ -490,9 +497,10 @@ function colourAt(index, count, list) {
   return list.length ? list[Math.min(list.length - 1, Math.floor(index * list.length / count))] : null;
 }
 
+/* Lit as the strip is: an LED driven at a few steps of 255 is plainly visible in a dark room. */
 function isLit(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  return (n >> 16 & 255) * 0.299 + (n >> 8 & 255) * 0.587 + (n & 255) * 0.114 > 14;
+  const [r, g, b] = channels(hex);
+  return r * 0.299 + g * 0.587 + b * 0.114 > 2;
 }
 
 function frameGeometry(s, w, h) {
@@ -521,33 +529,73 @@ function stripGeometry(s, w, h) {
   return {leds, size: clamp(span / cells * 0.72, 2, 8), screen: [a, 8, Math.max(8, b - a), h - 34]};
 }
 
+/* The picture on the preview's screen, from the design's visual direction. Drawn once it has loaded. */
+const heroArt = new Image();
+heroArt.onload = () => { previewKey = ""; renderPreview(); };
+heroArt.src = "/hero.jpg";
+
+/* `rect` filled with the art, cropped to fit like CSS cover, inside rounded corners. */
+function drawArt(ctx, rect, dim) {
+  if (!heroArt.complete || !heroArt.naturalWidth) return;
+  const [x, y, w, h] = rect, scale = Math.max(w / heroArt.naturalWidth, h / heroArt.naturalHeight);
+  const sw = w / scale, sh = h / scale;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, 6) : ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.globalAlpha = dim ? 0.45 : 1;
+  ctx.drawImage(heroArt, (heroArt.naturalWidth - sw) / 2, (heroArt.naturalHeight - sh) / 2, sw, sh, x, y, w, h);
+  ctx.restore();
+}
+
 function canvasFor(canvas, s) {
   const w = canvas.clientWidth;
   if (!s || !w) return null;
   const frame = s.layout === "frame";
-  const h = Math.round(w * (frame ? clamp((s.screen_mm_h || 336) / (s.screen_mm_w || 597), 0.35, 0.6) : 0.28));
+  const h = Math.round(w * (frame ? clamp((s.screen_mm_h || 336) / (s.screen_mm_w || 597), 0.35, 0.6) : 0.36));
   return {canvas, w, h, geo: (frame ? frameGeometry : stripGeometry)(s, w, h)};
 }
 
-function paintCanvas(g, label, colourOf) {
+/* `ambient`: the live preview, with the picture on its screen and the LEDs' light washed round it. */
+function paintCanvas(g, label, colourOf, ambient = false) {
   const {canvas, w, h, geo} = g, dpr = window.devicePixelRatio || 1, css = getComputedStyle(document.documentElement);
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   canvas.style.height = `${h}px`;
   const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
+  const lights = geo.leds.map(led => ({led, ...colourOf(led.index)}));
+  // Ambient light first: each lit LED's own colour washed softly onto the wall behind the screen.
+  ctx.globalCompositeOperation = "lighter";
+  for (const {led, colour, glow} of lights) {
+    if (!glow || !ambient) continue;
+    // A wide, flat pool of light along the wall, kept inside the canvas so it never ends in a hard edge.
+    const r = geo.size * 13, flat = Math.min(1, 10 / r), wash = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    wash.addColorStop(0, colour);
+    // Fade to the same colour, unlit: fading to "transparent" (black) would smudge a light page.
+    wash.addColorStop(1, colour.startsWith("#") ? `${colour}00` : colour.replace(")", " / 0)"));
+    ctx.save();
+    ctx.translate(led.at[0], led.at[1]);
+    ctx.scale(1, flat);
+    Object.assign(ctx, {fillStyle: wash, globalAlpha: 0.35});
+    ctx.fillRect(-r, -r, r * 2, r * 2);
+    ctx.restore();
+  }
+  Object.assign(ctx, {globalCompositeOperation: "source-over", globalAlpha: 1});
   Object.assign(ctx, {fillStyle: css.getPropertyValue("--well"), textAlign: "center", textBaseline: "middle",
     font: "600 11px -apple-system, system-ui, sans-serif"});
   ctx.beginPath();
   ctx.roundRect ? ctx.roundRect(...geo.screen, 6) : ctx.rect(...geo.screen);
   ctx.fill();
-  ctx.fillStyle = css.getPropertyValue("--faint");
+  if (ambient) drawArt(ctx, geo.screen, label !== "");
+  ctx.fillStyle = ambient && label ? "#ffffff" : css.getPropertyValue("--faint");
   ctx.fillText(label, geo.screen[0] + geo.screen[2] / 2, geo.screen[1] + geo.screen[3] / 2);
   const off = css.getPropertyValue("--led-off");
-  for (const led of geo.leds) {
-    const {colour, glow, big} = colourOf(led.index);
+  for (const {led, colour, glow, big} of lights) {
     const size = big ? geo.size * 1.5 : geo.size;
-    Object.assign(ctx, {shadowColor: glow ? colour : "transparent", shadowBlur: glow ? geo.size * 2.2 : 0,
+    // A dim LED glows too faintly to see; its own dark colour as a glow would only smudge a light page.
+    const shine = glow && (colour.startsWith("#") || (colour.match(/\d+/g) || []).slice(0, 3).reduce((a, v) => a + +v, 0) > 150);
+    Object.assign(ctx, {shadowColor: shine ? colour : "transparent", shadowBlur: shine ? geo.size * 2.2 : 0,
       fillStyle: colour || off});
     ctx.beginPath();
     ctx.arc(led.at[0], led.at[1], size / 2, 0, Math.PI * 2);
@@ -564,11 +612,13 @@ function renderPreview() {
   if (key === previewKey) return;
   previewKey = key;
   const scene = sceneOf(s), n = Math.max(1, s.led_count), solid = scene === "colour" && s.wled_col ? `#${s.wled_col}` : null;
-  const label = scene === "screen" ? "" : scene === "off" ? "Lights off" : scene === "effect" ? effectName(s.wled_fx) : "";
+  const label = scene === "screen" ? "" : scene === "off" ? "Lights off" : scene === "effect" ? effectName(s.wled_fx)
+    : scene === "room" ? s.room_name || "Room Studio" : "";
   paintCanvas(g, label, i => {
-    const live = solid || colourAt(i, n, list), lit = live && isLit(live);
-    return {colour: lit ? live : null, glow: lit};
-  });
+    if (solid) return {colour: solid, glow: true};
+    const live = colourAt(i, n, list), lit = live && isLit(live);
+    return {colour: lit ? ledColour(live) : null, glow: lit};
+  }, true);
 }
 
 /* ---------- faders ---------- */
