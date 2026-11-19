@@ -29,6 +29,14 @@ LOCK_CHECK_S = 1.0      # how often to ask whether the screen is locked
 # second is ample for ambient colour; the output thread still sends at
 # cfg["fps"], gliding the strip, bed and mouse between readings.
 CAPTURE_FPS_MAX = 30
+# Streaming services' DRM hides their video from screen capture, so a full-screen
+# film captures as exact black for as long as it plays. A dark scene keeps some
+# light somewhere and a fade to black passes within a couple of seconds, so only
+# exact black that lasts this long is taken for protected video.
+PROTECTED_HOLD_S = 2.5
+# What the strip shows meanwhile: the lamp's warm white (#ffb46b) at a soft level,
+# graded, limited and smoothed like any frame, so it eases in and out.
+PROTECTED_GLOW = np.array([1.0, 0.706, 0.42], np.float32) * 0.55
 
 log = logging.getLogger(__name__)
 
@@ -281,7 +289,8 @@ class _BlackFrameWatchdog:
     """
 
     LIMIT = 30
-    MESSAGE = f"captured frames are all black -- {PERMISSION_HINT}"
+    MESSAGE = ("captured frames are all black -- if a protected film or show is playing full screen, that is "
+               f"its copy protection and the strip glows warm meanwhile; otherwise {PERMISSION_HINT}")
 
     def __init__(self):
         self._dark = 0
@@ -307,6 +316,28 @@ class _BlackFrameWatchdog:
         return "" if was_dark else None
 
 
+class _ProtectedVideo:
+    """Tells protected video apart from a dark scene: exact black for longer than a fade lasts."""
+
+    def __init__(self, hold_s=None):
+        self.hold_s = PROTECTED_HOLD_S if hold_s is None else hold_s
+        self._since = None
+
+    def update(self, black, now):
+        """True while the capture has been exactly black for hold_s; any light ends it."""
+        if not black:
+            self._since = None
+            return False
+        if self._since is None:
+            self._since = now
+        return now - self._since >= self.hold_s
+
+
+def exactly_black(band):
+    """True when no pixel has any light: sampled rows first, the whole band only if those are dark."""
+    return band[::processing.ROW_SAMPLES].max() == 0 and band.max() == 0
+
+
 class Engine:
     def __init__(self, config):
         self.cfg = config
@@ -323,6 +354,8 @@ class Engine:
         self.output_name = "none"
         self.capture_size = ""
         self.paused = None
+        # True while protected video blacks out the capture and the strip glows warm instead.
+        self.protected = False
         # Set by the setup wizard to paint a fixed pattern instead of the screen.
         self._override = None
         # Last frame actually sent, downsampled for the UI's live preview.
@@ -375,6 +408,7 @@ class Engine:
                 self.awake = None
             self._release()
             self.fps = self.output_fps = 0.0
+            self.protected = False
 
     def start_recording(self, seconds):
         """Keep the next `seconds` of per-LED averages for replay and tuning."""
@@ -492,6 +526,7 @@ class Engine:
         pipeline = _Pipeline(self.stage, self.telemetry)
         pacer = _Pacer()
         watchdog = _BlackFrameWatchdog()
+        protected = _ProtectedVideo()
         plugin = type(capture)
         opened_with = (self.cfg.get("band_height"), self.cfg.get("monitor_index"),
                        resolve_display(self.cfg.get("monitor_index"), plugin.display_count()))
@@ -561,6 +596,10 @@ class Engine:
             linear, target = (pipeline.measure_edges(edges, cfg) if wrapped
                               else pipeline.measure(band, cfg))
             now = time.perf_counter()
+            black = all(exactly_black(e) for e in edges.values()) if wrapped else exactly_black(band)
+            self.protected = protected.update(black, now)
+            if self.protected:
+                target = np.tile(PROTECTED_GLOW, (len(target), 1))
             self.stage.set_target(target, now)
             self.telemetry.captured(grabbed_at)
             self.record(now, linear)
@@ -655,6 +694,7 @@ class Engine:
             "measured_fps": round(self.fps, 1),
             "output_fps": round(self.output_fps, 1),
             "paused": self.paused,
+            "protected_video": self.protected,
             "recording": self.recorder is not None,
             "safety": self.stage.safety(),
             "last_recording": self.last_recording,
