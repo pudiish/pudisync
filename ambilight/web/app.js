@@ -67,7 +67,7 @@ let state = null, pin = readPin(), offline = false, pinDismissed = false, curren
 let boardUrls = readBoardUrls(), reqSeq = 0;
 let wizardLive = false, markerAt = null, effects = [], boardEffects = [], metaLoadedAt = 0;
 let lastColour = SWATCHES[0][1], lastFx = null, sceneView = "", lastScene = "";
-let zones = [], zonesJson = "", previewKey = "", urlsKey = "", flashLogSize = -1, profilesKey = "";
+let zones = [], zonesJson = "", urlsKey = "", flashLogSize = -1, profilesKey = "";
 let selection = null, dragFrom = null, partMode = "solid", partKeep = true, webcamTimer = 0;
 
 /* ---------- plumbing ---------- */
@@ -104,8 +104,6 @@ function pickTheme(choice) {
 function showTheme() {
   document.documentElement.dataset.theme = themeChoice || (DEVICE_LIGHT.matches ? "light" : "dark");
   $$("[data-action=theme]").forEach(b => press(b, b.dataset.value === themeChoice));
-  previewKey = "";
-  renderPreview();
   drawPaint();
 }
 
@@ -416,7 +414,6 @@ function render(s) {
   $("screens").inert = offline;
   renderHero(s);
   renderScene(s);
-  renderPreview();
   for (const key in faders) {
     const spec = FADERS[key];
     if (!spec.local) setFader(key, spec.read ? spec.read(s) : s[key]);
@@ -449,7 +446,9 @@ function renderHero(s) {
   setText($("amps"), s.running && safety.power_ma != null ? `${(safety.power_ma / 1000).toFixed(2)} A` : "—");
   $$("[data-flag]").forEach(chip => { chip.hidden = !s.running || !safety[chip.dataset.flag]; });
   $("meters").hidden = !s.running;
-  document.documentElement.style.setProperty("--glow", glowOf(s, scene));
+  const glow = glowOf(s, scene), root = document.documentElement.style;
+  root.setProperty("--glow", glow);
+  zonesOf(s, scene, glow).forEach((colour, i) => root.setProperty(`--glow-${"abc"[i]}`, colour));
 }
 
 function glowOf(s, scene) {
@@ -459,11 +458,19 @@ function glowOf(s, scene) {
   return "var(--accent)";
 }
 
+/* The strip's light in three stretches, start, middle and end, so each part of the page takes the
+   light nearest it; anything but a live scene lights them all alike. */
+function zonesOf(s, scene, glow) {
+  const list = s.preview || [];
+  if ((scene !== "screen" && scene !== "room") || list.length < 3) return [glow, glow, glow];
+  const third = Math.floor(list.length / 3);
+  return [list.slice(0, third), list.slice(third, list.length - third), list.slice(list.length - third)].map(average);
+}
+
 /* The board is sent light, not screen values: a WS2812B's level is linear in light, so it is
    shown through the sRGB curve, as bright and as coloured as the strip looks on the wall. */
 const lightToScreen = v => { const x = v / 255; return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055)); };
 const channels = hex => { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
-const ledColour = hex => `rgb(${channels(hex).map(lightToScreen).join(" ")})`;
 
 /* Light mixes linearly, so the room's colour is the mean of the LEDs' light, then shown as the eye sees it. */
 function average(list) {
@@ -529,25 +536,6 @@ function stripGeometry(s, w, h) {
   return {leds, size: clamp(span / cells * 0.72, 2, 8), screen: [a, 8, Math.max(8, b - a), h - 34]};
 }
 
-/* The picture on the preview's screen, from the design's visual direction. Drawn once it has loaded. */
-const heroArt = new Image();
-heroArt.onload = () => { previewKey = ""; renderPreview(); };
-heroArt.src = "/hero.jpg";
-
-/* `rect` filled with the art, cropped to fit like CSS cover, inside rounded corners. */
-function drawArt(ctx, rect, dim) {
-  if (!heroArt.complete || !heroArt.naturalWidth) return;
-  const [x, y, w, h] = rect, scale = Math.max(w / heroArt.naturalWidth, h / heroArt.naturalHeight);
-  const sw = w / scale, sh = h / scale;
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(x, y, w, h, 6) : ctx.rect(x, y, w, h);
-  ctx.clip();
-  ctx.globalAlpha = dim ? 0.45 : 1;
-  ctx.drawImage(heroArt, (heroArt.naturalWidth - sw) / 2, (heroArt.naturalHeight - sh) / 2, sw, sh, x, y, w, h);
-  ctx.restore();
-}
-
 function canvasFor(canvas, s) {
   const w = canvas.clientWidth;
   if (!s || !w) return null;
@@ -556,8 +544,7 @@ function canvasFor(canvas, s) {
   return {canvas, w, h, geo: (frame ? frameGeometry : stripGeometry)(s, w, h)};
 }
 
-/* `ambient`: the live preview, with the picture on its screen and the LEDs' light washed round it. */
-function paintCanvas(g, label, colourOf, ambient = false) {
+function paintCanvas(g, label, colourOf) {
   const {canvas, w, h, geo} = g, dpr = window.devicePixelRatio || 1, css = getComputedStyle(document.documentElement);
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
@@ -565,30 +552,12 @@ function paintCanvas(g, label, colourOf, ambient = false) {
   const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
   const lights = geo.leds.map(led => ({led, ...colourOf(led.index)}));
-  // Ambient light first: each lit LED's own colour washed softly onto the wall behind the screen.
-  ctx.globalCompositeOperation = "lighter";
-  for (const {led, colour, glow} of lights) {
-    if (!glow || !ambient) continue;
-    // A wide, flat pool of light along the wall, kept inside the canvas so it never ends in a hard edge.
-    const r = geo.size * 13, flat = Math.min(1, 10 / r), wash = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    wash.addColorStop(0, colour);
-    // Fade to the same colour, unlit: fading to "transparent" (black) would smudge a light page.
-    wash.addColorStop(1, colour.startsWith("#") ? `${colour}00` : colour.replace(")", " / 0)"));
-    ctx.save();
-    ctx.translate(led.at[0], led.at[1]);
-    ctx.scale(1, flat);
-    Object.assign(ctx, {fillStyle: wash, globalAlpha: 0.35});
-    ctx.fillRect(-r, -r, r * 2, r * 2);
-    ctx.restore();
-  }
-  Object.assign(ctx, {globalCompositeOperation: "source-over", globalAlpha: 1});
   Object.assign(ctx, {fillStyle: css.getPropertyValue("--well"), textAlign: "center", textBaseline: "middle",
     font: "600 11px -apple-system, system-ui, sans-serif"});
   ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(...geo.screen, 6) : ctx.rect(...geo.screen);
+  ctx.rect(...geo.screen);
   ctx.fill();
-  if (ambient) drawArt(ctx, geo.screen, label !== "");
-  ctx.fillStyle = ambient && label ? "#ffffff" : css.getPropertyValue("--faint");
+  ctx.fillStyle = css.getPropertyValue("--faint");
   ctx.fillText(label, geo.screen[0] + geo.screen[2] / 2, geo.screen[1] + geo.screen[3] / 2);
   const off = css.getPropertyValue("--led-off");
   for (const {led, colour, glow, big} of lights) {
@@ -601,24 +570,6 @@ function paintCanvas(g, label, colourOf, ambient = false) {
     ctx.arc(led.at[0], led.at[1], size / 2, 0, Math.PI * 2);
     ctx.fill();
   }
-}
-
-function renderPreview() {
-  const s = state, g = canvasFor($("preview"), s);
-  if (!g) return;
-  const list = s.running ? s.preview || [] : [];
-  const key = [g.w, s.layout, s.led_count, ...EDGE_KEYS.map(k => s[k]), s.left_led, s.right_led,
-    s.screen_mm_w, s.screen_mm_h, sceneOf(s), s.wled_col, s.wled_fx, effects.length, list.join("")].join("|");
-  if (key === previewKey) return;
-  previewKey = key;
-  const scene = sceneOf(s), n = Math.max(1, s.led_count), solid = scene === "colour" && s.wled_col ? `#${s.wled_col}` : null;
-  const label = scene === "screen" ? "" : scene === "off" ? "Lights off" : scene === "effect" ? effectName(s.wled_fx)
-    : scene === "room" ? s.room_name || "Room Studio" : "";
-  paintCanvas(g, label, i => {
-    if (solid) return {colour: solid, glow: true};
-    const live = colourAt(i, n, list), lit = live && isLit(live);
-    return {colour: lit ? ledColour(live) : null, glow: lit};
-  }, true);
 }
 
 /* ---------- faders ---------- */
@@ -1842,7 +1793,6 @@ function layout() {
   setText($("page-title"), wide ? SECTIONS[currentSection] : currentTab[0].toUpperCase() + currentTab.slice(1));
   history.replaceState(null, "", `#${wide ? currentSection : currentTab}`);
   const shown = id => !$(id).closest("[data-off],[hidden]");
-  if (shown("preview")) { previewKey = ""; renderPreview(); }
   if (shown("parts") && $("parts").open) drawPaint();
   if (shown("room-cards")) loadRoom();
 }
@@ -1990,7 +1940,7 @@ function wire() {
     poll();
   });
   $("unlock").addEventListener("cancel", () => { pinDismissed = true; });
-  window.addEventListener("resize", debounce(() => { previewKey = ""; renderPreview(); drawPaint(); }, 150));
+  window.addEventListener("resize", debounce(drawPaint, 150));
   window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
   WIDE.addEventListener("change", () => { if (!WIDE.matches) currentTab = TAB_OF[currentSection]; layout(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
