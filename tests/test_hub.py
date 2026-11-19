@@ -4053,6 +4053,86 @@ def test_engine_telemetry():
     check("each run starts counting afresh", restarted < t["delivered"], (restarted, t["delivered"]))
 
 
+def test_protected_glow():
+    print("\n41b. Protected video: the strip glows warm instead of going dark")
+    import ambilight.engine as eng
+
+    spot = eng._ProtectedVideo(hold_s=2.5)
+    check("a moment of exact black is a dark scene, not protected video",
+          not spot.update(True, 0.0) and not spot.update(True, 2.0))
+    check("exact black that lasts is taken for protected video", spot.update(True, 2.6))
+    check("any light ends it at once", not spot.update(False, 2.7) and not spot.update(True, 3.0))
+
+    class Screen:
+        """A capture showing whatever `frame` holds."""
+        name = "screen"
+        frame = np.zeros((150, 600, 3), np.uint8)
+
+        @staticmethod
+        def available():
+            return True
+
+        @staticmethod
+        def display_count():
+            return 1
+
+        def open(self, monitor_index, band_height):
+            return 600, 150
+
+        def grab(self):
+            return Screen.frame.copy()
+
+        def grab_full(self):
+            return self.grab()
+
+        def grab_search(self, rows):
+            return self.grab()
+
+        def set_inset(self, rows):
+            pass
+
+        def close(self):
+            pass
+
+    blue = np.zeros((150, 600, 3), np.uint8)
+    blue[:] = (20, 40, 200)
+    dim = np.full((150, 600, 3), 3, np.uint8)     # a dark scene: almost, but not exactly, black
+    real = (eng.CAPTURES, eng.screen_locked, eng.PROTECTED_HOLD_S)
+    eng.CAPTURES, eng.screen_locked, eng.PROTECTED_HOLD_S = {"screen": Screen}, (lambda: False), 0.5
+    try:
+        cfg = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-protected-"), "config.json"))
+        cfg.update({"wled_ip": "127.0.0.1", "wled_port": FAKE_WLED_UDP, "led_count": 60, "layout": "strip",
+                    "fps": 60, "letterbox": False})
+        engine = eng.Engine(cfg)
+        Screen.frame = blue
+        engine.start()
+        time.sleep(0.4)
+        Screen.frame = np.zeros((150, 600, 3), np.uint8)
+        time.sleep(0.25)
+        early = engine.status()["protected_video"]
+        time.sleep(0.6)
+        glowing, target = engine.status()["protected_video"], engine.stage.smoother.target.copy()
+        Screen.frame = blue
+        time.sleep(0.3)
+        back, after = engine.status()["protected_video"], engine.stage.smoother.target.copy()
+        Screen.frame = dim
+        time.sleep(1.0)
+        dark = engine.status()["protected_video"]
+        engine.stop()
+    finally:
+        eng.CAPTURES, eng.screen_locked, eng.PROTECTED_HOLD_S = real
+    check("a capture gone black does not glow at once", early is False)
+    warm = target.mean(axis=0)
+    check("black that lasts makes every LED a soft warm white",
+          glowing is True and warm[0] > warm[1] > warm[2] > 0 and warm.max() < 0.8
+          and np.allclose(target, target[0]), warm.round(3))
+    check("the picture coming back takes over at once", back is False and after.mean(axis=0)[2] > after.mean(axis=0)[0],
+          after.mean(axis=0).round(3))
+    check("a dark scene that is not exactly black never glows", dark is False)
+    check("the black-frame warning names protected video, not only permission",
+          "protected" in eng._BlackFrameWatchdog.MESSAGE)
+
+
 def test_telemetry_api(base):
     print("\n42. Timing in the status API")
     from ambilight.telemetry import STAGES
@@ -5160,6 +5240,7 @@ def main():
     test_engine_parts()
     test_telemetry()
     test_engine_telemetry()
+    test_protected_glow()
     test_one_interface()
     test_soak_verdict()
     test_soak_live()
