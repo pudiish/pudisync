@@ -256,7 +256,7 @@ struct LightsCard: View {
         let detail = status.map { "\($0.ledCount) LEDs" + (parts > 0 ? " · \(parts) part\(parts == 1 ? "" : "s") set" : "") }
         return LightRow(icon: "display", title: "Monitor strip", detail: detail ?? "",
                         lit: store.scene != .off && status?.wledReachable != false) {
-            Button("Parts") { go(.tune) }.help("Give part of the strip its own colour, a lamp, or switch it off")
+            Button("Parts") { go(.monitor) }.help("Give part of the strip its own colour, a lamp, or switch it off")
         }
     }
 }
@@ -301,7 +301,7 @@ struct BedRow: View {
                            scene: store.scene)
         VStack(alignment: .leading, spacing: 12) {
             LightRow(icon: "bed.double", title: "Bed strip", detail: view.state, lit: view.lit) {
-                if leds == 0 { Button("Set up") { go(.settings) } }
+                if leds == 0 { Button("Set up") { go(.bed) } }
             }
             if leds > 0 {
                 Segmented(Self.modes, chosen: mode) { store.set("bed_mode", $0) }

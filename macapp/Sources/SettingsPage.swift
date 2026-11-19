@@ -1,20 +1,5 @@
 import SwiftUI
 
-/// Things set once: where the hub is, other devices, the bed strip's wiring and the webcam calibration.
-struct SettingsPage: View {
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                ConnectionCard()
-                BedWiringCard()
-                CalibrateCard()
-                AboutCard()
-            }
-            .frame(maxWidth: 680).padding(20).frame(maxWidth: .infinity)
-        }
-    }
-}
-
 /// The hub's address and PIN; also shown under PudiSync ▸ Settings.
 struct ConnectionCard: View {
     @EnvironmentObject private var store: HubStore

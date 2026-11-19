@@ -46,6 +46,18 @@ extension Text {
     }
 }
 
+/// One section's cards in a single readable column, as the phone page shows a section on a wide screen.
+struct CardsPage<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) { content }
+                .frame(maxWidth: 680).padding(20).frame(maxWidth: .infinity)
+        }
+    }
+}
+
 struct Card<Content: View>: View {
     var title: String?
     @ViewBuilder var content: Content

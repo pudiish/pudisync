@@ -27,39 +27,42 @@ struct PudiSyncApp: App {
     }
 }
 
-/// The same three places as the phone page: Home for every day, Tune for the picture, Settings for things set once.
+/// The phone page's seven sections, as its rail shows them on a wide screen.
 enum Page: Hashable {
-    case home, tune, settings
+    case overview, monitor, bed, mouse, looks, calibration, setup
 
     var title: String {
         switch self {
-        case .home: return "Home"
-        case .tune: return "Tune"
-        case .settings: return "Settings"
+        case .overview: return "Overview"
+        case .monitor: return "Monitor strip"
+        case .bed: return "Bed strip"
+        case .mouse: return "Mouse"
+        case .looks: return "Looks"
+        case .calibration: return "Calibration"
+        case .setup: return "Setup"
         }
     }
 }
 
 struct ContentView: View {
     @EnvironmentObject private var store: HubStore
-    @State private var page: Page? = .home
+    @State private var page: Page? = .overview
 
     var body: some View {
         NavigationSplitView {
             List(selection: $page) {
-                Section {
-                    Label("Home", systemImage: "lightbulb").tag(Page.home)
-                    Label("Tune", systemImage: "slider.horizontal.3").tag(Page.tune)
-                    Label("Settings", systemImage: "gearshape").tag(Page.settings)
-                }
-                // Status at a glance; each light is controlled on Home.
-                Section("Lights") {
-                    DeviceRow(title: "Monitor strip", detail: stripDetail, symbol: "display", lit: stripLit,
-                              alert: store.status?.wledReachable == false)
-                    DeviceRow(title: "Bed strip", detail: bedDetail, symbol: "bed.double", lit: bedLit, alert: false)
-                    DeviceRow(title: "Mouse", detail: mouseDetail, symbol: "computermouse",
-                              lit: store.status?.mouse?.connected == true && store.status?.mouseSync == true, alert: false)
-                }
+                Label("Overview", systemImage: "lightbulb").tag(Page.overview)
+                // Each light's own section, with its state at a glance.
+                DeviceRow(title: "Monitor strip", detail: stripDetail, symbol: "display", lit: stripLit,
+                          alert: store.status?.wledReachable == false).tag(Page.monitor)
+                DeviceRow(title: "Bed strip", detail: bedDetail, symbol: "bed.double", lit: bedLit, alert: false)
+                    .tag(Page.bed)
+                DeviceRow(title: "Mouse", detail: mouseDetail, symbol: "computermouse",
+                          lit: store.status?.mouse?.connected == true && store.status?.mouseSync == true, alert: false)
+                    .tag(Page.mouse)
+                Label("Looks", systemImage: "square.stack.3d.up").tag(Page.looks)
+                Label("Calibration", systemImage: "scope").tag(Page.calibration)
+                Label("Setup", systemImage: "gearshape").tag(Page.setup)
             }
             .navigationSplitViewColumnWidth(min: 210, ideal: 230)
             .safeAreaInset(edge: .bottom) { brand }
@@ -69,14 +72,18 @@ struct ContentView: View {
                     Banner(text: text, fault: store.link != .online)
                 }
                 if let error = store.status?.lastError, store.online { Banner(text: error, fault: true) }
-                switch page ?? .home {
-                case .home: HomePage { page = $0 }
-                case .tune: TunePage()
-                case .settings: SettingsPage()
+                switch page ?? .overview {
+                case .overview: HomePage { page = $0 }
+                case .monitor: CardsPage { HeroCard(); PictureCard(); PartsCard() }
+                case .bed: CardsPage { Card(title: "Bed strip") { BedRow { page = $0 } }; BedWiringCard() }
+                case .mouse: CardsPage { Card { MouseRow() } }
+                case .looks: CardsPage { LooksCard() }
+                case .calibration: CardsPage { FineColourCard(); CalibrateCard() }
+                case .setup: CardsPage { ConnectionCard(); AboutCard() }
                 }
             }
             .background(Theme.bg)
-            .navigationTitle((page ?? .home).title)
+            .navigationTitle((page ?? .overview).title)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) { StatusPill() }
             }
