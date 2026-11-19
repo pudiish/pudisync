@@ -92,6 +92,7 @@ struct ContentView: View {
         }
         .tint(Theme.accent)
         .sheet(isPresented: $store.showingPair) { PairSheet().environmentObject(store) }
+        .onAppear { Appearance.apply(UserDefaults.standard.string(forKey: Appearance.key) ?? "") }
     }
 
     private var brand: some View {
@@ -260,6 +261,8 @@ struct MenuBarPanel: View {
         .frame(width: 320)
         .background(Theme.bg)
         .tint(Theme.accent)
+        // The menu bar panel can open before the main window ever does.
+        .onAppear { Appearance.apply(UserDefaults.standard.string(forKey: Appearance.key) ?? "") }
     }
 }
 

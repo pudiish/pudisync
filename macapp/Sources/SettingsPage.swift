@@ -146,9 +146,17 @@ struct CalibrateCard: View {
 
 struct AboutCard: View {
     @EnvironmentObject private var store: HubStore
+    @AppStorage(Appearance.key) private var appearance = ""
 
     var body: some View {
         Card(title: "More") {
+            Picker("Appearance", selection: $appearance) {
+                Text("Auto").tag("")
+                Text("Light").tag("light")
+                Text("Dark").tag("dark")
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: appearance) { _, value in Appearance.apply(value) }
             Text("Strip setup, screen capture, the PIN and diagnostics are on the phone page's Settings tab.").hint()
             HStack {
                 Button("Open the phone page") { open("http://\(store.address)/#settings") }

@@ -15,6 +15,9 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>PudiSync</title>
 <link rel="stylesheet" href="/app.css">
+<script>/* Before anything draws: this device's pick, or on Auto its own light or dark (app.js keeps it current). */
+try { var theme = localStorage.getItem("pudisync-theme"); } catch (e) {}
+document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");</script>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -492,6 +495,12 @@
         <button class="btn" type="button" data-action="pin-remove" id="pin-remove" hidden>Remove PIN</button>
         <button class="btn" type="button" data-action="pair">Add a phone or tablet</button>
         <p class="hint" id="origin-hint" hidden></p>
+        <p class="label" id="theme-label">Appearance on this device</p>
+        <div class="seg" role="group" aria-labelledby="theme-label">
+          <button type="button" data-action="theme" data-value="" aria-pressed="false">Auto</button>
+          <button type="button" data-action="theme" data-value="light" aria-pressed="false">Light</button>
+          <button type="button" data-action="theme" data-value="dark" aria-pressed="false">Dark</button>
+        </div>
         <form class="field" id="form-port"><label for="http_port">Web port</label>
           <div class="inline"><input type="number" id="http_port" min="1024" max="65535" inputmode="numeric">
             <button class="btn" type="submit">Save</button></div>

@@ -46,6 +46,17 @@ extension Text {
     }
 }
 
+/// This Mac's pick for PudiSync's look: "" follows the system, or "light" or "dark", like the phone page's switch.
+enum Appearance {
+    static let key = "appearance"
+
+    /// Set on the whole app, so the main window, Settings and the menu bar panel all agree.
+    static func apply(_ value: String) {
+        NSApp.appearance = value == "dark" ? NSAppearance(named: .darkAqua)
+            : value == "light" ? NSAppearance(named: .aqua) : nil
+    }
+}
+
 /// One section's cards in a single readable column, as the phone page shows a section on a wide screen.
 struct CardsPage<Content: View>: View {
     @ViewBuilder var content: Content
