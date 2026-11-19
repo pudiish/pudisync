@@ -4215,8 +4215,9 @@ def test_one_interface():
     check("it is called PudiSync", "<title>PudiSync</title>" in html and 'content="PudiSync"' in html
           and "Ambilight Hub" not in html)
     sent = sum(len(gzip.compress(open(path, "rb").read(), mtime=0)) for path in PAGE_FILES)
-    check("it stays light: no outside resources, under 40 kB in all as a phone downloads it",
-          sent < 40_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
+    # 40 kB until 2026-11-20, when the owner chose to add the appearance switch at a slightly higher budget.
+    check("it stays light: no outside resources, under 42 kB in all as a phone downloads it",
+          sent < 42_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
     from ambilight.server import packed
     first = packed("index.html", b"page")
     packed("app.js", b"script")
@@ -4233,11 +4234,16 @@ def test_one_interface():
     check("every setting the hub has can be changed from a page",
           not [k for k in DEFAULTS if k not in reachable], [k for k in DEFAULTS if k not in reachable])
     check("it never builds markup from strings", all("innerHTML" not in s and "eval(" not in s for s in (script, expert)))
-    check("it follows the device's light or dark appearance", "prefers-color-scheme:light" in html)
+    head = markup[:markup.index("</head>")]
+    check("on Auto it follows the device's light or dark appearance, decided before the page draws",
+          "prefers-color-scheme: light" in head and "pudisync-theme" in head and "dataset.theme" in head
+          and "DEVICE_LIGHT" in script)
+    check("each device can pick Auto, Light or Dark for itself",
+          re.findall(r'data-action="theme" data-value="(\w*)"', markup) == ["", "light", "dark"])
     css = open("ambilight/web/app.css").read()
     dark = dict(re.findall(r"--([\w-]+):(#[0-9a-f]{6})", css[css.index(":root{"):css.index("}")]))
-    light_block = css[css.index("@media (prefers-color-scheme:light){:root{"):]
-    light = {**dark, **dict(re.findall(r"--([\w-]+):(#[0-9a-f]{6})", light_block[:light_block.index("}}")]))}
+    light_block = css[css.index(":root[data-theme=light]{"):]
+    light = {**dark, **dict(re.findall(r"--([\w-]+):(#[0-9a-f]{6})", light_block[:light_block.index("}")]))}
 
     def contrast(a, b):
         def lum(hex_colour):
@@ -4647,8 +4653,23 @@ def test_page_in_browser(base):
         light = browser.new_page(color_scheme="light")
         light.goto(base + "/")
         colours = light.evaluate("getComputedStyle(document.body).backgroundColor")
-        light.close()
         check("a phone in light mode gets the light look", colours == "rgb(238, 236, 227)", colours)
+        light.goto(base + "/#settings")
+        light.wait_for_selector("#screens:not([inert])", timeout=8000)
+        light.click("#set-access summary")
+        light.click("[data-action=theme][data-value=dark]")
+        dark_now = light.evaluate("getComputedStyle(document.body).backgroundColor")
+        light.reload()
+        light.wait_for_selector("#screens:not([inert])", timeout=8000)
+        dark_kept = light.evaluate("getComputedStyle(document.body).backgroundColor")
+        check("Dark turns a light-mode device dark, and it stays dark after a reload",
+              dark_now == dark_kept == "rgb(23, 26, 23)", (dark_now, dark_kept))
+        light.click("#set-access summary")
+        light.click("[data-action=theme][data-value='']")
+        check("Auto goes back to following the device",
+              light.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(238, 236, 227)"
+              and light.get_attribute("[data-action=theme][data-value='']", "aria-pressed") == "true")
+        light.close()
         browser.close()
     # Aborted requests log a network error to the console; anything else is the page's own fault.
     own = [p for p in problems if "Failed to load resource" not in p]

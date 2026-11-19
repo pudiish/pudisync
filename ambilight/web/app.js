@@ -88,6 +88,27 @@ function storePin(value) {
 
 const pinHeaders = () => pin ? {"X-Ambilight-Pin": pin} : {};
 
+/* Appearance: this device's pick ("" follows the device), resolved to light or dark as index.html does at load. */
+const DEVICE_LIGHT = matchMedia("(prefers-color-scheme: light)"), THEME_KEY = "pudisync-theme";
+let themeChoice = "";
+try { themeChoice = localStorage.getItem(THEME_KEY) || ""; }
+catch (err) { console.warn("appearance storage unavailable", err); }
+
+function pickTheme(choice) {
+  themeChoice = choice;
+  try { choice ? localStorage.setItem(THEME_KEY, choice) : localStorage.removeItem(THEME_KEY); }
+  catch (err) { console.warn("appearance kept for this visit only", err); }
+  showTheme();
+}
+
+function showTheme() {
+  document.documentElement.dataset.theme = themeChoice || (DEVICE_LIGHT.matches ? "light" : "dark");
+  $$("[data-action=theme]").forEach(b => press(b, b.dataset.value === themeChoice));
+  previewKey = "";
+  renderPreview();
+  drawPaint();
+}
+
 /* Where the board's own page is, kept from the last good status so it can be
    offered when the hub itself is out of reach. */
 function readBoardUrls() {
@@ -1790,6 +1811,7 @@ const ACTIONS = {
   "unlock":() => { pinDismissed = false; askPin(); },
   "unlock-cancel": () => { pinDismissed = true; $("unlock").close(); },
   "pair": openPair,
+  "theme": b => pickTheme(b.dataset.value),
 };
 
 function onSwitch(btn) {
@@ -1878,6 +1900,7 @@ function wire() {
   WIDE.addEventListener("change", () => { if (!WIDE.matches) currentTab = TAB_OF[currentSection]; layout(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   window.addEventListener("online", poll);   // Wi-Fi is back: don't wait for the slow offline retry
+  DEVICE_LIGHT.addEventListener("change", showTheme);   // on Auto, follow the device switching at sunset
   window.addEventListener("pageshow", event => { if (event.persisted) poll(); });
   window.addEventListener("pagehide", () => {
     if (wizardLive) fetch("/api/wizard/stop", {keepalive: true, cache: "no-store", headers: pinHeaders()});
@@ -1892,5 +1915,6 @@ buildSwatches($("swatches"), runColour);
 buildSwatches($("bed-swatches"), hex => setKey("bed_colour", hex.slice(1)));
 buildSwatches($("part-swatches"), hex => { $("part-colour").value = hex; drawPaint(); });
 wire();
+showTheme();
 showTab(location.hash.slice(1));
 poll();

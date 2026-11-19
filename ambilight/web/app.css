@@ -11,14 +11,15 @@
   --serif:ui-serif,"New York",Georgia,serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
 }
-@media (prefers-color-scheme:light){:root{
+/* Light when the page resolves to it: the device's setting on Auto, or the owner's pick (index.html, app.js). */
+:root[data-theme=light]{
   color-scheme:light;
   --bg:#eeece3;--surface:#f8f7f1;--raised:#ecebe3;--well:#e2e0d6;
   --line:#d5d4ca;--line-hi:#83887c;
   --ink:#20231f;--dim:#5f645a;--faint:#9a9e93;--led-off:#d9d7cd;
   --accent:#4e6044;--accent-ink:#ffffff;--ok:#2b6e4d;--bad:#b3443d;
   --rail-bg:#252923;--rail-on:#363b34;
-}}
+}
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%;scroll-padding-bottom:calc(var(--tabbar) + 12px + env(safe-area-inset-bottom))}
