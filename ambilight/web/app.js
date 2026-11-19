@@ -21,10 +21,7 @@ const HUE_NAMES = [[18, "Red"], [40, "Orange"], [66, "Yellow"], [100, "Lime"], [
   [220, "Sky blue"], [255, "Blue"], [285, "Purple"], [320, "Magenta"], [345, "Pink"], [360, "Red"]];
 const WARMEST_K = 2200, COOLEST_K = 6500, RECENT_KEY = "pudisync-recent-colours", RECENT_MAX = 6;
 const STYLES = {vivid: "Vivid has deep shadows and full highlights, and still lights the room in dark scenes.",
-  immersive: "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action.",
-  pulse: "Pulse is Vivid moving with the bass: each beat sends a wave of colour out from the screen.",
-  cinematic: "Cinematic glides slowly with a faint drift of light, for films. The sound only ever breathes it.",
-  trippy: "Trippy folds and warps the screen's own colours into flowing patterns, sound or no sound."};
+  immersive: "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action."};
 const PART_NAMES = {sync: "Scene", warm: "Lamp", solid: "Colour", off: "Off"};
 const PART_TINT = {warm: "#ffb46b"};
 const BAUDS = [115200, 230400, 460800, 500000, 921600, 1000000, 2000000];
@@ -61,11 +58,6 @@ const FADERS = {
   fx_speed: {label: "Speed", min: 0, max: 255, local: true, fmt: v => pct(v / 255), apply: () => rerunEffect()},
   fx_intensity: {label: "Intensity", min: 0, max: 255, local: true, fmt: v => pct(v / 255), apply: () => rerunEffect()},
   part_brightness: {label: "Brightness", min: 0, max: 100, scale: 100, local: true, fmt: pct, apply: () => drawPaint()},
-  trippy_speed: {label: "Motion speed", min: 0, max: 200, scale: 100, fmt: pct},
-  trippy_warp: {label: "Warp", min: 0, max: 100, scale: 100, fmt: offOr},
-  trippy_colour: {label: "Colour intensity", min: 0, max: 100, scale: 100, fmt: pct},
-  trippy_texture: {label: "Texture", min: 0, max: 100, scale: 100, fmt: offOr},
-  cinematic_motion: {label: "Drift", min: 0, max: 100, scale: 100, fmt: offOr},
 };
 
 const $ = id => document.getElementById(id);
@@ -1070,27 +1062,21 @@ function renderProfiles(s) {
   renderLooks(s);
 }
 
-/* The sound, as an add-on to the chosen style: its level, the live bass meter and Calm. */
+/* The sound, as an add-on to screen sync: its level, the live bass meter and Calm. */
 function renderSound(s) {
-  const style = s.style || "none", level = held("audio", (s.audio_react || {})[style] || "off");
+  const level = held("audio", s.audio_react || "off");
   $$("[data-action=audio]").forEach(b => press(b, b.dataset.value === level));
   const audio = s.audio || {};
   setText($("audio-label"), s.calm ? "Follow the sound (Calm is on)" : "Follow the sound");
   $("bass-bar").style.width = pct(audio.hearing ? audio.bass_level : 0);
   setText($("bass-word"), !audio.wanted ? "Not listening" : !audio.hearing ? "Listening: no sound"
     : audio.bpm ? `${audio.bpm} BPM, ${audio.beats} beats` : `${audio.beats} beats`);
-  const motion = s.style === "trippy" || s.style === "cinematic" ? s.style : "";
-  $("motion-trippy").hidden = motion !== "trippy";
-  $("motion-cinematic").hidden = motion !== "cinematic";
-  setText($("motion-hint"), motion ? `${lookTitle(motion)}: how it moves.`
-    : "Pick Cinematic or Trippy on Home to move the screen's own colours along the strip.");
 }
 
 function pickAudio(level) {
-  const style = (state && state.style) || "none";
   hold("audio", level);
   if (state) renderSound(state);
-  return actHeld(["audio"], "/api/set", {audio_react: `${style}:${level}`});
+  return actHeld(["audio"], "/api/set", {audio_react: level});
 }
 
 /* Room Studio's controls load the first time it is shown, so the page everyone loads stays light. */

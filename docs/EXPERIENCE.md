@@ -1,5 +1,11 @@
 # Experience engine: Monitor Sync styles, audio as an add-on, Room Studio
 
+> **2026-11-20, later:** the owner kept Vivid and Immersive and removed the Pulse, Cinematic
+> and Trippy looks, with the code only they used. *Follow the sound* is now one setting
+> (`audio_react`: off/subtle/balanced/expressive) that breathes Vivid or Immersive; Beat bounce
+> and Beat shake stay in Expert settings with the Phase A changes below. Sections on Cinematic,
+> Trippy and per-style levels describe the first version and no longer apply.
+
 Built 2026-11-20 from the R&D toolkit in `docs/toolkit/` (brief: `AGENT_MASTER_PROMPT.md`,
 plan: `EXECUTION_PLAN.md`, requirements and baseline: `baseline/`). Code:
 `ambilight/experience.py`, `ambilight/beat.py`, the output stage in `ambilight/engine.py`.

@@ -37,7 +37,8 @@ WARM = np.array([1.0, 0.62, 0.3], np.float32)   # an even warm colour, as a lamp
 
 
 def settings():
-    return {**DEFAULTS, **PROFILES["pulse"], "led_count": LEDS, "left_led": 0, "right_led": LEDS - 1,
+    pulse = PROFILES.get("pulse") or {**PROFILES["vivid"], "bass_bounce": 0.8, "bass_shake": 0.5}
+    return {**DEFAULTS, **pulse, "led_count": LEDS, "left_led": 0, "right_led": LEDS - 1,
             "fade_leds": 0, "layout": "strip", "zones": []}
 
 
