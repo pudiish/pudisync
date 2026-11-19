@@ -1,25 +1,5 @@
 import SwiftUI
 
-/// How screen sync looks, the looks you keep, and parts of the strip that do something else.
-struct TunePage: View {
-    var body: some View {
-        GeometryReader { geo in
-            ScrollView {
-                if geo.size.width > 900 {
-                    HStack(alignment: .top, spacing: 16) {
-                        VStack(spacing: 16) { PictureCard(); FineColourCard() }
-                        VStack(spacing: 16) { LooksCard(); PartsCard() }
-                    }
-                    .padding(20)
-                } else {
-                    VStack(spacing: 16) { PictureCard(); LooksCard(); PartsCard(); FineColourCard() }
-                        .frame(maxWidth: 640).padding(20).frame(maxWidth: .infinity)
-                }
-            }
-        }
-    }
-}
-
 func settleSeconds(_ blend: Double) -> String { String(format: "%.2f s", 0.06 * pow(0.8 / 0.06, 1 - blend)) }
 
 struct PictureCard: View {
