@@ -1779,6 +1779,15 @@ def sck_live_report():
         reopened.open(1, 120)
         note("the same process can reopen a stream it closed", reopened.grab().size > 0)
         reopened.close()
+        # Only how much sound arrived and its format are noted, never the sound itself.
+        heard = []
+        hearing = SCKCapture()
+        hearing.listener = lambda samples, at: heard.append((len(samples), samples.dtype.str))
+        hearing.open(1, 120)
+        time.sleep(1.0)
+        hearing.close()
+        note("with a listener, the stream hands over the Mac's sound as mono float samples, every ~20 ms",
+             len(heard) >= 20 and all(n > 0 and kind == "<f4" for n, kind in heard), (len(heard), heard[:2]))
     finally:
         cap.close()
     print(json.dumps(results))
@@ -2963,6 +2972,136 @@ def test_immersion():
     from ambilight.config import PROFILES
     check("immersion is a setting from 0 to 1, starting at the default mode's (Vivid's) level",
           Config(os.path.join(tempfile.mkdtemp(), "c.json")).get("immersion") == PROFILES["vivid"]["immersion"])
+
+
+def test_bass_beats():
+    print("\n35c. Bass: beats heard in the sound, and motion that never strobes")
+    from ambilight import beat
+
+    rate = beat.RATE
+    rng = np.random.default_rng(7)
+
+    def track(seconds, bpm=120, kick=0.8, hats=0.05, bass_note=0.0):
+        """A kick drum every beat, hi-hat hiss, and optionally a steady bass note, with the true kick times."""
+        t = np.arange(int(seconds * rate)) / rate
+        # Hi-hats are hiss above a few kHz: noise differenced three times keeps its highs, not its lows.
+        hiss = np.diff(rng.standard_normal(len(t) + 3), n=3) / 6.0
+        sound = hats * hiss * (np.sin(2 * np.pi * 8 * t) > 0)
+        sound += bass_note * np.sin(2 * np.pi * 55 * t)
+        times = np.arange(0.5, seconds - 0.2, 60.0 / bpm)
+        for at in times:
+            start = int(at * rate)
+            n = min(int(0.12 * rate), len(t) - start)
+            hit = np.arange(n) / rate
+            sound[start:start + n] += kick * np.exp(-hit / 0.04) * np.sin(2 * np.pi * (90 - 300 * hit) * hit)
+        return sound.astype(np.float32), times
+
+    def listen(sound, block=480):
+        """Feed it as ScreenCaptureKit does, 10 ms blocks; returns the times beats were heard."""
+        meter, heard = beat.BassMeter(rate), []
+        for start in range(0, len(sound), block):
+            end = min(start + block, len(sound))
+            if meter.feed(sound[start:end], end / rate):
+                heard.append(meter.last_beat)
+        return meter, heard
+
+    sound, kicks = track(8)
+    meter, heard = listen(sound)
+    late = [min(abs(h - k) for k in kicks) for h in heard]
+    check("every kick of a 120 BPM track is heard", len(heard) == len(kicks), (len(heard), len(kicks)))
+    check("...within 40 ms of the kick itself, so the light lands on the beat",
+          heard and max(late) < 0.04, round(max(late or [0]), 3))
+    quiet, kicks_q = track(8, kick=0.8 * 10 ** (-30 / 20), hats=0.05 * 10 ** (-30 / 20))
+    check("a track played 30 dB quieter is heard just as well", len(listen(quiet)[1]) == len(kicks_q))
+    check("a steady bass note is not a beat", len(listen(track(6, kick=0.0, bass_note=0.5)[0])[1]) <= 1)
+    check("hi-hats alone are not bass", len(listen(track(6, kick=0.0, hats=0.3)[0])[1]) == 0)
+    check("silence has no beats", len(listen(np.zeros(rate * 3, np.float32))[1]) == 0)
+    fast, _ = track(8, bpm=200)
+    gaps = np.diff(listen(fast)[1])
+    check("even at 200 BPM beats stay at least 0.35 s apart: never more than three a second",
+          len(gaps) > 0 and gaps.min() >= beat.REFRACTORY_S - 1e-6, round(float(gaps.min()), 3) if len(gaps) else None)
+    check("a beat's pulse is strongest at once and gone within half a second",
+          meter.pulse(meter.last_beat) > 0.3 and meter.pulse(meter.last_beat + 0.6) == 0.0)
+
+    scene = np.tile(np.array([[200.0, 120.0, 40.0]], np.float32), (240, 1))
+    worst = max(abs(beat.bounce(scene, 120, age, 1.0, 1.0).mean() - scene.mean())
+                for age in np.arange(0, beat.PULSE_S * 2, 0.01))
+    check("a full Bounce on a bright scene moves the whole strip's brightness less than the guard's 10% flash",
+          worst < 0.10 * 255, round(worst / 255, 3))
+    early = beat.bounce(scene, 120, 0.05, 1.0, 1.0)
+    check("the bounce is a wave running outward from the middle of the screen",
+          early[120 + int(beat.WAVE_SPEED * 0.05)].sum() > early[120].sum() > scene[120].sum())
+    check("Bounce at 0 leaves the picture alone", np.array_equal(beat.bounce(scene, 120, 0.05, 1.0, 0.0), scene))
+    ramp = np.linspace(0, 255, 240, dtype=np.float32)[:, None].repeat(3, axis=1)
+    jolted = beat.shake(ramp, 0.03, 1.0, 1.0)
+    check("Shake jolts the colours sideways by a few LEDs", 0.5 < abs(jolted[120, 0] - ramp[120, 0]) / (255 / 239) <= beat.SHAKE_LEDS)
+    check("...and settles back within half a second", np.allclose(beat.shake(ramp, 0.7, 1.0, 1.0), ramp))
+    ring = beat.shake(ramp, 0.03, 1.0, 1.0, ring=True)
+    check("round the monitor it wraps instead of piling up at the ends", ring[0, 0] > 100)
+
+    import ambilight.engine as eng
+    from ambilight.config import DEFAULTS
+    cfg = {**DEFAULTS, "led_count": 240, "left_led": 0, "right_led": 239, "fade_leds": 0}
+
+    def frame(**settings):
+        stage = eng.OutputStage()
+        stage.meter = beat.BassMeter()
+        stage.meter.last_beat, stage.meter.strength = 10.0, 1.0
+        stage.set_target(np.tile(np.float32([[0.6, 0.4, 0.2]]), (240, 1)), 9.0)
+        return stage.frame(10.05, {**cfg, **settings})
+
+    check("off by default: a beat changes nothing", np.array_equal(frame(), frame(bass_bounce=0.0, bass_shake=0.0)))
+    check("with Bounce on, a beat lights the strip up from the middle", int(frame(bass_bounce=1.0)[100:140].sum())
+          > int(frame()[100:140].sum()))
+    check("only a beat effect makes the hub listen", not eng.wants_sound(cfg) and eng.wants_sound({**cfg, "bass_shake": 0.2}))
+
+    class Ears:
+        """A capture that can hear, noting whether the engine asked it to."""
+        name, hears, opened = "ears", True, []
+
+        @staticmethod
+        def available():
+            return True
+
+        @staticmethod
+        def display_count():
+            return 1
+
+        def open(self, monitor_index, band_height):
+            Ears.opened.append(self.listener is not None)
+            return 600, 150
+
+        def grab(self):
+            return np.full((150, 600, 3), 90, np.uint8)
+
+        grab_full = grab
+
+        def grab_search(self, rows):
+            return self.grab()
+
+        def set_inset(self, rows):
+            pass
+
+        def close(self):
+            pass
+
+    real = (eng.CAPTURES, eng.screen_locked)
+    eng.CAPTURES, eng.screen_locked = {"ears": Ears}, (lambda: False)
+    try:
+        config = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-beat-"), "config.json"))
+        config.update({"wled_ip": "127.0.0.1", "wled_port": FAKE_WLED_UDP, "led_count": 60, "letterbox": False})
+        engine = eng.Engine(config)
+        engine.start()
+        time.sleep(0.4)
+        config.update({"bass_bounce": 0.6})
+        time.sleep(0.6)
+        config.update({"bass_bounce": 0.0})
+        time.sleep(0.6)
+        engine.stop()
+    finally:
+        eng.CAPTURES, eng.screen_locked = real
+    check("the sound is heard only while a beat effect is on: off, then on, then off again",
+          Ears.opened[:3] == [False, True, False], Ears.opened)
 
 
 def test_fire_glow():
@@ -5348,6 +5487,7 @@ def main():
     test_mouse_sync()
     test_immersion()
     test_fire_glow()
+    test_bass_beats()
     test_user_profiles()
     test_backup()
     test_privacy()
