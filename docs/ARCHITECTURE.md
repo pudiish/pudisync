@@ -78,9 +78,9 @@ pipeline, a way of controlling it, or a one-off setup tool.
 | `ambilight/config.py` | 427 | All settings, their defaults and valid ranges, saved to `config.json`. |
 | `ambilight/discovery.py` | 74 | Bonjour name, the hub's addresses, and where the board's own page is. |
 | `ambilight/qr.py` | 42 | QR codes for pairing a phone, drawn by macOS's CoreImage. |
-| `ambilight/web/index.html` | 2459 | The PudiSync phone page (3 tabs: Home, Tune, Settings). Home runs every light at once: power, brightness and one scene, with each light's own options. Every colour is picked on one round wheel (any colour, or whites by temperature, with recent picks). HTML, CSS and JS in one file, served gzipped. |
+| `ambilight/web/index.html`, `app.css`, `app.js`, `expert.js` | about 2,600 | The PudiSync page: three tabs on a phone (Home, Tune, Settings), a rail of seven sections from 700 px (Overview, Monitor strip, Bed strip, Mouse, Looks, Calibration, Setup). Overview runs every light at once: power, brightness and one scene, with each light's own options. Every colour is picked on one round wheel. `expert.js` loads only when Setup › Expert settings opens. Served gzipped, 40 kB at first load. |
 | `ambilight/web/calibrate.html` | 231 | Calibration page. |
-| `macapp/` | about 2,550 Swift | Native Mac app, laid out like the phone page (Home, Tune, Settings). A client of the same HTTP API. `Scene.swift` holds the logic shared with the page (scene, names, colour wheel, parts), `Hub.swift` the store and its actions, `Connection.swift` its link states, `PairSheet.swift` the pairing QR. |
+| `macapp/` | about 2,550 Swift | Native Mac app, laid out like the page on a wide screen: a sidebar of the same seven sections, in the same colours (`Theme.swift`, checked against `app.css`). Building it needs Xcode, not just the Command Line Tools. A client of the same HTTP API. `Scene.swift` holds the logic shared with the page (scene, names, colour wheel, parts), `Hub.swift` the store and its actions, `Connection.swift` its link states, `PairSheet.swift` the pairing QR. |
 
 How each device connects, what happens when something drops out, and the
 manual steps: `docs/CONNECT.md`.
