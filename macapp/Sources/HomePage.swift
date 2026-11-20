@@ -148,18 +148,10 @@ struct SceneCard: View {
     }
 
     private var styles: some View {
-        let active = store.status?.profile ?? ""
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("Style").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.dim)
-            FlowRow {
-                ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
-                    Chip(title: title, chosen: active == name) { store.pickStyle(name) }
-                }
-                ForEach(store.status?.myProfiles ?? [], id: \.self) { name in
-                    Chip(title: name, chosen: active == name) { store.pickStyle(name) }
-                }
-            }
-            Text(HubStore.styleHints[active] ?? "Your own look, saved on the Tune page.").hint()
+        VStack(alignment: .leading, spacing: 14) {
+            LookPicker()
+            Divider()
+            SoundControls(withCalm: true)
         }
     }
 

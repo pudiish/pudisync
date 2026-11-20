@@ -24,7 +24,7 @@ Room Studio:  scene palette + 1D noise/waves -> to_led (calibration only) -> × 
 both:         -> zones -> × brightness -> safety guard (power, heat, anti-strobe) -> quantize -> WLED
 ```
 
-- **Looks** (Home › Style): Vivid, Immersive, Pulse, **Cinematic**, **Trippy**. Each built-in
+- **Looks** (Home › Look): Vivid, Immersive, Pulse, **Cinematic**, **Trippy**. Each built-in
   look now names its `style`; Vivid, Immersive and Pulse are `none` and render exactly as before.
 - **Follow the sound** (Home, under the looks): Off, Subtle, Balanced or Expressive, stored per
   style in `audio_react`, Off for everyone until chosen. There is no separate audio mode.
@@ -222,7 +222,7 @@ handoff's 50–70 ms estimate stands.
 
 ### Manual check on the real strip
 
-1. Home › Style › Trippy, sound Off: the strip flows with the screen's colours; a black screen is
+1. Home › Look, then the Trippy switch, sound Off: the strip flows with the screen's colours; a black screen is
    dark. Set Follow the sound to Balanced, play music: motion speeds and ripples on kicks; pause
    the music: it settles back within about a second.
 2. Pulse with music: each kick sends a wide wave from the middle; a dark film scene glows on the

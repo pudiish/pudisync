@@ -1,9 +1,9 @@
 import Foundation
 import SwiftUI
 
-/// A value the app does not read, so its shape may change freely on the hub.
-struct Ignored: Decodable {
-    init(from decoder: Decoder) throws {}
+/// One look of yours as the hub stores it. Only its description is read; the settings it holds are the hub's business.
+struct LookInfo: Decodable {
+    var note: String?
 }
 
 /// The reply to an action that answers with less than the full status.
@@ -34,7 +34,7 @@ struct HubStatus: Decodable {
     var hueBalance: Double?
     var blend: Double
     var profile: String
-    var userProfiles: [String: Ignored]
+    var userProfiles: [String: LookInfo]
     var mouseSync: Bool
     var mouse: MouseInfo?
     var preview: [String]
@@ -76,11 +76,20 @@ struct HubStatus: Decodable {
     var bedReverse: Bool?
     var safety: Safety?
     var lastError: String?
+    var audioReact: String?
+    var trippy: Bool?
+    var calm: Bool?
 
     var syncing: Bool { mode == "sync" }
     var scene: LightScene { sceneOf(mode: mode, running: running, wledOn: wledOn, wledFx: wledFx) }
     var edges: [Int] { [edgeBottom, edgeRight, edgeTop, edgeLeft] }
     var myProfiles: [String] { userProfiles.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
+
+    /// What the person wrote about one of their looks, if anything.
+    func note(of name: String) -> String? {
+        guard let note = userProfiles[name]?.note, !note.isEmpty else { return nil }
+        return note
+    }
 
     func number(_ key: String) -> Double? {
         switch key {
@@ -187,8 +196,9 @@ struct HubClient {
 @MainActor
 final class HubStore: ObservableObject {
     static let builtinProfiles = [("vivid", "Vivid"), ("immersive", "Immersive")]
-    static let styleHints = ["vivid": "Vivid has deep shadows and full highlights, and still lights the room in dark scenes.",
-                             "immersive": "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action."]
+    /// The same words as the phone page's STYLES (ambilight/web/app.js).
+    static let styleHints = ["vivid": "The default. Deep shadows, full highlights and a warm, rich picture; a light wash still lights the room in dark scenes.",
+                             "immersive": "Fills the room with the scene's colour: gentler contrast, a cooler white, a wide wash that lights the walls in dark scenes, and a glide that quickens in action."]
     /// How long a click shows before the hub's reply has to agree with it.
     static let holdSeconds = 2.0
 
@@ -428,7 +438,12 @@ final class HubStore: ObservableObject {
         act("/api/profile/\(name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)")
     }
 
-    func saveProfile(_ name: String) { act("/api/profiles/save", ["name": name]) }
+    /// A description is sent only when there is one, so saving over a look keeps what it said.
+    func saveProfile(_ name: String, note: String = "") {
+        act("/api/profiles/save", note.isEmpty ? ["name": name] : ["name": name, "note": note])
+    }
+
+    func describeProfile(_ name: String, note: String) { act("/api/profiles/describe", ["name": name, "note": note]) }
 
     func deleteProfile(_ name: String) { act("/api/profiles/delete", ["name": name]) }
 
