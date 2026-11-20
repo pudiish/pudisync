@@ -5,16 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com). Versions: [SemVer](https
 ## [Unreleased]
 
 ### Added
+- Trippy, a treatment on top of Vivid or Immersive (Home, under the style; `trippy`, off by default), not a look of its own. It bends the screen's own colours along the strip by a bounded domain warp (at most 18% of the strip) and ripples them with interference waves, from seeded noise and phase accumulators: no random colours, black stays black, the screen's dominant colours stay dominant. Tune › Motion: speed, warp, colour intensity, texture. With *Follow the sound* on, the bass bends it further, the mids speed it, the highs add shimmer and each kick sends an impulse out from the middle, all scaled by the detector's confidence and easing back when the sound goes stale. Off, Vivid and Immersive are exactly as before.
+- The sound reader reads each buffer's own format and mixes two channels down to mono, so a stereo stream can never be read as one run of samples.
 - Experience engine (`docs/EXPERIENCE.md`, from the R&D toolkit in `docs/toolkit/`). Two destinations: Monitor Sync and Room Studio.
 - *Follow the sound* on Home: Off, Subtle, Balanced or Expressive, off until chosen. The bass breathes Vivid or Immersive a little and eases back to neutral when the sound stops or goes stale.
 - Calm switch (`calm`): no motion from the sound and no sound captured, in one tap.
 - Live bass meter, beat count and tempo on Home, and a Test beat button that runs a synthetic beat through the normal output path and guard with no sound opened.
 - Room Studio, its own tab and section: Neon Coast, Aurora, Deep Ocean, Golden Hour and Hearth, drawn from palettes with no screen capture, through the same calibration, zones, brightness and safety guard. Brightness, speed, colour intensity and its own *Follow the sound*; duplicate, rename, delete, reset, export and import scenes (strict JSON: no code, addresses or safety settings).
 
+### Fixed
+- Settings ran 17 px off the side of a 320 px phone with its groups open: the page's one column now shrinks below a long dropdown option instead of growing to fit it. The test for Auto theme expected the retired porcelain background and now expects the neon-sunset one.
+
 ### Removed
 - The Pulse, Cinematic and Trippy looks (the owner's call: Vivid and Immersive are the looks). A config left on one moves to Vivid. Beat bounce and Beat shake stay in Expert settings.
 
 ### Changed
+- Neon Coast: midnight indigo, electric cyan, neon pink and a coral sunset, with crossing ripples and soft neon glints on the water.
 - Beat bounce and Beat shake made visible (audio handoff Phase A): the bounce wave is ±18 LEDs (was 6) and fades over 0.45 s (was 0.28), dark scenes glow in their own hue on the beat while true black stays black, and Shake ripples brightness along the strip so it shows on even colours. A beat adds at most 8% of full white to the whole strip, under the guard's 10% flash swing. Measured with `tools/beat_visibility.py`: bright 32 to 194 LEDs changed, dark scene's biggest change 3 to 27 of 255.
 
 ### Changed

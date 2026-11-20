@@ -6,6 +6,10 @@
 > and Beat shake stay in Expert settings with the Phase A changes below. Sections on Cinematic,
 > Trippy and per-style levels describe the first version and no longer apply.
 
+> **2026-11-21:** Trippy is back as a **treatment** on top of Vivid or Immersive, not a look
+> (section below). Neon Coast was redrawn, and ScreenCaptureKit's sound was probed on this Mac
+> (section below). The audit and measurements further down are from 2026-11-20 unless marked.
+
 Built 2026-11-20 from the R&D toolkit in `docs/toolkit/` (brief: `AGENT_MASTER_PROMPT.md`,
 plan: `EXECUTION_PLAN.md`, requirements and baseline: `baseline/`). Code:
 `ambilight/experience.py`, `ambilight/beat.py`, the output stage in `ambilight/engine.py`.
@@ -43,6 +47,63 @@ both:         -> zones -> × brightness -> safety guard (power, heat, anti-strob
 | A plugin framework for modes | No | | None added: renderers are an allow-list in `experience.RENDERERS`. |
 | Settings are versioned and migrated | Partly: unknown keys dropped, values validated on load | `config.Config.load` | New keys default safely; old configs and looks load unchanged (tests). Scene files carry `schema_version: 1`. |
 | Room Studio can capture sound without the screen | Not directly: ScreenCaptureKit hears only through a display stream | `capture_sck.py` | `open_sound`: a display stream with no screen output attached, 2x2 at 1 fps. |
+
+## Trippy, a treatment (2026-11-21)
+
+`trippy` (Home, under the style; off by default) works on the LED levels after `to_led`, in place
+of *Follow the sound*'s breathing, and before the beat effects (`experience.TrippyStage`):
+
+- **Domain warp, bounded.** Each LED reads the screen's colour from a nearby position:
+  `x + 0.18 × warp × noise(2.5x + 0.6 × waves(x) + drift)`. No colour moves more than 18% of the
+  strip, so the screen's composition and dominant colours stay (tested: a screen two thirds blue
+  stays 163 of 240 LEDs blue; a red screen stays red on every LED; black stays exactly as dark).
+- **Interference waves:** three incommensurate travelling sines brighten and dim the colours by at
+  most ±22%, plus a fine shimmer (Texture). Colour intensity pushes saturation, keeping hue.
+- **Deterministic:** seeded value noise and phase accumulators; the same moment gives the same frame.
+- **With *Follow the sound*** (the same Off/Subtle/Balanced/Expressive setting, the same one
+  `BassMeter`): bass envelope → warp (+0.25), mids → speed (up to +70%), highs → texture (+0.12),
+  and each detected kick sends an impulse out from the middle of the screen (±4% of the strip
+  wide, 0.9 strip lengths a second, gone in 0.6 s, at most +25% light). Each is scaled by the
+  detector's confidence, from 0 at the mapping's minimum to full at 1, and eases back to neutral
+  when the sound goes stale. Calm gives exactly Trippy without the sound.
+- **Off:** Vivid and Immersive are frame for frame as before (tested). Room Studio ignores it.
+- Tune › Motion: speed, warp, colour intensity, texture. Backups carry them.
+
+| Even scene | Trippy | LEDs >10% off plain | Strip mean vs plain | Max frame swing of mean | Flashes |
+|---|---|---|---|---|---|
+| Bright | sound off | 155 | 100% | 0.02% | 0 |
+| Bright | Expressive, kicks 2/s | 152 | 100% | 0.03% | 0 |
+| Mid | sound off | 223 | 105% | 0.02% | 0 |
+| Mid | Expressive, kicks 2/s | 223 | 107% | 0.13% | 0 |
+| Dark | either | 0 | 100% | 0.00% | 0 |
+
+The guard counts a 10% swing as a flash. On a bright scene the power limit holds the mean at 100%.
+
+## ScreenCaptureKit's sound, probed (2026-11-21, macOS 27.2.1, M3)
+
+An audio-only display stream (no screen output, 2x2 at 1 fps), as `open_sound` opens it:
+
+| Asked | Got | Layout | Per buffer |
+|---|---|---|---|
+| `channelCount` 1 | 1 channel, 48 kHz float32 | non-interleaved | 960 frames (20 ms) |
+| `channelCount` 2 | 2 channels, 48 kHz float32 | non-interleaved: all of L, then all of R | 960 frames, 1920 floats |
+
+- **Stereo is configurable** and honoured; 5.1 is not something the API offers, and none is claimed.
+- **Silence still arrives** as buffers of zeros, so freshness is not lost in a quiet room.
+- **Own-process exclusion works:** a tone played by the capturing process was absent with
+  `excludesCurrentProcessAudio` on (RMS 0.00000) and present with it off (0.034); a tone from
+  another process was heard (0.034).
+- **Mono fallback:** the hub still asks for one channel. `mono_samples` now reads the buffer's
+  own format and mixes two channels down (`capture_sck.downmix`), since reading a stereo buffer as
+  one run of samples would garble time and pitch.
+- **Lifecycle and permission:** sound is captured only while `wants_sound` or `room_wants_sound`
+  is true; Calm and turning the effect off close the stream. Without Screen Recording permission
+  the stream fails to start, the error names the permission (`_explain`), Room Studio says it
+  carries on without the sound, and it tries again every `RETRY_DISPLAY_S`, not in a tight loop.
+  Not exercised here: revoking permission mid-stream.
+- Stereo pan stays unoffered: no effect uses it yet (toolkit Phase B).
+
+Probe: a throwaway script, not shipped; it played a 0.05-amplitude 440 Hz tone for 2 s per case.
 
 ## Monitor Sync styles
 

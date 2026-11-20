@@ -137,6 +137,13 @@ DEFAULTS = {
     "audio_react": "off",
     # Calm: no motion from the sound at all, and the sound is not captured, in one tap.
     "calm": False,
+    # Trippy (experience.TrippyStage): a treatment on top of Vivid or Immersive that bends
+    # and ripples the screen's own colours along the strip. Off: the look is exactly as it was.
+    "trippy": False,
+    "trippy_speed": 0.55,
+    "trippy_warp": 0.4,
+    "trippy_colour": 0.6,
+    "trippy_texture": 0.22,
     # Room Studio (experience.py): a scene from a palette, no screen capture.
     "room_scene": "neon_coast",
     "room_brightness": 1.0,
@@ -432,6 +439,10 @@ _LIMITS = {
     "adaptive_pace": (0.0, 1.0),
     "bass_bounce": (0.0, 1.0),
     "bass_shake": (0.0, 1.0),
+    "trippy_speed": (0.0, 2.0),
+    "trippy_warp": (0.0, 1.0),
+    "trippy_colour": (0.0, 1.0),
+    "trippy_texture": (0.0, 1.0),
     "room_brightness": (0.0, 1.0),
     "room_speed": (0.0, 3.0),
     "room_intensity": (0.0, 1.0),

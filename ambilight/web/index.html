@@ -108,6 +108,9 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
             <button class="chip" type="button" data-action="profile" data-value="immersive" aria-pressed="false">Immersive</button>
           </div>
           <p class="hint" id="style-hint"></p>
+          <button class="switch" type="button" role="switch" aria-checked="false" data-switch="trippy"
+            aria-describedby="trippy-hint">Trippy<span class="track" aria-hidden="true"></span></button>
+          <p class="hint" id="trippy-hint">Bends and ripples the screen's own colours along the strip, sound or no sound. Tune › Motion sets how.</p>
           <p class="label" id="audio-label">Follow the sound</p>
           <div class="seg quad" id="audio-react" role="group" aria-labelledby="audio-label" data-key="audio_react">
             <button type="button" data-action="audio" data-value="off" aria-pressed="false">Off</button>
@@ -244,6 +247,15 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
           placeholder="Name, e.g. Late night" aria-label="Look name">
         <button class="btn primary" type="submit">Save</button>
       </form>
+    </div>
+
+    <div class="card" data-section="monitor" id="motion">
+      <h2>Motion</h2>
+      <p class="hint">How Trippy moves the screen's colours. Turn it on under the style on Home.</p>
+      <div class="fader" data-fader="trippy_speed" data-hint="The sound's mids speed it up further."></div>
+      <div class="fader" data-fader="trippy_warp" data-hint="How far the screen's colours bend along the strip. The bass bends them further."></div>
+      <div class="fader" data-fader="trippy_colour"></div>
+      <div class="fader" data-fader="trippy_texture" data-hint="A fine shimmer; the sound's highs add to it."></div>
     </div>
 
     <details class="card group" id="looks" data-section="looks">

@@ -12,10 +12,12 @@ every change (`make test`).
 - **Only while sync is on.** Turning the lights off, or Colour or Effect, stops the capture.
 - **A webcam only when you start a webcam calibration** (Settings › Colour calibration),
   and never the Mac's built-in camera.
-- **The Mac's sound only while something uses it**: a beat effect (the Pulse look, or
-  Beat bounce or Beat shake), a look's *Follow the sound* set above Off, or a Room
-  Studio scene's *Follow the sound* set above Off. **Calm** turns all of these off in
-  one tap and closes the sound. It comes through the same Screen Recording permission.
+- **The Mac's sound only while something uses it**: Beat bounce or Beat shake, screen
+  sync's *Follow the sound* set above Off (Trippy listens only through this), or a Room
+  Studio scene's *Follow the sound* set above Off. Trippy on its own hears nothing.
+  **Calm** turns all of these off in one tap and closes the sound. It comes through the
+  same Screen Recording permission, as one mono channel, with PudiSync's own sound left
+  out (checked on macOS 27, 2026-11-21).
   Only the last 43 ms are held in memory, long enough to measure the bass, mids and
   highs, and each block is then overwritten: **sound is never recorded, stored or sent
   anywhere**, and with nothing using it, it is not captured at all.

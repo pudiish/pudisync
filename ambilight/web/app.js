@@ -58,6 +58,10 @@ const FADERS = {
   fx_speed: {label: "Speed", min: 0, max: 255, local: true, fmt: v => pct(v / 255), apply: () => rerunEffect()},
   fx_intensity: {label: "Intensity", min: 0, max: 255, local: true, fmt: v => pct(v / 255), apply: () => rerunEffect()},
   part_brightness: {label: "Brightness", min: 0, max: 100, scale: 100, local: true, fmt: pct, apply: () => drawPaint()},
+  trippy_speed: {label: "Motion speed", min: 0, max: 200, scale: 100, fmt: pct},
+  trippy_warp: {label: "Warp", min: 0, max: 100, scale: 100, fmt: offOr},
+  trippy_colour: {label: "Colour intensity", min: 0, max: 100, scale: 100, fmt: pct},
+  trippy_texture: {label: "Texture", min: 0, max: 100, scale: 100, fmt: offOr},
 };
 
 const $ = id => document.getElementById(id);
