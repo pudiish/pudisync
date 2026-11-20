@@ -48,6 +48,16 @@ func heroView(online: Bool, boardReachable: Bool?, scene: LightScene, colour: St
     }
 }
 
+// MARK: looks
+
+/// The line under the look chips, like the phone page's: a built-in look's own words, the description
+/// you wrote for one of yours, or what to do when there is none.
+func lookHint(active: String, builtin: [String: String], mine: [String], note: String?) -> String {
+    if let text = builtin[active] { return text }
+    if mine.contains(active) { return note.flatMap { $0.isEmpty ? nil : $0 } ?? "Your look. Describe it under Looks." }
+    return "Tuned by hand. Save it as a look under Looks."
+}
+
 // MARK: the bed strip
 
 let bedLooks: [String: String] = [

@@ -144,5 +144,17 @@ check("handing a stretch back to the scene leaves no part there",
 check("a part shows its own colour, the lamp's warm white, or nothing",
       [partTint(red), partTint(long), partTint(dark)] == ["#ff0000", lampColour, nil])
 
+// looks
+let builtinWords = ["vivid": "Deep shadows.", "immersive": "Fills the room."]
+check("a built-in look says its own words",
+      lookHint(active: "vivid", builtin: builtinWords, mine: ["Day"], note: nil) == "Deep shadows.")
+check("one of yours says what you wrote",
+      lookHint(active: "Day", builtin: builtinWords, mine: ["Day"], note: "Bright and plain") == "Bright and plain")
+check("...or how to write it when you have not",
+      lookHint(active: "Day", builtin: builtinWords, mine: ["Day"], note: nil).contains("Describe")
+      && lookHint(active: "Day", builtin: builtinWords, mine: ["Day"], note: "").contains("Describe"))
+check("a look tuned by hand says to save it",
+      lookHint(active: "", builtin: builtinWords, mine: ["Day"], note: nil).contains("Save it as a look"))
+
 print("\n\(passed) passed, \(failed.count) failed")
 exit(failed.isEmpty ? 0 : 1)

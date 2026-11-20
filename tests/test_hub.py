@@ -4377,8 +4377,9 @@ def test_one_interface():
     # owner's sci-fi look (2026-11-20): glass panels, glowing controls and a starfield drawn in CSS; 46 kB
     # for the starship-console look the owner asked for next (cut corners, brackets, scanlines, reticle).
     # 47 kB for the soft modules on top of it, and the grid of modules on wide screens.
-    check("it stays light: no outside resources, under 42 kB in all as a phone downloads it",
-          sent < 47_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
+    # 48 kB (2026-11-21) for looks in sections, each with a description the owner writes, and Home's blocks.
+    check("it stays light: no outside resources, under 48 kB in all as a phone downloads it",
+          sent < 48_000 and not re.search(r'(src|href)="https?://|url\(https?://|@import', html), sent)
     from ambilight.server import packed
     first = packed("index.html", b"page")
     packed("app.js", b"script")
@@ -4754,6 +4755,19 @@ def test_page_in_browser(base):
         page.click("#form-look button[type=submit]")
         s = until(lambda s: "Campfire" in s["user_profiles"])
         check("Rename gives your look a new name", "Campfire" in s["user_profiles"] and "Fireside" not in s["user_profiles"])
+        page.click("[data-action=look-describe]")
+        page.fill("#look-note", "Warm evenings by the fire")
+        page.click("#form-note button[type=submit]")
+        s = until(lambda s: s["user_profiles"].get("Campfire", {}).get("note") == "Warm evenings by the fire")
+        check("Describe writes what a look is for", s["user_profiles"]["Campfire"]["note"] == "Warm evenings by the fire")
+        page.wait_for_function("document.querySelector('#look-list').textContent.includes('Warm evenings by the fire')", timeout=5000)
+        rows = page.eval_on_selector_all("#look-list .look", "els => els.map(e => e.textContent)")
+        check("the looks list has built-in and your own in sections, each with its description",
+              any("Warm evenings by the fire" in r for r in rows) and any("Deep shadows" in r for r in rows)
+              and page.eval_on_selector_all("#look-list > .label", "els => els.map(e => e.textContent)") == ["Built-in", "Yours"], rows)
+        check("a built-in look cannot be described",
+              (page.click("#look-list button:has-text('Vivid')"), page.is_disabled("#look-describe"))[1])
+        page.click("#look-list button:has-text('Campfire')")
         page.click("[data-action=look-use]")
         s = until(lambda s: s["profile"] == "Campfire")
         check("Use switches to the picked look", s["profile"] == "Campfire" and s["immersion"] == 0.7)
@@ -5025,6 +5039,111 @@ def test_latency_script():
               latency.main(["--camera", "FaceTime", "--port", "9"]) == 1)
     finally:
         camrun.list_cameras, camrun.Camera.__init__, camrun.open_camera, camrun.PatchWindow = saved
+
+
+def test_look_notes():
+    print("\n36b. Looks with a description: saved, kept, carried and bounded")
+    from ambilight import backup
+    from ambilight.config import NOTE_MAX, PROFILES, look_note
+
+    path = os.path.join(tempfile.mkdtemp(prefix="ambilight-notes-"), "config.json")
+    cfg = Config(path)
+
+    def refused(action, *args):
+        try:
+            action(*args)
+        except ValueError as exc:
+            return str(exc)
+        return ""
+
+    cfg.save_profile("Day", "Bright and plain for daytime work")
+    check("a look can be saved with a description, kept beside its settings",
+          cfg.get("user_profiles")["Day"]["note"] == "Bright and plain for daytime work")
+    cfg.update({"saturation": 1.1})
+    cfg.save_profile("Day")
+    check("saving it again without one keeps the description, and takes the new settings",
+          cfg.get("user_profiles")["Day"]["note"] == "Bright and plain for daytime work"
+          and cfg.get("user_profiles")["Day"]["saturation"] == 1.1)
+    cfg.save_profile("Day", "")
+    check("saving it with an empty one clears it", "note" not in cfg.get("user_profiles")["Day"])
+    cfg.describe_profile("Day", "  Warm\n white,\t4500 K  ")
+    check("a description is one tidy line: spaces and line breaks collapse",
+          cfg.get("user_profiles")["Day"]["note"] == "Warm white, 4500 K", cfg.get("user_profiles")["Day"].get("note"))
+    check("control characters never reach it", look_note("a\x00b\x1bc") == "a b c")
+    check("a description is not a setting: using the look sets the settings and leaves it out",
+          cfg.apply_profile("Day") is not None and "note" not in cfg.snapshot() and cfg.get("profile") == "Day")
+    check("a description of exactly the limit is kept; one more is refused, not cut",
+          len(look_note("x" * NOTE_MAX)) == NOTE_MAX and "at most" in refused(look_note, "x" * (NOTE_MAX + 1)))
+    check("only text is a description", refused(look_note, 5) != "" and refused(look_note, ["a"]) != "")
+    check("a built-in look's description is fixed", "built-in" in refused(cfg.describe_profile, "vivid", "mine")
+          and "built-in" in refused(cfg.describe_profile, "immersive", ""))
+    check("a look that does not exist cannot be described", "unknown" in refused(cfg.describe_profile, "Gone", "x"))
+
+    cfg.rename_profile("Day", "Daytime")
+    check("a renamed look keeps its description", cfg.get("user_profiles")["Daytime"]["note"] == "Warm white, 4500 K")
+    cfg.duplicate_profile("Daytime", "Daytime 2")
+    check("a copy of your look takes the description along", cfg.get("user_profiles")["Daytime 2"]["note"] == "Warm white, 4500 K")
+    cfg.duplicate_profile("immersive", "Mine")
+    check("a copy of a built-in starts with none, for you to write", "note" not in cfg.get("user_profiles")["Mine"])
+    cfg.delete_profile("Daytime 2")
+    check("deleting a look deletes its description with it", "Daytime 2" not in cfg.get("user_profiles"))
+    check("descriptions survive a restart", Config(path).get("user_profiles")["Daytime"]["note"] == "Warm white, 4500 K")
+
+    with open(path) as fh:
+        stored = json.load(fh)
+    stored["user_profiles"]["Long"] = {"saturation": 1.2, "note": "y" * 400}
+    stored["user_profiles"]["Odd"] = {"saturation": 1.2, "note": ["not", "text"]}
+    with open(path, "w") as fh:
+        json.dump(stored, fh)
+    reloaded = Config(path).get("user_profiles")
+    check("an over-long description on disk is cut, and the look is kept",
+          len(reloaded["Long"]["note"]) == NOTE_MAX and reloaded["Long"]["saturation"] == 1.2)
+    check("a description that is not text costs the look, like any other damaged value", "Odd" not in reloaded)
+
+    # Backups carry descriptions, bounded like everything else read from a file.
+    snap = cfg.snapshot()
+    exported = backup.export(snap, "looks", "test", "now")
+    check("a looks backup carries the descriptions", exported["settings"]["user_profiles"]["Daytime"]["note"] == "Warm white, 4500 K")
+    other = Config(os.path.join(tempfile.mkdtemp(prefix="ambilight-notes2-"), "config.json"))
+    data = backup.parse(json.dumps({"format": "pudisync-backup", "schema_version": 1, "settings": {
+        "user_profiles": {"Fresh": {"saturation": 1.1, "note": "From a file  ", "evil": 1},
+                          "Long": {"saturation": 1.1, "note": "z" * 500}}}}).encode())
+    report = backup.plan(other, data)
+    entries = {e["name"]: e for e in report["looks"]}
+    check("an imported look keeps its description, tidied", entries["Fresh"]["look"]["note"] == "From a file")
+    check("...and the description is not listed as an ignored setting", entries["Fresh"]["ignored"] == ["evil"])
+    check("...an over-long one is cut to the limit", len(entries["Long"]["look"]["note"]) == NOTE_MAX)
+    backup.apply(other, report, ["looks"], other.restore_folder(), "test", 1_000_000.0)
+    check("applying it stores the description", other.get("user_profiles")["Fresh"]["note"] == "From a file")
+    check("a built-in's settings still carry no description", all("note" not in v for v in PROFILES.values()))
+
+
+def test_look_notes_api(base):
+    print("\n36c. Describing a look over HTTP")
+
+    def call(path):
+        try:
+            with urllib.request.urlopen(base + path, timeout=5) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read() or b"{}")
+
+    code, st = call("/api/profiles/save?name=Film&note=Dark%20room%2C%20low%20warmth")
+    check("Save takes a description", code == 200 and st["user_profiles"]["Film"]["note"] == "Dark room, low warmth", st.get("user_profiles"))
+    code, st = call("/api/profiles/describe?name=Film&note=Cinema%20nights")
+    check("Describe changes it", code == 200 and st["user_profiles"]["Film"]["note"] == "Cinema nights")
+    code, st = call("/api/profiles/save?name=Film")
+    check("saving again without one keeps it", st["user_profiles"]["Film"]["note"] == "Cinema nights")
+    code, st = call("/api/profiles/describe?name=Film&note=")
+    check("an empty one clears it", code == 200 and "note" not in st["user_profiles"]["Film"])
+    check("a built-in cannot be described", call("/api/profiles/describe?name=vivid&note=x")[0] == 400)
+    check("an unknown look is refused", call("/api/profiles/describe?name=Nope&note=x")[0] == 400)
+    check("a description over the limit is refused with the reason",
+          call("/api/profiles/describe?name=Film&note=" + "x" * 121)[0] == 400)
+    code, listing = call("/api/profiles")
+    check("the look list says which are built in and which are yours", code == 200 and "Film" in listing["user"]
+          and list(listing["builtin"]) == ["vivid", "immersive"], listing.get("builtin"))
+    call("/api/profiles/delete?name=Film")
 
 
 def test_backup():
@@ -5970,6 +6089,7 @@ def main():
     test_experience()
     test_trippy()
     test_user_profiles()
+    test_look_notes()
     test_backup()
     test_privacy()
     test_sync_modes()
@@ -6000,6 +6120,7 @@ def main():
         test_security_api(base)
         test_backup_api(base)
         test_room_api(base)
+        test_look_notes_api(base)
         test_connect_api(base)
         test_page_in_browser(base)
         test_page_in_webkit(base)

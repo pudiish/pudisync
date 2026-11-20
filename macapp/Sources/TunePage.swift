@@ -32,27 +32,51 @@ struct PictureCard: View {
 struct LooksCard: View {
     @EnvironmentObject private var store: HubStore
     @State private var newName = ""
+    @State private var newNote = ""
+    @State private var describing: String?
+    @State private var draft = ""
     @State private var confirmDelete: String?
 
     var body: some View {
         let active = store.status?.profile ?? ""
         let mine = store.status?.myProfiles ?? []
         Card(title: "Looks") {
-            FlowRow {
+            Text("Click a look to use it. Built-in looks stay as they are: save the lights' look below to make your own.").hint()
+            section("Built-in") {
                 ForEach(HubStore.builtinProfiles, id: \.0) { name, title in
-                    Chip(title: title, chosen: active == name) { store.pickStyle(name) }
+                    LookRow(title: title, note: HubStore.styleHints[name], inUse: active == name) { store.pickStyle(name) }
                 }
+            }
+            section("Yours") {
+                if mine.isEmpty { Text("Nothing saved yet.").hint() }
                 ForEach(mine, id: \.self) { name in
-                    Chip(title: name, chosen: active == name) { store.pickStyle(name) }
-                        .contextMenu { Button("Delete \(name)…", role: .destructive) { confirmDelete = name } }
+                    VStack(alignment: .leading, spacing: 6) {
+                        LookRow(title: name, note: store.status?.note(of: name), inUse: active == name) { store.pickStyle(name) }
+                        HStack(spacing: 14) {
+                            Button("Describe") { describing = describing == name ? nil : name; draft = store.status?.note(of: name) ?? "" }
+                            Button("Delete…", role: .destructive) { confirmDelete = name }
+                        }
+                        .buttonStyle(.link).font(.system(size: 12.5)).padding(.leading, 12)
+                        if describing == name {
+                            HStack {
+                                TextField("What it is for, e.g. Films in a dark room", text: $draft).textFieldStyle(.roundedBorder)
+                                    .onSubmit { describe(name) }
+                                Button("Save") { describe(name) }
+                                Button("Cancel") { describing = nil }
+                            }
+                        }
+                    }
                 }
             }
-            HStack {
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Save the lights' current look").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.dim)
                 TextField("Name, e.g. Late night", text: $newName).textFieldStyle(.roundedBorder).onSubmit(save)
+                TextField("What it is for (optional)", text: $newNote).textFieldStyle(.roundedBorder).onSubmit(save)
                 Button("Save this look", action: save).disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Text("A look keeps the picture: brightness, colour, warmth, immersion, response and whether the mouse follows. "
+                     + "Saving over one of the same name keeps its description.").hint()
             }
-            Text("A look keeps the picture: brightness, colour, warmth, immersion, response and whether the mouse follows. "
-                 + "Right-click one of yours to delete it.").hint()
         }
         .confirmationDialog("Delete the look \(confirmDelete ?? "")?", isPresented: Binding(
             get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
@@ -65,11 +89,24 @@ struct LooksCard: View {
         }
     }
 
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.dim)
+            content()
+        }
+    }
+
+    private func describe(_ name: String) {
+        store.describeProfile(name, note: draft.trimmingCharacters(in: .whitespacesAndNewlines))
+        describing = nil
+    }
+
     private func save() {
         let name = newName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        store.saveProfile(name)
+        store.saveProfile(name, note: newNote.trimmingCharacters(in: .whitespacesAndNewlines))
         newName = ""
+        newNote = ""
     }
 }
 

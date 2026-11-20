@@ -102,15 +102,22 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
         </div>
         <p class="banner" id="fx-serial" hidden>Colours and effects need the board on Wi-Fi. Switch output in Settings › Capture and output.</p>
         <div class="stack" id="pane-screen">
-          <p class="label" id="styles-label">Style</p>
+          <div class="block">
+          <p class="label" id="styles-label">Look</p>
           <div class="chips" id="styles" role="group" aria-labelledby="styles-label">
             <button class="chip" type="button" data-action="profile" data-value="vivid" aria-pressed="false">Vivid</button>
             <button class="chip" type="button" data-action="profile" data-value="immersive" aria-pressed="false">Immersive</button>
           </div>
+          <p class="label" id="mine-label" hidden>Your looks</p>
+          <div class="chips" id="mine" role="group" aria-labelledby="mine-label" hidden></div>
           <p class="hint" id="style-hint"></p>
+          </div>
+          <div class="block">
           <button class="switch" type="button" role="switch" aria-checked="false" data-switch="trippy"
             aria-describedby="trippy-hint">Trippy<span class="track" aria-hidden="true"></span></button>
-          <p class="hint" id="trippy-hint">Bends and ripples the screen's own colours along the strip, sound or no sound. Tune › Motion sets how.</p>
+          <p class="hint" id="trippy-hint">Bends and ripples the look's own colours along the strip, sound or no sound. Tune › Motion sets how.</p>
+          </div>
+          <div class="block">
           <p class="label" id="audio-label">Follow the sound</p>
           <div class="seg quad" id="audio-react" role="group" aria-labelledby="audio-label" data-key="audio_react">
             <button type="button" data-action="audio" data-value="off" aria-pressed="false">Off</button>
@@ -126,6 +133,7 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
           <button class="switch" type="button" role="switch" aria-checked="false" data-switch="calm"
             aria-describedby="calm-hint">Calm<span class="track" aria-hidden="true"></span></button>
           <p class="hint" id="calm-hint">No motion from the sound at all, and the sound is not listened to.</p>
+          </div>
         </div>
         <div class="stack" id="pane-room" hidden>
           <p class="hint" id="room-now">Room Studio lights the strip from a scene of its own; the screen is not captured.</p>
@@ -242,16 +250,18 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
       <div class="row">
         <button class="btn" type="button" data-action="profile-save">Save as a look</button>
       </div>
-      <form class="inline" id="form-profile" hidden>
+      <form class="stack" id="form-profile" hidden>
         <input type="text" id="profile-name" maxlength="24" autocomplete="off" spellcheck="false"
           placeholder="Name, e.g. Late night" aria-label="Look name">
-        <button class="btn primary" type="submit">Save</button>
+        <input type="text" id="profile-note" maxlength="120" autocomplete="off"
+          placeholder="What it is for, e.g. Films in a dark room (optional)" aria-label="Description of the look">
+        <div class="row"><button class="btn primary" type="submit">Save</button></div>
       </form>
     </div>
 
     <div class="card" data-section="monitor" id="motion">
       <h2>Motion</h2>
-      <p class="hint">How Trippy moves the screen's colours. Turn it on under the style on Home.</p>
+      <p class="hint">How Trippy moves the screen's colours. Turn it on under the look on Home.</p>
       <div class="fader" data-fader="trippy_speed" data-hint="The sound's mids speed it up further."></div>
       <div class="fader" data-fader="trippy_warp" data-hint="How far the screen's colours bend along the strip. The bass bends them further."></div>
       <div class="fader" data-fader="trippy_colour"></div>
@@ -261,18 +271,25 @@ document.documentElement.dataset.theme = theme || (matchMedia("(prefers-color-sc
     <details class="card group" id="looks" data-section="looks">
       <summary><h2>Looks</h2><span class="sum" id="looks-sum"></span></summary>
       <div class="stack">
-        <p class="hint">Pick a look, then choose what to do with it. Built-in looks stay as they are: duplicate
-          one to make your own.</p>
-        <div class="chips" id="look-list" role="group" aria-label="Looks"></div>
+        <p class="hint">Tap a look to read what it does, then choose what to do with it. Built-in looks stay as
+          they are: duplicate one to make your own, then describe it.</p>
+        <div class="looks" id="look-list" role="group" aria-label="Looks"></div>
+        <p class="label" id="look-picked"></p>
         <div class="row">
           <button class="btn primary" type="button" data-action="look-use">Use</button>
           <button class="btn" type="button" data-action="look-compare">Compare</button>
           <button class="btn" type="button" data-action="look-form" data-value="duplicate">Duplicate</button>
+          <button class="btn" type="button" data-action="look-describe" id="look-describe">Describe</button>
           <button class="btn" type="button" data-action="look-form" data-value="rename" id="look-rename">Rename</button>
           <button class="btn" type="button" data-action="look-delete" id="look-delete">Delete</button>
         </div>
         <form class="inline" id="form-look" hidden>
           <input type="text" id="look-name" maxlength="24" autocomplete="off" spellcheck="false" aria-label="Name for the look">
+          <button class="btn primary" type="submit">Save</button>
+        </form>
+        <form class="inline" id="form-note" hidden>
+          <input type="text" id="look-note" maxlength="120" autocomplete="off"
+            placeholder="What it is for, e.g. Films in a dark room" aria-label="Description of the look">
           <button class="btn primary" type="submit">Save</button>
         </form>
         <p class="label" id="look-diff-title" hidden></p>

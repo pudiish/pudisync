@@ -489,3 +489,19 @@ input[type=range]::-moz-range-progress{background:linear-gradient(90deg,#ff9a3d,
 .fader output,.meters dd,.readout{color:var(--ok);text-shadow:0 0 10px color-mix(in srgb,var(--ok) 45%,transparent)}
 main::after{--spark:color-mix(in srgb,var(--glow-c) 55%,var(--ok))}
 @media (min-width:700px){body::after{background-position:left calc(var(--rail) - 30px) bottom 40px,right -60px bottom 70px}}
+
+/* ---------- looks: built-in and yours, each a row that says what it is for ---------- */
+.looks{display:grid;gap:8px}
+.looks>.label{margin-top:4px}
+.look{display:grid;gap:4px;text-align:left;padding:10px 14px;min-height:54px;border-radius:14px;border:1px solid var(--line);
+  background:linear-gradient(180deg,var(--raised),var(--surface));box-shadow:0 1px 0 rgb(255 255 255/.05) inset,0 2px 6px rgb(0 0 0/.25)}
+.look[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 8px 24px -10px var(--accent)}
+.look-head{display:flex;align-items:center;gap:8px}
+.look-name{font-family:var(--hud);font-style:italic;font-weight:800;font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink)}
+.look-badge{padding:1px 8px;border-radius:999px;background:var(--ok);color:var(--accent-ink);font:700 11px/1.5 var(--hud);
+  font-style:italic;letter-spacing:.1em;text-transform:uppercase}
+.look-note{font-size:13px;line-height:1.4;color:var(--dim)}
+.look-note.empty{font-style:italic}
+/* A card with several jobs reads as blocks, each under a rule. */
+.block{display:grid;gap:12px;align-content:start}
+.block+.block{border-top:1px solid var(--line);padding-top:14px}
