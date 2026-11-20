@@ -112,8 +112,16 @@ def _receiver_class():
     return _receiver
 
 
+NON_INTERLEAVED = 1 << 5     # kAudioFormatFlagIsNonInterleaved
+
+
 def mono_samples(buffer):
-    """One ScreenCaptureKit audio buffer as mono float32 samples (the stream is set to one channel)."""
+    """One ScreenCaptureKit audio buffer as mono float32 samples.
+
+    The stream asks for one channel, and on macOS 27 it sends one (probed
+    2026-11-21). The buffer's own format is still read, so a stream that
+    sends two channels is mixed down instead of read as one run of samples.
+    """
     import CoreMedia
 
     block = CoreMedia.CMSampleBufferGetDataBuffer(buffer)
@@ -123,7 +131,27 @@ def mono_samples(buffer):
     status, data = CoreMedia.CMBlockBufferCopyDataBytes(block, 0, length, bytearray(length))
     if status != 0:
         raise OSError(f"reading the sound failed (CoreMedia status {status})")
-    return np.frombuffer(data, dtype=np.float32)
+    described = CoreMedia.CMSampleBufferGetFormatDescription(buffer)
+    stream = CoreMedia.CMAudioFormatDescriptionGetStreamBasicDescription(described) if described else None
+    if stream is None:
+        return np.frombuffer(data, dtype=np.float32)
+    _rate, _format, flags, _per_packet, _frames, _per_frame, channels, _bits = tuple(stream)[:8]
+    return downmix(np.frombuffer(data, dtype=np.float32), channels, interleaved=not flags & NON_INTERLEAVED)
+
+
+def downmix(samples, channels, interleaved):
+    """Samples of `channels` channels -> mono, the channels averaged.
+
+    Non-interleaved buffers hold each channel's run one after another
+    (ScreenCaptureKit's layout); interleaved ones alternate sample by sample.
+    """
+    channels = int(channels)
+    if channels <= 1:
+        return samples
+    usable = len(samples) - len(samples) % channels
+    if interleaved:
+        return samples[:usable].reshape(-1, channels).mean(axis=1, dtype=np.float32)
+    return samples[:usable].reshape(channels, -1).mean(axis=0, dtype=np.float32)
 
 
 def _explain(error):

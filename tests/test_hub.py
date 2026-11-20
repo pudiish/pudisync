@@ -4835,7 +4835,7 @@ def test_page_in_browser(base):
         light.click("#set-access summary")
         light.click("[data-action=theme][data-value='']")
         check("Auto goes back to following the device",
-              light.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(238, 236, 227)"
+              light.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(255, 243, 238)"
               and light.get_attribute("[data-action=theme][data-value='']", "aria-pressed") == "true")
         light.close()
         browser.close()
@@ -5717,6 +5717,141 @@ def test_experience():
     check("switching to screen sync opens the screen capture then, and only then", switched == ["screen"], switched)
 
 
+def test_trippy():
+    print("\n35e. Trippy: a treatment on the screen's own colours, the sound optional")
+    import ambilight.engine as eng
+    from ambilight import beat, experience as ex
+    from ambilight.config import DEFAULTS, PROFILES, _coerce
+    from ambilight.plugins.capture_sck import downmix
+    from ambilight.safety import STROBE_MAX
+    cfg = {**DEFAULTS, **PROFILES["vivid"], "led_count": 240, "left_led": 0, "right_led": 239, "fade_leds": 0}
+    target = np.random.default_rng(5).random((240, 3)).astype(np.float32)
+    loud = {**beat.neutral_features(), "valid": True, "confidence": 1.0, "low_energy": 1.0, "mid_energy": 1.0,
+            "high_energy": 1.0, "bass_envelope": 1.0, "onset_strength": 1.0}
+
+    def run(settings, frames=240, target=target, beat_every=None, features=None):
+        stage = eng.OutputStage()
+        stage.meter = beat.BassMeter()
+        if features is not None:
+            stage.features = features
+        out = []
+        for i in range(frames):
+            now = 1.0 + i / 60
+            if beat_every and i % beat_every == 0:
+                stage.meter.fire(now)
+            stage.set_target(target, now)       # as the capture thread does, so the strip never goes stale
+            out.append(stage.frame(now, {**cfg, **settings}).astype(np.float32))
+        return out, stage
+
+    def same(a, b):
+        return all(np.array_equal(x, y) for x, y in zip(a, b))
+
+    plain, _ = run({})
+    check("Trippy off: its own settings change nothing, so Vivid stays exactly as it was",
+          same(plain, run({"trippy_warp": 1.0, "trippy_speed": 2.0, "trippy_texture": 1.0})[0]))
+    trippy, _ = run({"trippy": True})
+    check("Trippy with the sound off moves on its own", np.abs(trippy[200] - trippy[60]).mean() > 2,
+          round(float(np.abs(trippy[200] - trippy[60]).mean()), 2))
+    check("...and looks unlike the plain look", np.abs(trippy[200] - plain[200]).mean() > 4,
+          round(float(np.abs(trippy[200] - plain[200]).mean()), 2))
+    check("...the same moment always gives the same frame: no random colours", same(trippy, run({"trippy": True})[0]))
+    black = np.zeros((240, 3), np.float32)
+    check("a black screen stays exactly as dark as without Trippy",
+          same(run({}, frames=90, target=black)[0], run({"trippy": True}, frames=90, target=black)[0]))
+    red = np.tile(np.float32([[0.9, 0.1, 0.05]]), (240, 1))
+    reds = run({"trippy": True, "trippy_colour": 1.0}, target=red)[0][-1]
+    lit = reds.sum(axis=1) > 0
+    check("a red screen stays red on every LED", lit.any() and (reds[lit, 0] > reds[lit, 1:].max(axis=1)).all())
+    mostly_blue = np.tile(np.float32([[0.05, 0.15, 0.9]]), (240, 1))
+    mostly_blue[160:] = [0.9, 0.1, 0.05]
+    out = run({"trippy": True, "trippy_warp": 1.0}, target=mostly_blue)[0][-1]
+    blue = int((out[:, 2] > out[:, 0]).sum())
+    check("a screen two thirds blue stays about two thirds blue: its dominant colour leads", abs(blue - 160) <= 24, blue)
+    spot = np.zeros((240, 3), np.float32)
+    spot[118:123] = 1.0
+    reach = ex.TRIPPY_REACH * 239 + 3
+    spread_ = [np.nonzero(f.sum(axis=1))[0] for f in run({"trippy": True, "trippy_warp": 1.0, "audio_react": "expressive"},
+                                                         target=spot, features=lambda now: loud)[0][30:]]
+    check("colours move at most the warp's bounded reach, even with the sound pushing it",
+          all(len(i) and i.min() >= 120 - reach and i.max() <= 120 + reach for i in spread_),
+          (min(i.min() for i in spread_), max(i.max() for i in spread_)))
+
+    # The sound: an add-on through the shared feature frame, eased, gated and bounded.
+    heard, _ = run({"trippy": True, "audio_react": "expressive"}, features=lambda now: loud)
+    check("with the sound on, Trippy changes", np.abs(heard[200] - trippy[200]).mean() > 1)
+    calm, _ = run({"trippy": True, "audio_react": "expressive", "calm": True}, features=lambda now: loud, beat_every=20)
+    check("Calm: exactly Trippy without the sound, kicks and all", same(calm, trippy))
+    beats_off, _ = run({"trippy": True}, beat_every=20)
+    check("with Follow the sound off, a beat adds nothing", same(beats_off, trippy))
+    # A dim screen, so the power limit does not scale the kick's light away.
+    kicked, _ = run({"trippy": True, "audio_react": "expressive"}, target=target * 0.3, features=lambda now: loud,
+                    beat_every=60)
+    steady, _ = run({"trippy": True, "audio_react": "expressive"}, target=target * 0.3, features=lambda now: loud)
+    check("a kick sends light through it", kicked[66].sum() > steady[66].sum() * 1.01,
+          (float(kicked[66].sum()), float(steady[66].sum())))
+    x = np.linspace(0, 1, 240)
+    early, later = ex.impulse(x, 0.5, 0.1, 1.0), ex.impulse(x, 0.5, 0.3, 1.0)
+    check("...that travels out from the middle and fades",
+          np.argmax(later[120:]) > np.argmax(early[120:]) and later.max() < early.max()
+          and not ex.impulse(x, 0.5, ex.IMPULSE_LIFE_S, 1.0).any())
+    stage = ex.TrippyStage()
+    trippy_cfg = {**cfg, "trippy": True, "audio_react": "expressive"}
+    for i in range(60):
+        stage.apply(target, i / 60, trippy_cfg, loud)
+    pushed = max(stage.audio._values.values())
+    for i in range(60, 360):
+        stage.apply(target, i / 60, trippy_cfg, beat.neutral_features())
+    check("when the sound goes stale, Trippy eases back to no sound at all",
+          pushed > 0.1 and max(stage.audio._values.values()) < 0.01, (pushed, max(stage.audio._values.values())))
+    sure, unsure = ex.AudioMod(), ex.AudioMod()
+    for i in range(120):
+        full = sure.update(loud, ex.TRIPPY_MAPPINGS, "expressive", i / 60, by_confidence=True)
+        half = unsure.update({**loud, "confidence": 0.6}, ex.TRIPPY_MAPPINGS, "expressive", i / 60, by_confidence=True)
+    check("confidence sets how strongly the sound applies",
+          0 < half["warp_strength"] < full["warp_strength"] <= ex.TRIPPY_MAPPINGS[0]["depth"] + 1e-6, (half, full))
+    check("Trippy alone captures no sound; Follow the sound does; Calm never",
+          not eng.wants_sound({**cfg, "trippy": True}) and eng.wants_sound({**cfg, "trippy": True, "audio_react": "subtle"})
+          and not eng.wants_sound({**cfg, "trippy": True, "audio_react": "subtle", "calm": True}))
+
+    # One guard for everything: Trippy, the sound, the beat effects, beats three a second.
+    every = {"trippy": True, "trippy_warp": 1.0, "trippy_texture": 1.0, "audio_react": "expressive",
+             "bass_bounce": 1.0, "bass_shake": 1.0}
+    flashes = []
+    bright = np.tile(np.float32([[0.8, 0.7, 0.6]]), (240, 1))
+    stage = eng.OutputStage()
+    stage.meter = beat.BassMeter()
+    stage.features = lambda now: loud
+    for i in range(600):
+        now = 1.0 + i / 60
+        if i % 21 == 0:
+            stage.meter.fire(now)
+        stage.set_target(bright, now)
+        stage.frame(now, {**cfg, **every})
+        flashes.append(len(stage.guard.flashes))
+    check("Trippy with every effect and the sound on: never more than three flashes a second reach the strip",
+          max(flashes) <= STROBE_MAX + 1 and stage.guard.last_time is not None, max(flashes))
+    room = eng.OutputStage()
+    room.enter_room(0.0)
+    plain_room = eng.OutputStage()
+    plain_room.enter_room(0.0)
+    check("Room Studio ignores Trippy: scenes stay their own",
+          all(np.array_equal(room.frame(i / 60, {**cfg, "trippy": True}), plain_room.frame(i / 60, cfg)) for i in range(60)))
+
+    # Settings, and the sound reader's mono fallback.
+    check("Trippy is off unless asked for, and its settings are bounded",
+          DEFAULTS["trippy"] is False and _coerce("trippy", "on") is True and _coerce("trippy_warp", 7) == 1.0
+          and _coerce("trippy_speed", -1) == 0.0)
+    left, right = np.float32([1, 2, 3]), np.float32([3, 4, 5])
+    check("two channels one after another (ScreenCaptureKit's layout) mix down to mono",
+          np.array_equal(downmix(np.concatenate([left, right]), 2, interleaved=False), np.float32([2, 3, 4])))
+    check("...and so do interleaved ones; mono passes untouched",
+          np.array_equal(downmix(np.float32([1, 3, 2, 4, 3, 5]), 2, interleaved=True), np.float32([2, 3, 4]))
+          and downmix(left, 1, interleaved=False) is left)
+    coast = [stop["hex"] for stop in ex.SCENES["neon_coast"]["palette"]]
+    check("Neon Coast runs midnight indigo, electric cyan, neon pink and coral sunset, closing its own loop",
+          coast[0] == coast[-1] and {"#140C3E", "#16DFF2", "#FF2E9E", "#FF7A52"} <= set(coast), coast)
+
+
 def _refuses(run):
     try:
         run()
@@ -5833,6 +5968,7 @@ def main():
     test_fire_glow()
     test_bass_beats()
     test_experience()
+    test_trippy()
     test_user_profiles()
     test_backup()
     test_privacy()

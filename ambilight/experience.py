@@ -3,7 +3,8 @@
 Two destinations share one set of parts:
 
 - Monitor Sync (Vivid, Immersive) follows the screen; with Follow the sound on,
-  the bass breathes its brightness a little.
+  the bass breathes its brightness a little. The Trippy treatment bends and
+  ripples the screen's own colours along the strip, sound or no sound.
 - Room Studio scenes paint the strip from a palette alone, with no screen
   capture at all.
 
@@ -107,14 +108,18 @@ class AudioMod:
         self._values = {}
         self._last = None
 
-    def update(self, features, mappings, level, now):
+    def update(self, features, mappings, level, now, by_confidence=False):
+        """With by_confidence, a mapping grows from nothing at its minimum confidence to its full depth at 1."""
         dt = 0.0 if self._last is None else max(0.0, min(0.25, now - self._last))
         self._last = now
         scale = AUDIO_LEVELS.get(level, 0.0)
         out = {target: 0.0 for target in TARGETS}
         for i, m in enumerate(mappings):
-            usable = scale > 0 and features["valid"] and features["confidence"] >= m.get("minimum_confidence", 0.0)
+            floor = m.get("minimum_confidence", 0.0)
+            usable = scale > 0 and features["valid"] and features["confidence"] >= floor
             wanted = features[m["feature"]] * m["depth"] * scale if usable else 0.0
+            if by_confidence and usable:
+                wanted *= confidence_weight(features["confidence"], floor)
             key = (i, m["feature"], m["target"])
             value = follow(self._values.get(key, 0.0), wanted, dt, m["attack_ms"] / 1000, m["release_ms"] / 1000)
             self._values[key] = value
@@ -165,6 +170,99 @@ def sync_wants_sound(cfg):
     return not cfg.get("calm") and cfg.get("audio_react", "off") != "off"
 
 
+def confidence_weight(confidence, floor):
+    """0 at the mapping's minimum confidence, rising smoothly to 1 at full confidence."""
+    return clamp01((confidence - floor) / max(1e-6, 1.0 - floor))
+
+
+# --- Monitor Sync: the Trippy treatment -------------------------------------------------
+# Trippy is a treatment on top of Vivid or Immersive, not a look of its own: the
+# screen's colours, bent along the strip by a bounded domain warp and rippled by
+# interference waves. Follow the sound feeds it instead of breathing the brightness.
+TRIPPY_MAPPINGS = [
+    _mapping("bass_envelope", "warp_strength", 0.25, 120, 700, 0.25),   # bass bends it further
+    _mapping("mid_energy", "motion_speed", 0.35, 180, 900, 0.3),        # mids speed up the flow
+    _mapping("high_energy", "texture_amount", 0.12, 100, 600, 0.35),    # highs add shimmer
+]
+TRIPPY_REACH = 0.18     # the furthest a colour is moved along the strip, as a share of its length, at full warp
+TRIPPY_BANDS = 0.22     # interference waves brighten and dim the strip by at most this share
+TRIPPY_SHIMMER = 0.12   # fine texture at full Texture, the same way
+IMPULSE_SPEED = 0.9     # strip lengths a second that a kick's impulse travels out from the middle
+IMPULSE_WIDTH = 0.04    # its half-width, as a share of the strip
+IMPULSE_LIFE_S = 0.6    # it is gone after this long
+IMPULSE_DEPTH = 0.25    # at most this much brighter where it passes, at Expressive and full confidence
+
+
+def sample(levels, positions, ring):
+    """The strip's colours read at fractional LED positions, blending neighbours; wraps round a ring."""
+    count = len(levels)
+    if ring:
+        positions = np.mod(positions, count)
+    else:
+        # Reflect off the ends so the picture folds back instead of piling up there.
+        span = 2 * (count - 1) if count > 1 else 1
+        positions = np.mod(positions, span)
+        positions = np.where(positions > count - 1, span - positions, positions)
+    low = np.floor(positions).astype(np.int64)
+    high = (low + 1) % count if ring else np.minimum(low + 1, count - 1)
+    mix = (positions - low)[:, None].astype(np.float32)
+    return levels[low] * (1.0 - mix) + levels[high] * mix
+
+
+def saturate(levels, amount):
+    """Colour pushed away from each LED's grey by `amount`, keeping its hue and grey level, never below zero."""
+    grey = levels.mean(axis=1, keepdims=True)
+    return np.clip(grey + (levels - grey) * amount, 0.0, None)
+
+
+def impulse(x, centre, age, strength, ring=False):
+    """0..1 per LED: a kick's two bumps travelling out from `centre` (0..1) and fading over IMPULSE_LIFE_S."""
+    if strength <= 0 or not 0 <= age < IMPULSE_LIFE_S:
+        return np.zeros_like(x)
+    reach = IMPULSE_SPEED * age
+    fade = strength * (1.0 - age / IMPULSE_LIFE_S) ** 2
+    distance = np.minimum(np.abs(x - (centre - reach)), np.abs(x - (centre + reach)))
+    if ring:
+        distance = np.minimum(distance, 1.0 - distance)
+    return fade * np.exp(-0.5 * (distance / IMPULSE_WIDTH) ** 2)
+
+
+class TrippyStage:
+    """The Trippy treatment, on LED levels after to_led and before the beat effects.
+
+    Every colour shown is read from the screen frame, a bounded distance away,
+    so the screen's dominant colours stay dominant and a black frame stays black.
+    Motion comes from phase accumulators and seeded noise: no random colours.
+    """
+
+    def __init__(self):
+        self.audio = AudioMod()
+        self.motion = Motion()
+
+    def apply(self, levels, now, cfg, features, kick=None, centre=0.5, ring=False):
+        """kick is (seconds since the last beat, its strength), or None when nothing is listening."""
+        count = len(levels)
+        if count < 2:
+            return levels
+        level = "off" if cfg.get("calm") else cfg.get("audio_react", "off")
+        mod = self.audio.update(features, TRIPPY_MAPPINGS, level, now, by_confidence=True)
+        speed = cfg.get("trippy_speed", 0.55) * (1.0 + 2.0 * mod["motion_speed"])
+        phase, drift = self.motion.advance(now, speed, speed * 0.21)
+        warp = clamp01(cfg.get("trippy_warp", 0.4) + mod["warp_strength"])
+        texture = clamp01(cfg.get("trippy_texture", 0.22) + mod["texture_amount"])
+        x = np.arange(count, dtype=np.float64) / (count - 1)
+        # Domain warp: noise read at positions themselves bent by travelling waves.
+        bend = noise(x * 2.5 + 0.6 * waves(x, phase * 0.5, 2, seed=3) + drift, seed=11)
+        out = sample(levels, (x + TRIPPY_REACH * warp * bend) * (count - 1), ring)
+        out = saturate(out, 1.0 + 0.6 * clamp01(cfg.get("trippy_colour", 0.6)))
+        light = 1.0 + TRIPPY_BANDS * waves(x, phase, 3, seed=7)
+        light += TRIPPY_SHIMMER * texture * waves(x * 5.0, phase * 1.7, 2, seed=23)
+        if kick is not None and level != "off" and features["valid"]:
+            weight = AUDIO_LEVELS[level] * confidence_weight(features["confidence"], 0.45)
+            light += IMPULSE_DEPTH * weight * impulse(x, centre, *kick, ring=ring)
+        return out * light[:, None].astype(np.float32)
+
+
 # --- Room Studio --------------------------------------------------------------------
 ROOM_RENDERERS = ("neon_coast_1d", "aurora_1d", "deep_ocean_1d", "golden_hour_1d", "hearth_1d")
 
@@ -179,13 +277,14 @@ def _scene(id_, name, description, renderer, parameters, stops, mappings):
 
 _P = dict  # parameters, for brevity below
 SCENES = {s["id"]: s for s in (
-    # An original 1980s Miami-inspired night palette; an aesthetic only, no game's art or marks.
-    _scene("neon_coast", "Neon Coast", "Midnight indigo, electric cyan and hot pink, drifting like neon on water.",
+    # An original 1980s Miami-inspired night on the water; an aesthetic only, no game's art, marks or music.
+    _scene("neon_coast", "Neon Coast",
+           "Midnight indigo, electric cyan, neon pink and a coral sunset, like neon on night water.",
            "neon_coast_1d",
-           _P(motion_speed=0.22, colour_intensity=0.68, warp_strength=0.12, texture_amount=0.08,
-              impact_amount=0.12, noise_scale=0.5, wave_count=2, brightness=0.55),
-           [(0.0, "#10142D"), (0.24, "#5545A9"), (0.49, "#24D9E8"), (0.72, "#FF4F9A"), (0.88, "#FF865C"),
-            (1.0, "#10142D")],
+           _P(motion_speed=0.2, colour_intensity=0.72, warp_strength=0.16, texture_amount=0.2,
+              impact_amount=0.12, noise_scale=0.55, wave_count=2, brightness=0.55),
+           [(0.0, "#140C3E"), (0.2, "#24308F"), (0.4, "#16DFF2"), (0.6, "#FF2E9E"), (0.8, "#FF7A52"),
+            (1.0, "#140C3E")],
            [_mapping("bass_envelope", "warp_strength", 0.08, 260, 1200, 0.3),
             _mapping("onset_strength", "impact_amount", 0.12, 60, 700, 0.5)]),
     _scene("aurora", "Aurora", "Slow teal, green and violet curtains of light.", "aurora_1d",
@@ -254,11 +353,16 @@ def _intensity(colour, amount):
 
 
 def _neon_coast(x, phase, drift, params, warp, texture, stops):
-    scale = params["noise_scale"]
-    position = x * scale + drift * 0.15 + warp * 0.25 * noise(x * 2.0 + drift * 0.3, seed=5)
-    reflect = waves(x, phase, params["wave_count"], seed=1)
-    light = 0.78 + 0.18 * reflect + 0.06 * texture * noise(x * 24.0 + phase * 2.0, seed=9)
-    return palette(stops, position), light
+    """Neon on night water: the sky glides from indigo through cyan and pink to a coral sunset,
+    ripples of light cross it, and now and then a neon reflection glints and slides away."""
+    swell = noise(x * 2.0 + drift * 0.3, seed=5)
+    colour = palette(stops, x * params["noise_scale"] + drift * 0.12 + warp * 0.3 * swell)
+    ripple = waves(x * 1.5, phase, params["wave_count"], seed=1)
+    # A sparse noise field's peaks: soft glints of the colour above, lifted toward a neon tube's white core.
+    glint = np.clip(noise(x * 7.0 - phase * 0.35, seed=9) * 2.6 - 1.7, 0.0, 1.0) * (0.35 + texture)
+    colour = colour + glint[:, None] * (np.clip(colour * 1.6, 0.0, 1.0) - colour)
+    light = 0.72 + 0.16 * ripple + 0.25 * glint
+    return colour, light
 
 
 def _aurora(x, phase, drift, params, warp, texture, stops):

@@ -171,16 +171,32 @@ class OutputStage:
         self.bed = bed.BedStage()
         self.meter = None       # the engine's BassMeter, when the beat effects can hear the sound
         self.sound = experience.SoundStage()
+        self.trippy = experience.TrippyStage()
         self.room = experience.RoomStage()
         self.room_since = None  # when Room Studio took the strip; None while the screen drives it
+
+    @staticmethod
+    def centre(cfg):
+        """The LED in the middle of the screen's bottom edge, where beats start."""
+        if cfg["layout"] == "frame":
+            return cfg["edge_bottom"] / 2.0
+        return (cfg["left_led"] + cfg["right_led"]) / 2.0
 
     def on_beat(self, levels, now, cfg):
         """The last bass beat's bounce and shake, before zones and the safety guard."""
         age, strength = now - self.meter.last_beat, self.meter.strength
         ring = cfg["layout"] == "frame"
-        centre = cfg["edge_bottom"] / 2.0 if ring else (cfg["left_led"] + cfg["right_led"]) / 2.0
-        levels = beat.bounce(levels, centre, age, strength, cfg.get("bass_bounce", 0.0))
+        levels = beat.bounce(levels, self.centre(cfg), age, strength, cfg.get("bass_bounce", 0.0))
         return beat.shake(levels, age, strength, cfg.get("bass_shake", 0.0), ring=ring)
+
+    def on_trippy(self, levels, now, cfg):
+        """The Trippy treatment; with the sound on, the last beat's kick travels through it."""
+        kick = None
+        if self.meter is not None:
+            kick = (now - self.meter.last_beat, self.meter.strength)
+        count = max(1, len(levels) - 1)
+        return self.trippy.apply(levels, now, cfg, self.features(now), kick, self.centre(cfg) / count,
+                                 ring=cfg["layout"] == "frame")
 
     def set_target(self, target, now):
         with self.lock:
@@ -203,7 +219,10 @@ class OutputStage:
             age = now - self.last_target
             fade = max(0.0, 1.0 - (age - self.STALE_S) / self.FADE_S if age > self.STALE_S else 1.0)
             levels = color.to_led(shown, cfg) * fade
-            levels = self.sound.apply(levels, now, cfg, self.features(now))
+            if cfg.get("trippy"):
+                levels = self.on_trippy(levels, now, cfg)
+            else:
+                levels = self.sound.apply(levels, now, cfg, self.features(now))
             if self.meter is not None and beat_on(cfg):
                 levels = self.on_beat(levels, now, cfg)
             return self.finish(levels, now, cfg, self.smoother.target, fade)
