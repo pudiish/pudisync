@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .access import OwnerOnly
-from .config import DEFAULTS, MAX_PROFILES, PROFILE_KEYS, PROFILES, profile_name
+from .config import DEFAULTS, MAX_PROFILES, PROFILE_KEYS, PROFILES, look_note, profile_name
 
 FORMAT = "pudisync-backup"
 SCHEMA_VERSION = 1
@@ -169,10 +169,13 @@ def plan_looks(cfg, saved, raw):
             if any(not isinstance(v, (bool, int, float, str)) for k, v in look.items() if k in PROFILE_KEYS):
                 raise ValueError("a setting in it is not a single value")
             clean = {k: cfg.validate(k, v) for k, v in look.items() if k in PROFILE_KEYS}
+            note = look_note(look["note"], clip=True) if look.get("note") not in (None, "") else ""
+            if note:
+                clean["note"] = note
         except ValueError as exc:
             out.append({**entry, "status": "rejected", "reason": str(exc)})
             continue
-        ignored = sorted(str(k)[:40] for k in look if k not in PROFILE_KEYS)[:10]
+        ignored = sorted(str(k)[:40] for k in look if k not in PROFILE_KEYS and k != "note")[:10]
         if name in saved:
             status = "same" if saved[name] == clean else "replaces"
         elif total >= MAX_PROFILES:

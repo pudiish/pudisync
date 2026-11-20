@@ -20,8 +20,8 @@ const SWATCHES = [["Warm white", "#ffb46b"], ["Cool white", "#ffffff"], ["Red", 
 const HUE_NAMES = [[18, "Red"], [40, "Orange"], [66, "Yellow"], [100, "Lime"], [155, "Green"], [195, "Cyan"],
   [220, "Sky blue"], [255, "Blue"], [285, "Purple"], [320, "Magenta"], [345, "Pink"], [360, "Red"]];
 const WARMEST_K = 2200, COOLEST_K = 6500, RECENT_KEY = "pudisync-recent-colours", RECENT_MAX = 6;
-const STYLES = {vivid: "Vivid has deep shadows and full highlights, and still lights the room in dark scenes.",
-  immersive: "Immersive fills the room with the scene's colour, glides in calm scenes and keeps up in action."};
+const STYLES = {vivid: "The default. Deep shadows, full highlights and a warm, rich picture; a light wash still lights the room in dark scenes.",
+  immersive: "Fills the room with the scene's colour: gentler contrast, a cooler white, a wide wash that lights the walls in dark scenes, and a glide that quickens in action."};
 const PART_NAMES = {sync: "Scene", warm: "Lamp", solid: "Colour", off: "Off"};
 const PART_TINT = {warm: "#ffb46b"};
 const BAUDS = [115200, 230400, 460800, 500000, 921600, 1000000, 2000000];
@@ -712,7 +712,7 @@ async function togglePower() {
 /* Trying a look is safe: Undo puts back every setting it changed, and the look that was in use. */
 async function pickStyle(name) {
   const look = lookOf(name), before = state && look && {profile: state.profile};
-  if (before) Object.keys(look).forEach(k => { before[k] = state[k]; });
+  if (before) Object.keys(look).filter(k => k !== "note").forEach(k => { before[k] = state[k]; });
   hold("profile", name);
   renderProfiles(state);
   const body = await actHeld(["profile"], `/api/profile/${encodeURIComponent(name)}`);
@@ -1051,19 +1051,19 @@ function renderProfiles(s) {
   const names = Object.keys(s.user_profiles || {}), key = names.join("|");
   if (key !== profilesKey) {
     profilesKey = key;
-    $$("#styles [data-mine]").forEach(b => b.remove());
-    $("styles").append(...names.map(name => {
+    $("mine").replaceChildren(...names.map(name => {
       const b = make("button", {type: "button", className: "chip", textContent: name});
       b.dataset.action = "profile";
       b.dataset.value = name;
-      b.dataset.mine = "1";
       return b;
     }));
+    $("mine").hidden = $("mine-label").hidden = !names.length;
   }
   const active = held("profile", s.profile);
   $$("[data-action=profile]").forEach(b => press(b, b.dataset.value === active));
-  const mine = names.includes(s.profile);
-  setText($("style-hint"), STYLES[active] || (mine ? `${s.profile}: your saved look. Tune changes it; save to keep.` : "A look of your own. Save it in Tune to keep it."));
+  const note = ((s.user_profiles || {})[active] || {}).note;
+  setText($("style-hint"), STYLES[active] || note
+    || (names.includes(active) ? "Your look. Describe it in Tune › Looks." : "Tuned by hand. Save it as a look in Tune › Picture."));
   renderLooks(s);
 }
 
@@ -1096,13 +1096,14 @@ function loadRoom() {
 function showProfileForm() {
   const form = $("form-profile");
   form.hidden = !form.hidden;
-  if (!form.hidden) { $("profile-name").value = ""; $("profile-name").focus(); }
+  if (!form.hidden) { $("profile-name").value = $("profile-note").value = ""; $("profile-name").focus(); }
 }
 
 async function saveProfile() {
   const name = $("profile-name").value.trim();
   if (!name) return false;
-  const body = await act("/api/profiles/save", {name}, `Saved as ${name}. It's on Home under Style.`);
+  const note = $("profile-note").value.trim();
+  const body = await act("/api/profiles/save", note ? {name, note} : {name}, `Saved as ${name}. It's on Home under Look.`);
   if (body) $("form-profile").hidden = true;
   return body;
 }
@@ -1119,31 +1120,57 @@ const lookOf = name => builtinLooks[name] || (state && (state.user_profiles || {
 
 function loadLooks() { return load("/api/profiles", b => { builtinLooks = b.builtin_looks; looksKey = ""; renderLooks(state); }); }
 
-function renderLooks(s) {
-  if (!s) return;
-  const names = [...Object.keys(builtinLooks), ...Object.keys(s.user_profiles || {})];
-  if (!names.includes(lookPick)) lookPick = names.includes(s.profile) ? s.profile : names[0] || "";
-  const key = [names.join("|"), s.profile, lookPick].join("/");
-  if (key === looksKey) return;
-  looksKey = key;
-  $("look-list").replaceChildren(...names.map(name => {
-    const b = button(lookTitle(name) + (name === s.profile ? " · in use" : ""), "chip", () => {
-      lookPick = name;
-      hideLookExtras();
-      renderLooks(state);
-    });
-    press(b, name === lookPick);
-    return b;
-  }));
-  $("look-rename").disabled = $("look-delete").disabled = lookPick in builtinLooks;
-  setText($("looks-sum"), `${names.length - Object.keys(builtinLooks).length} of yours`);
+/* One look as a row: its name, whether it is in use, and what it is for. */
+function lookRow(name, note, inUse, picked) {
+  const head = make("span", {className: "look-head"}, make("span", {className: "look-name", textContent: lookTitle(name)}));
+  if (inUse) head.append(make("span", {className: "look-badge", textContent: "In use"}));
+  const b = make("button", {type: "button", className: "look"}, head,
+    make("span", {className: note ? "look-note" : "look-note empty", textContent: note || "No description yet."}));
+  b.addEventListener("click", () => { lookPick = name; hideLookExtras(); renderLooks(state); });
+  press(b, picked);
+  return b;
 }
 
-function hideLookExtras() { $("form-look").hidden = $("look-diff").hidden = $("look-diff-title").hidden = true; }
+function renderLooks(s) {
+  if (!s) return;
+  const builtin = Object.keys(builtinLooks), mine = Object.entries(s.user_profiles || {});
+  const names = [...builtin, ...mine.map(([name]) => name)];
+  if (!names.includes(lookPick)) lookPick = names.includes(s.profile) ? s.profile : names[0] || "";
+  const key = [names.join("|"), s.profile, lookPick, mine.map(([, look]) => look.note || "").join("|")].join("/");
+  if (key === looksKey) return;
+  looksKey = key;
+  const row = (name, note) => lookRow(name, note, name === s.profile, name === lookPick);
+  $("look-list").replaceChildren(
+    make("p", {className: "label", textContent: "Built-in"}), ...builtin.map(name => row(name, STYLES[name])),
+    make("p", {className: "label", textContent: "Yours"}),
+    ...(mine.length ? mine.map(([name, look]) => row(name, look.note))
+      : [make("p", {className: "hint", textContent: "Nothing saved yet. Tune › Picture › Save as a look."})]));
+  $("look-rename").disabled = $("look-delete").disabled = $("look-describe").disabled = lookPick in builtinLooks;
+  setText($("looks-sum"), `${mine.length} of yours`);
+  setText($("look-picked"), `For ${lookTitle(lookPick)}`);
+}
+
+function hideLookExtras() {
+  $("form-look").hidden = $("form-note").hidden = $("look-diff").hidden = $("look-diff-title").hidden = true;
+}
+
+function showNoteForm() {
+  hideLookExtras();
+  $("form-note").hidden = false;
+  $("look-note").value = (lookOf(lookPick) || {}).note || "";
+  $("look-note").focus();
+}
+
+async function submitNote() {
+  const note = $("look-note").value.trim();
+  const body = await act("/api/profiles/describe", {name: lookPick, note}, note ? "Description saved." : "Description cleared.");
+  if (body) hideLookExtras();
+  return body;
+}
 
 function compareLook() {
   const look = lookOf(lookPick) || {}, label = key => FADERS[key]?.label || key;
-  const rows = Object.entries(look).filter(([k, v]) => state && String(state[k]) !== String(v))
+  const rows = Object.entries(look).filter(([k, v]) => k !== "note" && state && String(state[k]) !== String(v))
     .map(([k, v]) => [label(k), `${state[k]} → ${v}`]);
   hideLookExtras();
   $("look-diff-title").hidden = $("look-diff").hidden = false;
@@ -1819,6 +1846,7 @@ const ACTIONS = {
   "profile-save": showProfileForm,
   "look-use": () => pickStyle(lookPick),
   "look-compare": compareLook,
+  "look-describe": showNoteForm,
   "look-form": b => showLookForm(b.dataset.value),
   "look-delete": () => deleteProfile(lookPick),
   "bed-mode": b => setBedMode(b.dataset.value),
@@ -1904,6 +1932,7 @@ function wire() {
   onSubmit("form-pin", setPin);
   onSubmit("form-profile", saveProfile);
   onSubmit("form-look", submitLook);
+  onSubmit("form-note", submitNote);
   onSubmit("form-bed", bedSetup);
   wirePaint();
   $("colour").addEventListener("input", throttle(() => runColour($("colour").value), 150));

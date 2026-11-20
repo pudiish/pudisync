@@ -60,6 +60,8 @@ PROFILE_KEYS = ("blend", "fps", "saturation", "immersion", "contrast", "brightne
                 "bed_mode", "bed_look", "bed_side", "bed_colour", "bed_effect", "bed_speed",
                 "bed_brightness")
 PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
+# A look of your own may carry a one-line description, kept beside its settings (not one of them).
+NOTE_MAX = 120
 MAX_PROFILES = 20
 
 DEFAULTS = {
@@ -351,23 +353,45 @@ class Config:
         if name in PROFILES:
             changes = dict(PROFILES[name])
         elif name in saved:
-            changes = dict(saved[name])
+            changes = {k: v for k, v in saved[name].items() if k != "note"}
         else:
             raise ValueError(f"unknown profile {name!r}")
         changes["profile"] = name
         return self.update(changes)
 
-    def save_profile(self, name):
-        """Save the current look under `name` (replacing one of that name) and make it active."""
+    def save_profile(self, name, note=None):
+        """Save the current look under `name` (replacing one of that name) and make it active.
+
+        `note` is its description; left out (None), a look being replaced keeps the one it had.
+        """
         name = profile_name(name)
         if name in PROFILES:
             raise ValueError(f"{name} is a built-in profile; pick another name")
+        text = None if note is None else look_note(note)
         with self._lock:
             saved = dict(self._data["user_profiles"])
+            text = saved.get(name, {}).get("note", "") if text is None else text
             saved[name] = {k: self._data[k] for k in PROFILE_KEYS}
+            if text:
+                saved[name]["note"] = text
         if len(saved) > MAX_PROFILES:
             raise ValueError(f"at most {MAX_PROFILES} profiles; delete one first")
         return self.update({"user_profiles": saved, "profile": name})
+
+    def describe_profile(self, name, note):
+        """Set (or, with an empty note, clear) the description of one of your looks."""
+        if name in PROFILES:
+            raise ValueError(f"{name} is a built-in look; its description is fixed")
+        text = look_note(note)
+        with self._lock:
+            saved = {key: dict(look) for key, look in self._data["user_profiles"].items()}
+        if name not in saved:
+            raise ValueError(f"unknown profile {name!r}")
+        if text:
+            saved[name]["note"] = text
+        else:
+            saved[name].pop("note", None)
+        return self.update({"user_profiles": saved})
 
     def rename_profile(self, name, to):
         """Give one of your looks a new name, in the same place in the list; the active look follows."""
@@ -559,10 +583,28 @@ def user_profiles(raw):
         try:
             if not isinstance(look, dict):
                 raise ValueError("not an object")
-            clean[profile_name(name)] = {k: _coerce(k, v) for k, v in look.items() if k in PROFILE_KEYS}
+            settings = {k: _coerce(k, v) for k, v in look.items() if k in PROFILE_KEYS}
+            note = look_note(look["note"], clip=True) if look.get("note") not in (None, "") else ""
+            clean[profile_name(name)] = {**settings, "note": note} if note else settings
         except ValueError as exc:
             log.warning("dropping profile %r: %s", name, exc)
     return clean
+
+
+def look_note(raw, clip=False):
+    """A look's description: plain text on one line, at most NOTE_MAX characters; "" is none.
+
+    Typed in, too long is refused so nobody loses the end unseen; read back from a
+    file or a backup (`clip`), it is cut instead of costing the person the look.
+    """
+    if not isinstance(raw, str):
+        raise ValueError("a description must be text")
+    text = " ".join("".join(c if c.isprintable() or c.isspace() else " " for c in raw).split())
+    if len(text) > NOTE_MAX:
+        if not clip:
+            raise ValueError(f"a description is at most {NOTE_MAX} characters, not {len(text)}")
+        text = text[:NOTE_MAX].rstrip()
+    return text
 
 
 def colour_matrix(raw):

@@ -127,7 +127,12 @@ def profile_duplicate(hub, q):
 
 
 def profile_save(hub, q):
-    hub.cfg.save_profile(q.one("name", ""))
+    hub.cfg.save_profile(q.one("name", ""), q.one("note"))
+    return hub.status(), OK
+
+
+def profile_describe(hub, q):
+    hub.cfg.describe_profile(q.one("name", ""), q.one("note", ""))
     return hub.status(), OK
 
 
@@ -626,6 +631,7 @@ ROUTES = {
     "/api/lights/off": lights_off,
     "/api/profiles": profiles,
     "/api/profiles/save": profile_save,
+    "/api/profiles/describe": profile_describe,
     "/api/profiles/delete": profile_delete,
     "/api/profiles/rename": profile_rename,
     "/api/profiles/duplicate": profile_duplicate,
